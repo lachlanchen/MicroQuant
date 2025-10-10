@@ -3,23 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MT5 Gold Data — Starter</title>
+  <title>Micro Quant</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
   <!-- Time scale adapter for Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
-  <!-- Candlestick plugin (auto-register build) -->
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@3.3.0/dist/chartjs-chart-financial.min.js"></script>
-  <script>
-    // Debug registration info
-    (function(){
-      const C = window.Chart; const fin = window['chartjs-chart-financial'];
-      console.info('[ChartJS] Chart version', C && C.version);
-      console.info('[ChartJS] Financial plugin present?', !!fin);
-      // Auto build should already register; mark a flag for our checks
-      window.__finReg = true;
-    })();
-  </script>
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <!-- Config via data attributes (avoids HTML entity issues) -->
+  <div id="app-cfg" data-symbols="{{ symbols_csv }}" data-default="{{ default_symbol_plain }}" style="display:none"></div>
   <style>
     :root {
       --gold: #d4a017;
@@ -43,6 +34,7 @@
     input, select { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
     #status { margin-top: 8px; color: var(--muted); }
     #chart-wrap { max-width: 1100px; background: var(--panel); padding: 12px; border:1px solid var(--line); border-radius: 8px; }
+    #lwChart { width: 100%; height: 400px; }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
@@ -56,7 +48,7 @@
   </head>
   <body>
     <header>
-      <h2>MT5 Gold Data — Starter</h2>
+      <h2>Micro Quant</h2>
       <div style="display:flex; gap:16px; align-items:center;">
         <div id="signalBar" style="display:flex; gap:8px; align-items:center;">
           <span id="signalDot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#999;"></span>
@@ -71,35 +63,39 @@
     <div class="container">
     <div class="row">
       <label>Symbol
-        <input id="symbol" value="XAUUSD" />
+        <select id="symbol">
+        {% for sym in symbols %}
+          <option value="{{ sym }}"{% if sym == default_symbol %} selected{% end %}>{{ sym }}</option>
+        {% end %}
+        </select>
       </label>
       <label>Timeframe
         <select id="tf">
-          <option value="M1">M1</option>
-          <option value="M5">M5</option>
-          <option value="M15">M15</option>
-          <option value="M30">M30</option>
-          <option value="H1" selected>H1</option>
-          <option value="H4">H4</option>
-          <option value="D1">D1</option>
+          <option value="M1"{% if default_tf == 'M1' %} selected{% end %}>M1</option>
+          <option value="M5"{% if default_tf == 'M5' %} selected{% end %}>M5</option>
+          <option value="M15"{% if default_tf == 'M15' %} selected{% end %}>M15</option>
+          <option value="M30"{% if default_tf == 'M30' %} selected{% end %}>M30</option>
+          <option value="H1"{% if default_tf == 'H1' %} selected{% end %}>H1</option>
+          <option value="H4"{% if default_tf == 'H4' %} selected{% end %}>H4</option>
+          <option value="D1"{% if default_tf == 'D1' %} selected{% end %}>D1</option>
         </select>
       </label>
       <label>Bars
-        <input id="count" type="number" min="10" max="5000" value="500" />
+        <input id="count" type="number" min="10" max="5000" value="{{ default_count }}" />
       </label>
       <label>Volume
-        <input id="volume" type="number" step="0.01" min="0.01" value="0.10" />
+        <input id="volume" type="number" step="0.01" min="0.01" value="{{ default_volume }}" />
       </label>
       <label>SL (price)
-        <input id="sl" type="number" step="0.01" min="0" placeholder="optional" />
+        <input id="sl" type="number" step="0.01" min="0" placeholder="optional" value="{{ default_sl }}" />
       </label>
       <label>TP (price)
-        <input id="tp" type="number" step="0.01" min="0" placeholder="optional" />
+        <input id="tp" type="number" step="0.01" min="0" placeholder="optional" value="{{ default_tp }}" />
       </label>
       <span class="pill">
         Chart:
-        <label><input type="radio" name="ctype" value="line" checked> Line</label>
-        <label><input type="radio" name="ctype" value="candlestick"> Candlestick</label>
+        <label><input type="radio" name="ctype" value="line"{% if default_chart_type == 'line' %} checked{% end %}> Line</label>
+        <label><input type="radio" name="ctype" value="candlestick"{% if default_chart_type != 'line' %} checked{% end %}> Candlestick</label>
       </span>
       <button class="btn" id="btnFetch">Fetch + Save</button>
       <button class="btn secondary" id="btnRefresh">Refresh</button>
@@ -108,117 +104,371 @@
       <button class="btn btn-sell" id="btnSell">Sell</button>
       <button class="btn secondary" id="btnClose">Close All</button>
     </div>
+    <div class="row">
+      <button class="btn secondary" id="btnFetchCurrentBg">Background Fetch (Current TF)</button>
+      <button class="btn secondary" id="btnFetchSymbolAll">Background Fetch (Symbol × TFs)</button>
+      <button class="btn secondary" id="btnFetchAll">Background Fetch (All Symbols)</button>
+    </div>
     <div id="status"></div>
 
     <div class="grid">
       <div>
         <div id="chart-wrap">
           <canvas id="chart" height="400"></canvas>
+          <div id="lwChart" style="display:none; height:400px;"></div>
         </div>
-        <div style="margin-top:12px; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:1100px;">
+      </div>
+      <div>
+        <!-- News panel -->
+        <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px; max-height:260px; overflow:auto;">
+          <div class="row" style="justify-content:space-between;">
+            <strong style="color:var(--accent)">News</strong>
+            <button class="btn secondary" id="btnNews" style="padding:6px 10px">Refresh News</button>
+          </div>
+          <div id="newsBox" style="font-size:14px; line-height:1.35; color:var(--text);"><em style="color:var(--muted)">No news yet…</em></div>
+        </div>
+        <!-- Strategy panel -->
+        <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
           <div class="row">
             <strong style="color:var(--accent)">Strategy: SMA Crossover</strong>
-            <label>Fast <input id="fast" type="number" min="2" value="20" /></label>
-            <label>Slow <input id="slow" type="number" min="3" value="50" /></label>
+            <label>Fast <input id="fast" type="number" min="2" value="{{ default_fast }}" /></label>
+            <label>Slow <input id="slow" type="number" min="3" value="{{ default_slow }}" /></label>
             <button class="btn" id="btnRunStrat">Run Strategy</button>
             <button class="btn secondary" id="btnTradeSignal" disabled>Trade Signal</button>
           </div>
           <div id="stratStatus" style="color:var(--muted)">Signal: —</div>
         </div>
-      </div>
-      <div>
         <div class="row">
           <button class="btn secondary" id="btnPos">Refresh Positions</button>
         </div>
-        <pre id="positionsBox" style="background:var(--panel); padding:8px; border:1px solid var(--accent); border-radius:8px; height:400px; overflow:auto;"></pre>
+        <pre id="positionsBox" style="background:var(--panel); padding:8px; border:1px solid var(--line); border-radius:8px; height:400px; overflow:auto;"></pre>
       </div>
     </div>
-    </div>
-
-    <div id="chart-wrap">
-      <canvas id="chart" height="400"></canvas>
     </div>
 
     <script>
       const el = (id) => document.getElementById(id);
-      const status = (msg) => el('status').textContent = msg || '';
+      const status = (msg) => {
+        el('status').textContent = msg || '';
+        if (msg) console.log('[App]', msg);
+      };
 
-      let curType = 'line';
-      const ctx = document.getElementById('chart');
-      let chart = null; // initialize first to avoid TDZ during makeChart
+      // Read config from data-attributes (CSV → array)
+      const cfgNode = document.getElementById('app-cfg');
+      const _csv = cfgNode ? (cfgNode.getAttribute('data-symbols') || '') : '';
+      const _def = cfgNode ? (cfgNode.getAttribute('data-default') || '') : '';
+      const APP_SYMBOLS = _csv ? _csv.split(',').map(s => s.trim()).filter(Boolean) : ['XAUUSD'];
+      const APP_DEFAULT_SYMBOL = _def || (APP_SYMBOLS.length ? APP_SYMBOLS[0] : 'XAUUSD');
+      console.log('[App] Config symbols/default:', APP_SYMBOLS, APP_DEFAULT_SYMBOL);
+
+      const DEFAULT_CHART_TYPE = "{{ default_chart_type }}";
+      const canvas = document.getElementById('chart');
+      const ctx = canvas.getContext('2d');
+      const lwContainer = document.getElementById('lwChart');
+      let curType = (DEFAULT_CHART_TYPE === 'line') ? 'line' : 'candlestick';
+      let chart = null;
+      let lwChart = null;
+      let lwSeries = null;
+      let lwObserver = null;
 
       function makeChart(type) {
-        if (chart) { chart.destroy(); chart = null; }
-        const existing = Chart.getChart(ctx);
-        if (existing) { existing.destroy(); }
-        if (type === 'candlestick' && !window.__finReg) {
-          console.warn('[ChartJS] Financial plugin not registered; falling back to line');
-          type = 'line';
-        }
-        const cfg = (type === 'line') ? {
-          type: 'line',
-          data: { labels: [], datasets: [{ label: 'Close', data: [], borderColor: '#1976d2', tension: 0.1, fill: false }] },
-          options: { scales: { x: { type: 'time', time: { unit: 'hour' } }, y: { beginAtZero: false } } }
-        } : {
-          type: 'candlestick',
-          data: { datasets: [{ label: 'OHLC', data: [] /* colors supplied by plugin defaults */ }] },
-          options: { scales: { x: { type: 'time' }, y: { beginAtZero: false } } }
-        };
-        try {
-          chart = new Chart(ctx, cfg);
-        } catch (e) {
-          console.error('[ChartJS] Chart creation failed, retrying as line. Error:', e);
-          const fallback = {
+        curType = type;
+        if (type === 'line') {
+          lwContainer.style.display = 'none';
+          canvas.style.display = 'block';
+          if (chart) { chart.destroy(); chart = null; }
+          const existing = window.Chart.getChart(canvas);
+          if (existing) { existing.destroy(); }
+          chart = new window.Chart(ctx, {
             type: 'line',
             data: { labels: [], datasets: [{ label: 'Close', data: [], borderColor: '#1976d2', tension: 0.1, fill: false }] },
             options: { scales: { x: { type: 'time', time: { unit: 'hour' } }, y: { beginAtZero: false } } }
-          };
-          chart = new Chart(ctx, fallback);
-          curType = 'line';
+          });
+          return chart;
         }
-        return chart;
+        canvas.style.display = 'none';
+        lwContainer.style.display = 'block';
+        if (!lwChart) {
+          lwChart = LightweightCharts.createChart(lwContainer, {
+            layout: { background: { color: '#f7f9fc' }, textColor: '#111' },
+            grid: { vertLines: { color: '#e0e6ef' }, horzLines: { color: '#e0e6ef' } },
+            crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
+            rightPriceScale: { borderColor: '#e0e6ef' },
+            timeScale: { borderColor: '#e0e6ef' }
+          });
+          lwSeries = lwChart.addCandlestickSeries({
+            upColor: '#2ecc71',
+            downColor: '#e74c3c',
+            wickUpColor: '#2ecc71',
+            wickDownColor: '#e74c3c',
+            borderVisible: false
+          });
+          lwObserver = new ResizeObserver(() => {
+            const rect = lwContainer.getBoundingClientRect();
+            lwChart.applyOptions({
+              width: rect.width || lwContainer.clientWidth || 800,
+              height: rect.height || lwContainer.clientHeight || 400
+            });
+          });
+          lwObserver.observe(lwContainer);
+          const rectInit = lwContainer.getBoundingClientRect();
+          lwChart.applyOptions({
+            width: rectInit.width || lwContainer.clientWidth || 800,
+            height: rectInit.height || lwContainer.clientHeight || 400
+          });
+        }
+        return lwChart;
       }
 
-      chart = makeChart('line');
+      makeChart(curType);
 
-      async function refreshChart() {
-        const symbol = el('symbol').value.trim();
-        const tf = el('tf').value;
-        status('Loading data...');
-        const r = await fetch(`/api/data?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&limit=500`);
-        const js = await r.json();
-        const rows = js.rows || [];
-        if (curType === 'line') {
-          chart.data.labels = rows.map(r => r.ts);
-          chart.data.datasets[0].data = rows.map(r => r.close);
-        } else {
-          chart.data.datasets[0].data = rows.map(r => ({ x: r.ts, o: r.open, h: r.high, l: r.low, c: r.close }));
+      const PREF_DEBOUNCE_MS = 400;
+      let prefBuffer = {};
+      let prefTimer = null;
+
+      async function flushPrefs() {
+        const payload = { ...prefBuffer };
+        prefBuffer = {};
+        prefTimer = null;
+        const keys = Object.keys(payload);
+        if (!keys.length) return;
+        try {
+          await fetch('/api/preferences', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            cache: 'no-store'
+          });
+          console.log('[Prefs] saved', keys.join(', '));
+        } catch (err) {
+          console.warn('[Prefs] save failed', err);
         }
-        chart.update();
-        status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
+      }
+
+      function queuePrefUpdate(key, value) {
+        if (!key) return;
+        prefBuffer[key] = value;
+        if (prefTimer) clearTimeout(prefTimer);
+        prefTimer = setTimeout(() => { flushPrefs(); }, PREF_DEBOUNCE_MS);
+      }
+
+      const currentSymbol = () => el('symbol').value.trim().toUpperCase();
+      const currentTf = () => el('tf').value.toUpperCase();
+      let wsRefreshTimer = null;
+
+      function scheduleChartRefresh(reason) {
+        if (wsRefreshTimer) clearTimeout(wsRefreshTimer);
+        wsRefreshTimer = setTimeout(() => {
+          wsRefreshTimer = null;
+          refreshChart();
+        }, 250);
+        console.log('[WS] refresh queued:', reason);
+      }
+
+      function connectUpdates(retryDelay = 2000) {
+        const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsUrl = `${proto}://${window.location.host}/ws/updates`;
+        const ws = new WebSocket(wsUrl);
+
+        ws.addEventListener('open', () => {
+          console.log('[WS] connected', wsUrl);
+        });
+
+        ws.addEventListener('message', (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (!data || data.type !== 'fetch_complete') return;
+            console.log('[WS] event', data);
+            if (data.status === 'scheduled' && data.background) {
+              status(`Background fetch scheduled (${data.symbol} ${data.timeframe})`);
+              return;
+            }
+            if (data.status === 'error') {
+              status(`Fetch error (${data.symbol} ${data.timeframe}): ${data.error || 'unknown'}`);
+              return;
+            }
+            const symbol = currentSymbol();
+            const tf = currentTf();
+            const sameSymbol = data.symbol === symbol;
+            const sameTf = data.timeframe === tf;
+            const inserted = Number(data.inserted || 0);
+            if (sameSymbol && sameTf) {
+              if (data.background) {
+                status(`Background fetch done (${data.symbol} ${data.timeframe}, +${inserted} bars)`);
+              }
+              scheduleChartRefresh(`${data.symbol}/${data.timeframe}`);
+            } else if (data.scope === 'symbol_all_tf' && sameSymbol) {
+              status(`Background fetch done (${data.symbol} ${data.timeframe})`);
+              scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope symbol_all_tf]`);
+            } else if (data.scope === 'all_symbols' && data.symbol === symbol) {
+              status(`Bulk fetch updated ${data.symbol} ${data.timeframe}`);
+              scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope all_symbols]`);
+            }
+          } catch (err) {
+            console.warn('[WS] message parse failed', err);
+          }
+        });
+
+        ws.addEventListener('close', () => {
+          console.log('[WS] disconnected, retrying in', retryDelay, 'ms');
+          setTimeout(() => connectUpdates(Math.min(retryDelay * 1.5, 10000)), retryDelay);
+        });
+
+        ws.addEventListener('error', (err) => {
+          console.warn('[WS] error', err);
+          ws.close();
+        });
+      }
+
+      connectUpdates();
+
+      
+      async function refreshChart() {
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const limit = Math.max(10, Number(el('count').value) || 500);
+        status(`Loading data (${symbol} ${tf}, limit ${limit})...`);
+        try {
+          const r = await fetch(`/api/data?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}`, { cache: 'no-store' });
+          const js = await r.json();
+          const rows = js.rows || [];
+          if (curType === 'line') {
+            if (!chart) { makeChart('line'); }
+            chart.data.labels = rows.map(r => r.ts);
+            chart.data.datasets[0].data = rows.map(r => Number(r.close));
+            chart.update('none');
+          } else {
+            if (!lwChart || !lwSeries) { makeChart('candlestick'); }
+            const data = rows.map(r => ({
+              time: Math.floor(new Date(r.ts).getTime() / 1000),
+              open: Number(r.open),
+              high: Number(r.high),
+              low: Number(r.low),
+              close: Number(r.close)
+            }));
+            lwSeries.setData(data);
+            lwChart.timeScale().fitContent();
+          }
+          status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
+        } catch (err) {
+          console.error('Refresh failed', err);
+          status('Refresh failed');
+        }
       }
 
       async function fetchAndSave() {
-        const symbol = el('symbol').value.trim();
-        const tf = el('tf').value;
+        const symbol = currentSymbol();
+        const tf = currentTf();
         const count = el('count').value;
+        queuePrefUpdate('last_symbol', symbol);
+        queuePrefUpdate('last_tf', tf);
+        queuePrefUpdate('last_count', count);
         status('Fetching from MT5...');
-        const r = await fetch(`/api/fetch?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&count=${encodeURIComponent(count)}`);
-        const js = await r.json();
-        if (js.ok) {
-          status(`Inserted/updated ${js.inserted} bars for ${symbol} ${tf}`);
-          await refreshChart();
-        } else {
-          status(`Error: ${js.error}`);
+        try {
+          const r = await fetch(`/api/fetch?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&count=${encodeURIComponent(count)}&mode=inc`, { cache: 'no-store' });
+          const js = await r.json().catch(() => ({}));
+          if (r.ok && js.ok) {
+            status(`Inserted/updated ${js.inserted || 0} bars for ${symbol} ${tf}`);
+            await refreshChart();
+          } else {
+            status(`Fetch error: ${js.error || r.statusText}`);
+          }
+        } catch (e) {
+          console.error('Fetch failed', e);
+          status(`Fetch failed: ${e.message || e}`);
+        }
+      }
+
+      async function backgroundFetch(scope, opts = {}) {
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const count = el('count').value;
+        queuePrefUpdate('last_symbol', symbol);
+        queuePrefUpdate('last_tf', tf);
+        queuePrefUpdate('last_count', count);
+        const payload = {
+          scope,
+          symbol,
+          count,
+          mode: opts.mode || 'inc'
+        };
+        if (scope === 'symbol_tf') {
+          payload.timeframe = tf;
+        }
+        if (opts.timeframes) {
+          payload.timeframes = opts.timeframes.join(',');
+        }
+        status(`Scheduling background fetch (${scope})...`);
+        try {
+          const r = await fetch('/api/fetch_bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            cache: 'no-store'
+          });
+          const js = await r.json().catch(() => ({}));
+          if (r.ok && js.ok) {
+            status(`Background fetch queued (${js.jobs || 0} jobs, scope ${scope}).`);
+          } else {
+            status(`Background fetch error: ${js.error || r.statusText}`);
+          }
+        } catch (e) {
+          console.error('Bulk fetch failed', e);
+          status(`Background fetch failed: ${e.message || e}`);
         }
       }
 
       // Controls
       el('btnFetch').addEventListener('click', fetchAndSave);
       el('btnRefresh').addEventListener('click', refreshChart);
+      // Auto-fetch when user changes symbol or timeframe
+      el('symbol').addEventListener('change', async () => {
+        queuePrefUpdate('last_symbol', currentSymbol());
+        try {
+          console.log('[App] Auto-fetch on symbol change');
+          await fetchAndSave();
+          await refreshPositions();
+          await refreshNews();
+        } catch (e) { console.warn('[App] Auto-fetch failed', e); }
+      });
+      const tfSel = document.getElementById('tf');
+      if (tfSel) tfSel.addEventListener('change', async () => {
+        queuePrefUpdate('last_tf', currentTf());
+        try {
+          console.log('[App] Auto-fetch on timeframe change');
+          await fetchAndSave();
+          await refreshNews();
+        } catch (e) { console.warn('[App] Auto-fetch failed', e); }
+      });
+      const countSel = document.getElementById('count');
+      if (countSel) countSel.addEventListener('change', async () => {
+        queuePrefUpdate('last_count', el('count').value);
+        try {
+          console.log('[App] Bars limit changed');
+          await refreshChart();
+          // Kick off a deeper background fill for this symbol/timeframe
+          await backgroundFetch('symbol_tf', { mode: 'full_async' });
+        } catch (e) { console.warn('[App] Count change refresh failed', e); }
+      });
+      const btnFetchCurrentBg = document.getElementById('btnFetchCurrentBg');
+      if (btnFetchCurrentBg) btnFetchCurrentBg.addEventListener('click', () => backgroundFetch('symbol_tf', { mode: 'full_async' }));
+      const btnFetchSymbolAll = document.getElementById('btnFetchSymbolAll');
+      if (btnFetchSymbolAll) btnFetchSymbolAll.addEventListener('click', () => backgroundFetch('symbol_all_tf', { mode: 'inc' }));
+      const btnFetchAll = document.getElementById('btnFetchAll');
+      if (btnFetchAll) btnFetchAll.addEventListener('click', () => backgroundFetch('all_symbols', { mode: 'inc' }));
+      const volumeInput = el('volume');
+      if (volumeInput) volumeInput.addEventListener('change', () => queuePrefUpdate('last_volume', volumeInput.value));
+      const slInput = el('sl');
+      if (slInput) slInput.addEventListener('change', () => queuePrefUpdate('last_sl', slInput.value));
+      const tpInput = el('tp');
+      if (tpInput) tpInput.addEventListener('change', () => queuePrefUpdate('last_tp', tpInput.value));
+      const fastInput = el('fast');
+      if (fastInput) fastInput.addEventListener('change', () => queuePrefUpdate('last_fast', fastInput.value));
+      const slowInput = el('slow');
+      if (slowInput) slowInput.addEventListener('change', () => queuePrefUpdate('last_slow', slowInput.value));
       document.querySelectorAll('input[name="ctype"]').forEach(r => r.addEventListener('change', (e) => {
-        curType = e.target.value;
-        chart = makeChart(curType);
+        queuePrefUpdate('chart_type', e.target.value);
+        makeChart(e.target.value);
         refreshChart();
       }));
 
@@ -239,8 +489,11 @@
       });
 
       async function trade(side) {
-        const symbol = el('symbol').value.trim();
+        const symbol = currentSymbol();
         const volume = el('volume').value;
+        queuePrefUpdate('last_volume', volume);
+        queuePrefUpdate('last_sl', el('sl').value);
+        queuePrefUpdate('last_tp', el('tp').value);
         status(`${side.toUpperCase()} submitting...`);
         const sl = el('sl').value; const tp = el('tp').value;
         const body = new URLSearchParams({ symbol, side, volume, sl, tp });
@@ -256,7 +509,7 @@
       }
 
       async function closeAll() {
-        const symbol = el('symbol').value.trim();
+        const symbol = currentSymbol();
         status('Closing positions...');
         const body = new URLSearchParams({ symbol });
         const r = await fetch(`/api/close`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
@@ -271,7 +524,7 @@
       }
 
       async function refreshPositions() {
-        const symbol = el('symbol').value.trim();
+        const symbol = currentSymbol();
         const r = await fetch(`/api/positions?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
         const js = await r.json().catch(() => ({}));
         if (js.ok) {
@@ -291,7 +544,7 @@
       refreshPositions();
       // Poll ticker
       async function pollTick() {
-        const symbol = el('symbol').value.trim();
+        const symbol = currentSymbol();
         try {
           const r = await fetch(`/api/tick?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
           const js = await r.json();
@@ -324,8 +577,8 @@
         btn.disabled = !(sig === 'buy' || sig === 'sell');
       }
       async function runStrategyTop() {
-        const symbol = el('symbol').value.trim();
-        const tf = el('tf').value;
+        const symbol = currentSymbol();
+        const tf = currentTf();
         const fast = 20, slow = 50;
         try {
           const r = await fetch(`/api/strategy/run?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&fast=${fast}&slow=${slow}`, { cache:'no-store' });
@@ -353,30 +606,88 @@
       });
       // initial strategy read
       runStrategyTop();
-      // Strategy panel
-      let lastSignal = 'hold';
+
+      // Strategy panel actions
       async function runStrategy() {
-        const symbol = el('symbol').value.trim();
-        const tf = el('tf').value;
-        const fast = el('fast').value || 20;
-        const slow = el('slow').value || 50;
-        const r = await fetch(`/api/strategy/run?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&fast=${encodeURIComponent(fast)}&slow=${encodeURIComponent(slow)}`, { cache:'no-store' });
-        const js = await r.json().catch(() => ({}));
-        if (js && js.signal) {
-          lastSignal = js.signal.signal || js.signal;
-          el('stratStatus').textContent = `Signal: ${lastSignal.toUpperCase()} (${js.signal.reason||''})`;
-          el('btnTradeSignal').disabled = !(lastSignal === 'buy' || lastSignal === 'sell');
-        } else {
-          el('stratStatus').textContent = `Strategy error: ${js.error || r.statusText}`;
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const fast = el('fast').value || '20';
+        const slow = el('slow').value || '50';
+        queuePrefUpdate('last_fast', fast);
+        queuePrefUpdate('last_slow', slow);
+        try {
+          const r = await fetch(`/api/strategy/run?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&fast=${encodeURIComponent(fast)}&slow=${encodeURIComponent(slow)}`, { cache:'no-store' });
+          const js = await r.json().catch(() => ({}));
+          if (js && js.signal) {
+            lastSignal = js.signal.signal || js.signal;
+            const reason = js.signal.reason ? ` (${js.signal.reason})` : '';
+            el('stratStatus').textContent = `Signal: ${lastSignal.toUpperCase()}${reason}`;
+            el('btnTradeSignal').disabled = !(lastSignal === 'buy' || lastSignal === 'sell');
+          } else {
+            el('stratStatus').textContent = `Strategy error: ${js.error || r.statusText}`;
+            el('btnTradeSignal').disabled = true;
+          }
+        } catch (err) {
+          console.error('Strategy fetch failed', err);
+          el('stratStatus').textContent = 'Strategy error';
           el('btnTradeSignal').disabled = true;
         }
       }
-      document.getElementById('btnRunStrat').addEventListener('click', runStrategy);
-      document.getElementById('btnTradeSignal').addEventListener('click', () => {
+      const btnRunStrat = document.getElementById('btnRunStrat');
+      if (btnRunStrat) btnRunStrat.addEventListener('click', runStrategy);
+      const btnTradeSignal = document.getElementById('btnTradeSignal');
+      if (btnTradeSignal) btnTradeSignal.addEventListener('click', () => {
         if (lastSignal === 'buy' || lastSignal === 'sell') trade(lastSignal);
       });
+
       // Initial load
+      // News fetcher
+      function renderNews(items) {
+        const box = el('newsBox');
+        if (!items || !items.length) {
+          box.innerHTML = '<em style="color:var(--muted)">No recent news found for this symbol.</em>';
+          return;
+        }
+        const html = items.map(it => {
+          const t = it.title || '(no title)';
+          const src = it.source || it.site || '';
+          const dt = it.publishedAt || it.publishedDate || '';
+          const url = it.url || '#';
+          return `<div style="margin:6px 0;">
+                    <a href="${url}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none;">${t}</a>
+                    <div style="font-size:12px; color:var(--muted)">${src}${dt? ' • '+dt: ''}</div>
+                  </div>`;
+        }).join('');
+        box.innerHTML = html;
+      }
+
+      async function refreshNews() {
+        const symbol = currentSymbol();
+        try {
+          const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+          const js = await r.json();
+          if (js && js.ok) renderNews(js.items || []);
+          else renderNews([]);
+        } catch (e) {
+          console.warn('News fetch failed', e);
+          renderNews([]);
+        }
+      }
+      const btnNews = document.getElementById('btnNews');
+      if (btnNews) btnNews.addEventListener('click', refreshNews);
+
       refreshChart();
+      refreshNews();
     </script>
   </body>
   </html>
+
+
+
+
+
+
+
+
+
+

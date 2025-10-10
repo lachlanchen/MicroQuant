@@ -103,6 +103,55 @@ class MT5Client:
             )
         return out
 
+    def fetch_bars_since(self, symbol: str, timeframe: str, since_dt) -> list[dict]:
+        """Fetch bars from (since_dt, now] using copy_rates_range to support incremental updates.
+        since_dt should be a timezone-aware datetime in UTC (or naive UTC).
+        """
+        if not self.initialized:
+            self.initialize()
+
+        if timeframe not in TF_MAP:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+        tf = TF_MAP[timeframe]
+
+        # Normalize timestamp to UTC
+        if since_dt is None:
+            return []
+        if getattr(since_dt, 'tzinfo', None) is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+
+        end_dt = datetime.now(timezone.utc)
+        self.logger.info("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, since_dt, end_dt)
+        mt5.symbol_select(symbol, True)
+        rates = mt5.copy_rates_range(symbol, tf, since_dt, end_dt)
+        if rates is None:
+            code, msg = mt5.last_error()
+            self.logger.warning("copy_rates_range returned None for %s %s (since %s): %s %s", symbol, timeframe, since_dt, code, msg)
+            return []
+
+        names = set(getattr(rates, "dtype", None).names or [])
+        out = []
+        for r in rates:
+            ts = datetime.fromtimestamp(int(r["time"]), tz=timezone.utc)
+            tick_volume = int(r["tick_volume"]) if "tick_volume" in names else 0
+            spread = int(r["spread"]) if "spread" in names else 0
+            real_volume = int(r["real_volume"]) if "real_volume" in names else 0
+            out.append(
+                {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "ts": ts,
+                    "open": float(r["open"]),
+                    "high": float(r["high"]),
+                    "low": float(r["low"]),
+                    "close": float(r["close"]),
+                    "tick_volume": tick_volume,
+                    "spread": spread,
+                    "real_volume": real_volume,
+                }
+            )
+        return out
+
     # --- Trading helpers (demo-first; use at your own risk) ---
     def _ensure_initialized(self):
         if not self.initialized:
@@ -212,6 +261,9 @@ class MT5Client:
 
     def get_tick(self, symbol: str) -> dict:
         self._ensure_initialized()
+        if not mt5.symbol_select(symbol, True):
+            code, msg = mt5.last_error()
+            raise RuntimeError(f"symbol_select failed: {code} {msg}")
         t = mt5.symbol_info_tick(symbol)
         if not t:
             code, msg = mt5.last_error()

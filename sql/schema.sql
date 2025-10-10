@@ -16,3 +16,8 @@ CREATE TABLE IF NOT EXISTS ohlc_bars (
 CREATE INDEX IF NOT EXISTS idx_ohlc_bars_symbol_tf_ts
     ON ohlc_bars(symbol, timeframe, ts DESC);
 
+-- App preferences (simple key/value store) for persisting UI choices
+CREATE TABLE IF NOT EXISTS app_prefs (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);

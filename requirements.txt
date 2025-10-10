@@ -3,3 +3,5 @@ asyncpg
 MetaTrader5
 numpy
 python-dotenv
+requests
+httpx

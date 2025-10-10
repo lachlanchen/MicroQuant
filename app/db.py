@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Iterable, Mapping
 import asyncpg
 
 
@@ -94,4 +95,55 @@ async def fetch_ohlc_bars(
                 r[k] = float(v)
         r["ts"] = r["ts"].isoformat()
     return result
+
+
+async def latest_bar_ts(pool: asyncpg.pool.Pool, symbol: str, timeframe: str):
+    """Return the most recent timestamp we have for a symbol/timeframe, or None."""
+    q = "SELECT ts FROM ohlc_bars WHERE symbol=$1 AND timeframe=$2 ORDER BY ts DESC LIMIT 1"
+    async with pool.acquire() as conn:
+        val = await conn.fetchval(q, symbol, timeframe)
+    return val
+
+async def set_pref(pool: asyncpg.pool.Pool, key: str, value: str) -> None:
+    q = (
+        """
+        INSERT INTO app_prefs(key, value)
+        VALUES($1, $2)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """
+    )
+    async with pool.acquire() as conn:
+        await conn.execute(q, key, value)
+
+
+async def get_pref(pool: asyncpg.pool.Pool, key: str) -> str | None:
+    q = "SELECT value FROM app_prefs WHERE key=$1"
+    async with pool.acquire() as conn:
+        val = await conn.fetchval(q, key)
+    return val
+
+async def get_prefs(pool: asyncpg.pool.Pool, keys: Iterable[str]) -> dict[str, str]:
+    key_list = [k for k in keys if k]
+    if not key_list:
+        return {}
+    q = "SELECT key, value FROM app_prefs WHERE key = ANY($1::text[])"
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, key_list)
+    return {row["key"]: row["value"] for row in rows}
+
+
+async def set_prefs(pool: asyncpg.pool.Pool, mapping: Mapping[str, str]) -> None:
+    if not mapping:
+        return
+    q = (
+        """
+        INSERT INTO app_prefs(key, value)
+        VALUES($1, $2)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """
+    )
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            for key, value in mapping.items():
+                await conn.execute(q, key, value)
 
