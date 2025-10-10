@@ -35,7 +35,11 @@
     #status { margin-top: 8px; color: var(--muted); }
     #chart-wrap { width: 100%; max-width: 100%; background: var(--panel); padding: 12px; border:1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
     #lwChart { width: 100%; min-height: 520px; height: clamp(520px, 72vh, 920px); }
-    canvas { width: 100% !important; height: clamp(420px, 68vh, 840px); }
+    #chart { width: 100% !important; height: clamp(420px, 68vh, 840px); }
+    #indicator-wrap { margin-top: 12px; display: grid; gap: 12px; }
+    .indicator-panel { background: var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
+    .indicator-panel h4 { margin:0 0 6px; font-size:13px; color:var(--muted); font-weight:600; letter-spacing:0.4px; text-transform:uppercase; }
+    #indicator-wrap canvas { width: 100% !important; height: 190px !important; }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
@@ -121,7 +125,21 @@
       <div>
         <div id="chart-wrap">
           <canvas id="chart" height="400"></canvas>
-          <div id="lwChart" style="display:none; height:400px;"></div>
+          <div id="lwChart" style="display:none; height:520px;"></div>
+        </div>
+        <div id="indicator-wrap">
+          <div class="indicator-panel">
+            <h4>Volume</h4>
+            <canvas id="volChart"></canvas>
+          </div>
+          <div class="indicator-panel">
+            <h4>RSI (14)</h4>
+            <canvas id="rsiChart"></canvas>
+          </div>
+          <div class="indicator-panel">
+            <h4>MACD (12, 26, 9)</h4>
+            <canvas id="macdChart"></canvas>
+          </div>
         </div>
       </div>
       <div>
@@ -236,6 +254,16 @@
       const stlRunsSelect = el('stlRuns');
       const stlDeleteBtn = el('btnStlDelete');
 
+      const volumeCanvas = document.getElementById('volChart');
+      const rsiCanvas = document.getElementById('rsiChart');
+      const macdCanvas = document.getElementById('macdChart');
+      const volumeCtx = volumeCanvas ? volumeCanvas.getContext('2d') : null;
+      const rsiCtx = rsiCanvas ? rsiCanvas.getContext('2d') : null;
+      const macdCtx = macdCanvas ? macdCanvas.getContext('2d') : null;
+      let volumeChart = null;
+      let rsiChart = null;
+      let macdChart = null;
+
       const PREF_ENDPOINT = '/api/preferences';
       let prefQueue = {};
       let prefTimer = null;
@@ -265,6 +293,300 @@
         prefQueue[key] = value ?? '';
         if (!prefTimer) {
           prefTimer = setTimeout(flushPrefQueue, 400);
+        }
+      };
+
+      const computeEMA = (series, period) => {
+        const ema = new Array(series.length).fill(null);
+        if (!Array.isArray(series) || series.length === 0) return ema;
+        const multiplier = 2 / (period + 1);
+        let sum = 0;
+        let count = 0;
+        let firstIdx = -1;
+        for (let i = 0; i < series.length; i++) {
+          const value = series[i];
+          if (value == null) {
+            continue;
+          }
+          if (firstIdx === -1) {
+            firstIdx = i;
+          }
+          sum += value;
+          count += 1;
+          if (count === period) {
+            const avg = sum / period;
+            ema[i] = avg;
+            let prev = avg;
+            for (let j = i + 1; j < series.length; j++) {
+              const nextVal = series[j];
+              if (nextVal == null) {
+                ema[j] = null;
+                continue;
+              }
+              prev = ((nextVal - prev) * multiplier) + prev;
+              ema[j] = prev;
+            }
+            break;
+          }
+        }
+        return ema;
+      };
+
+      const computeRSI = (values, period = 14) => {
+        const result = new Array(values.length).fill(null);
+        if (!Array.isArray(values) || values.length <= period) return result;
+        let gains = 0;
+        let losses = 0;
+        for (let i = 1; i <= period; i++) {
+          const delta = values[i] - values[i - 1];
+          if (delta >= 0) {
+            gains += delta;
+          } else {
+            losses += Math.abs(delta);
+          }
+        }
+        let avgGain = gains / period;
+        let avgLoss = losses / period;
+        result[period] = avgLoss === 0 ? 100 : 100 - (100 / (1 + (avgGain / avgLoss)));
+        for (let i = period + 1; i < values.length; i++) {
+          const delta = values[i] - values[i - 1];
+          const gain = delta > 0 ? delta : 0;
+          const loss = delta < 0 ? Math.abs(delta) : 0;
+          avgGain = ((avgGain * (period - 1)) + gain) / period;
+          avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+          if (avgLoss === 0) {
+            result[i] = 100;
+          } else {
+            const rs = avgGain / avgLoss;
+            result[i] = 100 - (100 / (1 + rs));
+          }
+        }
+        return result;
+      };
+
+      const computeMACD = (values, fast = 12, slow = 26, signal = 9) => {
+        const macdLine = new Array(values.length).fill(null);
+        const signalLine = new Array(values.length).fill(null);
+        const histogram = new Array(values.length).fill(null);
+        if (!Array.isArray(values) || values.length === 0) {
+          return { macd: macdLine, signal: signalLine, histogram };
+        }
+        const fastEma = computeEMA(values, fast);
+        const slowEma = computeEMA(values, slow);
+        for (let i = 0; i < values.length; i++) {
+          const fastVal = fastEma[i];
+          const slowVal = slowEma[i];
+          if (fastVal != null && slowVal != null) {
+            macdLine[i] = fastVal - slowVal;
+          }
+        }
+        const signalEma = computeEMA(macdLine, signal);
+        for (let i = 0; i < values.length; i++) {
+          const sigVal = signalEma[i];
+          if (sigVal != null) {
+            signalLine[i] = sigVal;
+          }
+          const macdVal = macdLine[i];
+          if (macdVal != null && sigVal != null) {
+            histogram[i] = macdVal - sigVal;
+          }
+        }
+        return { macd: macdLine, signal: signalLine, histogram };
+      };
+
+      const ensureVolumeChart = () => {
+        if (volumeChart || !volumeCtx) return;
+        volumeChart = new window.Chart(volumeCtx, {
+          type: 'bar',
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: 'Volume',
+                data: [],
+                backgroundColor: 'rgba(25, 118, 210, 0.35)',
+                borderWidth: 0,
+                barPercentage: 1.0,
+                categoryPercentage: 1.0,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: {
+                type: 'time',
+                time: { tooltipFormat: 'MMM d HH:mm' },
+                ticks: { maxRotation: 0, autoSkip: true },
+                grid: { display: false },
+              },
+              y: {
+                beginAtZero: true,
+                title: { display: false },
+                grid: { color: '#e0e6ef' },
+              },
+            },
+          },
+        });
+      };
+
+      const ensureRsiChart = () => {
+        if (rsiChart || !rsiCtx) return;
+        rsiChart = new window.Chart(rsiCtx, {
+          type: 'line',
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: 'RSI',
+                data: [],
+                borderColor: '#8e24aa',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.15,
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            interaction: { intersect: false, mode: 'index' },
+            scales: {
+              x: {
+                type: 'time',
+                time: { tooltipFormat: 'MMM d HH:mm' },
+                ticks: { maxRotation: 0, autoSkip: true },
+                grid: { display: false },
+              },
+              y: {
+                min: 0,
+                max: 100,
+                ticks: { stepSize: 20 },
+                grid: { color: '#e0e6ef' },
+              },
+            },
+          },
+        });
+      };
+
+      const ensureMacdChart = () => {
+        if (macdChart || !macdCtx) return;
+        macdChart = new window.Chart(macdCtx, {
+          type: 'bar',
+          data: {
+            labels: [],
+            datasets: [
+              {
+                type: 'bar',
+                label: 'Histogram',
+                data: [],
+                backgroundColor: (context) => {
+                  const value = context.raw;
+                  if (value == null) return 'rgba(158, 158, 158, 0.35)';
+                  return value >= 0 ? 'rgba(76, 175, 80, 0.5)' : 'rgba(244, 67, 54, 0.5)';
+                },
+                borderWidth: 0,
+                barPercentage: 1.0,
+                categoryPercentage: 1.0,
+              },
+              {
+                type: 'line',
+                label: 'MACD',
+                data: [],
+                borderColor: '#1b9aaa',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.15,
+                fill: false,
+              },
+              {
+                type: 'line',
+                label: 'Signal',
+                data: [],
+                borderColor: '#ef6c00',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.15,
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: true, position: 'top' } },
+            interaction: { intersect: false, mode: 'index' },
+            scales: {
+              x: {
+                type: 'time',
+                time: { tooltipFormat: 'MMM d HH:mm' },
+                ticks: { maxRotation: 0, autoSkip: true },
+                grid: { display: false },
+              },
+              y: {
+                grid: { color: '#e0e6ef' },
+              },
+            },
+          },
+        });
+      };
+
+      const updateIndicatorCharts = (rows) => {
+        if (!rows || !rows.length) {
+          if (volumeChart) {
+            volumeChart.data.labels = [];
+            volumeChart.data.datasets[0].data = [];
+            volumeChart.update('none');
+          }
+          if (rsiChart) {
+            rsiChart.data.labels = [];
+            rsiChart.data.datasets[0].data = [];
+            rsiChart.update('none');
+          }
+          if (macdChart) {
+            macdChart.data.labels = [];
+            macdChart.data.datasets[0].data = [];
+            macdChart.data.datasets[1].data = [];
+            macdChart.data.datasets[2].data = [];
+            macdChart.update('none');
+          }
+          return;
+        }
+        const labels = rows.map((r) => r.ts);
+        const closes = rows.map((r) => {
+          const val = Number(r.close);
+          return Number.isFinite(val) ? val : 0;
+        });
+        const volumes = rows.map((r) => {
+          const raw = r.real_volume ?? r.tick_volume ?? r.volume ?? 0;
+          const num = Number(raw);
+          return Number.isFinite(num) ? num : 0;
+        });
+        ensureVolumeChart();
+        ensureRsiChart();
+        ensureMacdChart();
+        if (volumeChart) {
+          volumeChart.data.labels = labels;
+          volumeChart.data.datasets[0].data = volumes;
+          volumeChart.update('none');
+        }
+        const rsiValues = computeRSI(closes);
+        if (rsiChart) {
+          rsiChart.data.labels = labels;
+          rsiChart.data.datasets[0].data = rsiValues;
+          rsiChart.update('none');
+        }
+        const macdObj = computeMACD(closes);
+        if (macdChart) {
+          macdChart.data.labels = labels;
+          macdChart.data.datasets[0].data = macdObj.histogram;
+          macdChart.data.datasets[1].data = macdObj.macd;
+          macdChart.data.datasets[2].data = macdObj.signal;
+          macdChart.update('none');
         }
       };
 
@@ -361,8 +683,38 @@
           if (existing) { existing.destroy(); }
           chart = new window.Chart(ctx, {
             type: 'line',
-            data: { labels: [], datasets: [{ label: 'Close', data: [], borderColor: '#1976d2', tension: 0.1, fill: false }] },
-            options: { scales: { x: { type: 'time', time: { unit: 'hour' } }, y: { beginAtZero: false } } }
+            data: {
+              labels: [],
+              datasets: [
+                {
+                  label: 'Close',
+                  data: [],
+                  borderColor: '#1976d2',
+                  borderWidth: 1.5,
+                  pointRadius: 0,
+                  tension: 0.15,
+                  fill: false,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { display: false } },
+              interaction: { intersect: false, mode: 'index' },
+              scales: {
+                x: {
+                  type: 'time',
+                  time: { tooltipFormat: 'MMM d HH:mm' },
+                  ticks: { maxRotation: 0, autoSkip: true },
+                  grid: { display: false },
+                },
+                y: {
+                  beginAtZero: false,
+                  grid: { color: '#e0e6ef' },
+                },
+              },
+            },
           });
           clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
           return chart;
@@ -806,7 +1158,7 @@
       async function refreshChart() {
         const symbol = currentSymbol();
         const tf = currentTf();
-        const limit = Math.max(10, Number(el('count').value) || 500);
+        const limit = Math.max(10, currentBarsLimit());
         status(`Loading data (${symbol} ${tf}, limit ${limit})...`);
         try {
           const r = await fetch(`/api/data?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}`, { cache: 'no-store' });
@@ -829,11 +1181,13 @@
             lwSeries.setData(data);
             lwChart.timeScale().fitContent();
           }
+          updateIndicatorCharts(rows);
           status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
           await refreshStlOverlay({ autoCompute: true });
         } catch (err) {
           console.error('Refresh failed', err);
           status('Refresh failed');
+          updateIndicatorCharts([]);
           clearStlOverlay('STL unavailable (chart refresh failed).');
         }
       }
