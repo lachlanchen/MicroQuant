@@ -236,6 +236,38 @@
       const stlRunsSelect = el('stlRuns');
       const stlDeleteBtn = el('btnStlDelete');
 
+      const PREF_ENDPOINT = '/api/preferences';
+      let prefQueue = {};
+      let prefTimer = null;
+
+      const flushPrefQueue = async () => {
+        if (!Object.keys(prefQueue).length) {
+          prefTimer = null;
+          return;
+        }
+        const payload = prefQueue;
+        prefQueue = {};
+        prefTimer = null;
+        try {
+          await fetch(PREF_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify(payload),
+          });
+        } catch (err) {
+          console.warn('[App] Preference update failed', err);
+        }
+      };
+
+      const queuePrefUpdate = (key, value) => {
+        if (!key) return;
+        prefQueue[key] = value ?? '';
+        if (!prefTimer) {
+          prefTimer = setTimeout(flushPrefQueue, 400);
+        }
+      };
+
       const currentSymbol = () => {
         if (symbolSelect && symbolSelect.value) return symbolSelect.value.trim();
         return APP_DEFAULT_SYMBOL;
