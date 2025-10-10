@@ -22,19 +22,30 @@ CREATE TABLE IF NOT EXISTS app_prefs (
     value TEXT
 );
 
--- STL decomposition components cache
-CREATE TABLE IF NOT EXISTS stl_components (
-    symbol       TEXT NOT NULL,
-    timeframe    TEXT NOT NULL,
-    period       INTEGER NOT NULL,
-    ts           TIMESTAMPTZ NOT NULL,
-    close        DOUBLE PRECISION,
-    trend        DOUBLE PRECISION,
-    seasonal     DOUBLE PRECISION,
-    resid        DOUBLE PRECISION,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (symbol, timeframe, period, ts)
+-- STL decomposition metadata + components
+CREATE TABLE IF NOT EXISTS stl_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    symbol      TEXT        NOT NULL,
+    timeframe   TEXT        NOT NULL,
+    period      INTEGER     NOT NULL,
+    start_ts    TIMESTAMPTZ NOT NULL,
+    end_ts      TIMESTAMPTZ NOT NULL,
+    rows_count  INTEGER     NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_stl_components_lookup
-    ON stl_components(symbol, timeframe, period, created_at DESC, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_stl_runs_symbol_tf_created
+    ON stl_runs(symbol, timeframe, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS stl_run_components (
+    run_id    BIGINT        NOT NULL REFERENCES stl_runs(id) ON DELETE CASCADE,
+    ts        TIMESTAMPTZ   NOT NULL,
+    close     DOUBLE PRECISION,
+    trend     DOUBLE PRECISION,
+    seasonal  DOUBLE PRECISION,
+    resid     DOUBLE PRECISION,
+    PRIMARY KEY (run_id, ts)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stl_run_components_run_ts
+    ON stl_run_components(run_id, ts DESC);

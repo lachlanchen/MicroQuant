@@ -149,41 +149,120 @@ async def set_prefs(pool: asyncpg.pool.Pool, mapping: Mapping[str, str]) -> None
                 await conn.execute(q, key, value)
 
 
-async def upsert_stl_components(pool: asyncpg.pool.Pool, rows: list[dict]) -> int:
-    """Insert/update STL component rows."""
+async def ohlc_range(pool: asyncpg.pool.Pool, symbol: str, timeframe: str) -> dict | None:
+    """Return earliest, latest, and count for stored OHLC data."""
+    q = """
+        SELECT MIN(ts) AS start_ts, MAX(ts) AS end_ts, COUNT(*)::BIGINT AS rows_count
+        FROM ohlc_bars
+        WHERE symbol=$1 AND timeframe=$2
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(q, symbol, timeframe)
+    if not row or row["rows_count"] == 0:
+        return None
+    start_ts = row["start_ts"]
+    end_ts = row["end_ts"]
+    if start_ts and start_ts.tzinfo is None:
+        start_ts = start_ts.replace(tzinfo=timezone.utc)
+    if end_ts and end_ts.tzinfo is None:
+        end_ts = end_ts.replace(tzinfo=timezone.utc)
+    return {
+        "start_ts": start_ts,
+        "end_ts": end_ts,
+        "rows_count": int(row["rows_count"]),
+    }
+
+
+async def fetch_ohlc_bars_range(
+    pool: asyncpg.pool.Pool,
+    symbol: str,
+    timeframe: str,
+    *,
+    start_ts: datetime | None = None,
+    end_ts: datetime | None = None,
+) -> list[dict]:
+    """Fetch bars within an optional timestamp range (ascending)."""
+    q = (
+        """
+        SELECT symbol, timeframe, ts, open, high, low, close, tick_volume, spread, real_volume
+        FROM ohlc_bars
+        WHERE symbol = $1
+          AND timeframe = $2
+          AND ($3::timestamptz IS NULL OR ts >= $3)
+          AND ($4::timestamptz IS NULL OR ts <= $4)
+        ORDER BY ts ASC
+        """
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, symbol, timeframe, start_ts, end_ts)
+    result = []
+    for rec in rows:
+        row = dict(rec)
+        row["ts"] = (rec["ts"].isoformat() if isinstance(rec["ts"], datetime) else str(rec["ts"]))
+        for key in ("open", "high", "low", "close"):
+            val = row[key]
+            if val is not None:
+                row[key] = float(val)
+        result.append(row)
+    return result
+
+
+async def create_stl_run(
+    pool: asyncpg.pool.Pool,
+    *,
+    symbol: str,
+    timeframe: str,
+    period: int,
+    start_ts: datetime,
+    end_ts: datetime,
+    rows_count: int,
+) -> dict:
+    q = """
+        INSERT INTO stl_runs (symbol, timeframe, period, start_ts, end_ts, rows_count)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, created_at
+    """
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(q, symbol, timeframe, period, start_ts, end_ts, rows_count)
+    created_at = row["created_at"]
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return {"id": row["id"], "created_at": created_at}
+
+
+async def insert_stl_components(
+    pool: asyncpg.pool.Pool,
+    run_id: int,
+    rows: list[dict],
+) -> int:
     if not rows:
         return 0
     q = (
         """
-        INSERT INTO stl_components
-            (symbol, timeframe, period, ts, close, trend, seasonal, resid)
-        VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (symbol, timeframe, period, ts) DO UPDATE SET
-            close     = EXCLUDED.close,
-            trend     = EXCLUDED.trend,
-            seasonal  = EXCLUDED.seasonal,
-            resid     = EXCLUDED.resid,
-            created_at = NOW()
+        INSERT INTO stl_run_components (run_id, ts, close, trend, seasonal, resid)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (run_id, ts) DO UPDATE SET
+            close = EXCLUDED.close,
+            trend = EXCLUDED.trend,
+            seasonal = EXCLUDED.seasonal,
+            resid = EXCLUDED.resid
         """
     )
     args = []
-    for r in rows:
-        ts = r["ts"]
+    for rec in rows:
+        ts = rec["ts"]
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts)
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
         args.append(
             (
-                r["symbol"],
-                r["timeframe"],
-                int(r["period"]),
+                run_id,
                 ts,
-                r.get("close"),
-                r.get("trend"),
-                r.get("seasonal"),
-                r.get("resid"),
+                rec.get("close"),
+                rec.get("trend"),
+                rec.get("seasonal"),
+                rec.get("resid"),
             )
         )
     async with pool.acquire() as conn:
@@ -191,63 +270,104 @@ async def upsert_stl_components(pool: asyncpg.pool.Pool, rows: list[dict]) -> in
     return len(rows)
 
 
-async def fetch_stl_components(
-    pool: asyncpg.pool.Pool,
-    symbol: str,
-    timeframe: str,
-    *,
-    period: int | None = None,
-    limit: int = 500,
-) -> dict:
-    """Fetch cached STL rows (ascending by time) and associated metadata."""
+async def list_stl_runs(pool: asyncpg.pool.Pool, symbol: str, timeframe: str) -> list[dict]:
+    q = """
+        SELECT id, symbol, timeframe, period, start_ts, end_ts, rows_count, created_at
+        FROM stl_runs
+        WHERE symbol=$1 AND timeframe=$2
+        ORDER BY created_at DESC
+    """
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            if period is None:
-                period = await conn.fetchval(
-                    """
-                    SELECT period
-                    FROM stl_components
-                    WHERE symbol=$1 AND timeframe=$2
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    symbol,
-                    timeframe,
-                )
-                if period is None:
-                    return {"period": None, "rows": [], "updated": None}
-            rows = await conn.fetch(
-                """
-                SELECT ts, close, trend, seasonal, resid, created_at
-                FROM stl_components
-                WHERE symbol=$1 AND timeframe=$2 AND period=$3
-                ORDER BY ts DESC
-                LIMIT $4
-                """,
-                symbol,
-                timeframe,
-                int(period),
-                limit,
-            )
-    if not rows:
-        return {"period": period, "rows": [], "updated": None}
-    created_at = rows[0]["created_at"]
+        rows = await conn.fetch(q, symbol, timeframe)
     result = []
-    for rec in reversed(rows):
-        ts = rec["ts"]
-        if isinstance(ts, datetime):
-            ts_iso = ts.isoformat()
-        else:
-            ts_iso = str(ts)
+    for rec in rows:
+        start_ts = rec["start_ts"]
+        end_ts = rec["end_ts"]
+        created_at = rec["created_at"]
+        if start_ts and start_ts.tzinfo is None:
+            start_ts = start_ts.replace(tzinfo=timezone.utc)
+        if end_ts and end_ts.tzinfo is None:
+            end_ts = end_ts.replace(tzinfo=timezone.utc)
+        if created_at and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
         result.append(
             {
-                "ts": ts_iso,
-                "close": float(rec["close"]) if rec["close"] is not None else None,
-                "trend": float(rec["trend"]) if rec["trend"] is not None else None,
-                "seasonal": float(rec["seasonal"]) if rec["seasonal"] is not None else None,
-                "resid": float(rec["resid"]) if rec["resid"] is not None else None,
+                "id": rec["id"],
+                "symbol": rec["symbol"],
+                "timeframe": rec["timeframe"],
+                "period": rec["period"],
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "rows_count": rec["rows_count"],
+                "created_at": created_at,
             }
         )
-    updated_iso = created_at.isoformat() if isinstance(created_at, datetime) else None
-    return {"period": int(period), "rows": result, "updated": updated_iso}
+    return result
+
+
+async def get_stl_run(pool: asyncpg.pool.Pool, run_id: int) -> dict | None:
+    q = """
+        SELECT id, symbol, timeframe, period, start_ts, end_ts, rows_count, created_at
+        FROM stl_runs
+        WHERE id=$1
+    """
+    async with pool.acquire() as conn:
+        rec = await conn.fetchrow(q, run_id)
+    if not rec:
+        return None
+    start_ts = rec["start_ts"]
+    end_ts = rec["end_ts"]
+    created_at = rec["created_at"]
+    if start_ts and start_ts.tzinfo is None:
+        start_ts = start_ts.replace(tzinfo=timezone.utc)
+    if end_ts and end_ts.tzinfo is None:
+        end_ts = end_ts.replace(tzinfo=timezone.utc)
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return {
+        "id": rec["id"],
+        "symbol": rec["symbol"],
+        "timeframe": rec["timeframe"],
+        "period": rec["period"],
+        "start_ts": start_ts,
+        "end_ts": end_ts,
+        "rows_count": rec["rows_count"],
+        "created_at": created_at,
+    }
+
+
+async def delete_stl_run(pool: asyncpg.pool.Pool, run_id: int) -> int:
+    q = "DELETE FROM stl_runs WHERE id=$1"
+    async with pool.acquire() as conn:
+        result = await conn.execute(q, run_id)
+    # result like 'DELETE 0/1'
+    return int(result.split()[-1])
+
+
+async def fetch_stl_run_data(pool: asyncpg.pool.Pool, run_id: int) -> dict | None:
+    run = await get_stl_run(pool, run_id)
+    if not run:
+        return None
+    q = """
+        SELECT ts, close, trend, seasonal, resid
+        FROM stl_run_components
+        WHERE run_id=$1
+        ORDER BY ts ASC
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, run_id)
+    data = []
+    for rec in rows:
+        ts = rec["ts"]
+        if isinstance(ts, datetime):
+            ts = ts.isoformat()
+        row = {
+            "ts": ts,
+            "close": float(rec["close"]) if rec["close"] is not None else None,
+            "trend": float(rec["trend"]) if rec["trend"] is not None else None,
+            "seasonal": float(rec["seasonal"]) if rec["seasonal"] is not None else None,
+            "resid": float(rec["resid"]) if rec["resid"] is not None else None,
+        }
+        data.append(row)
+    return {"run": run, "rows": data}
 

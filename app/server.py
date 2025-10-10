@@ -18,13 +18,19 @@ from app.db import (
     init_schema,
     upsert_ohlc_bars,
     fetch_ohlc_bars,
+    fetch_ohlc_bars_range,
+    ohlc_range,
     set_pref,
     get_pref,
     latest_bar_ts,
     set_prefs,
     get_prefs,
-    upsert_stl_components,
-    fetch_stl_components,
+    create_stl_run,
+    insert_stl_components,
+    list_stl_runs,
+    get_stl_run,
+    delete_stl_run,
+    fetch_stl_run_data,
 )
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
@@ -102,6 +108,10 @@ async def emit_stl_event(
     background: bool,
     points: int | None = None,
     note: str | None = None,
+    run_id: int | None = None,
+    start_ts: str | None = None,
+    end_ts: str | None = None,
+    created_at: str | None = None,
     error: str | None = None,
 ) -> None:
     event = {
@@ -114,8 +124,16 @@ async def emit_stl_event(
         "scope": scope,
         "background": background,
     }
+    if run_id is not None:
+        event["run_id"] = run_id
     if points is not None:
         event["points"] = points
+    if start_ts:
+        event["start_ts"] = start_ts
+    if end_ts:
+        event["end_ts"] = end_ts
+    if created_at:
+        event["created_at"] = created_at
     if note:
         event["note"] = note
     if error:
@@ -159,17 +177,72 @@ def _stl_period_for_tf(tf: str) -> int:
     return STL_PERIOD_MAP.get((tf or "").upper(), 30)
 
 
+def _normalize_dt(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _dt_to_iso(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
+
+
+def _serialize_run(run: dict | None) -> dict | None:
+    if not run:
+        return None
+    return {
+        "id": run["id"],
+        "symbol": run["symbol"],
+        "timeframe": run["timeframe"],
+        "period": run["period"],
+        "start_ts": _dt_to_iso(run.get("start_ts")),
+        "end_ts": _dt_to_iso(run.get("end_ts")),
+        "rows_count": run.get("rows_count"),
+        "created_at": _dt_to_iso(run.get("created_at")),
+    }
+
+
 async def _compute_and_store_stl(
     pool,
     symbol: str,
     timeframe: str,
     *,
     period: int | None = None,
-    limit: int = 1500,
+    start_dt: datetime | None = None,
+    end_dt: datetime | None = None,
 ) -> dict:
-    rows = await fetch_ohlc_bars(pool, symbol, timeframe, limit)
-    if not rows:
+    range_info = await ohlc_range(pool, symbol, timeframe)
+    if not range_info:
         raise ValueError("No bar data available for STL decomposition")
+    dataset_start = range_info["start_ts"]
+    dataset_end = range_info["end_ts"]
+    start_dt = _normalize_dt(start_dt) or dataset_start
+    end_dt = _normalize_dt(end_dt) or dataset_end
+    if start_dt < dataset_start:
+        start_dt = dataset_start
+    if end_dt > dataset_end:
+        end_dt = dataset_end
+    if end_dt < start_dt:
+        raise ValueError("End timestamp precedes start timestamp for STL computation")
+    rows = await fetch_ohlc_bars_range(
+        pool,
+        symbol,
+        timeframe,
+        start_ts=start_dt,
+        end_ts=end_dt,
+    )
+    if not rows:
+        raise ValueError("No bar data found in requested range for STL decomposition")
     times: list[datetime] = []
     closes: list[float] = []
     for row in rows:
@@ -201,7 +274,7 @@ async def _compute_and_store_stl(
         raise ValueError("Insufficient finite values for STL decomposition")
     stl = STL(series, period=adjusted_period, robust=True)
     res = stl.fit()
-    records = []
+    records: list[dict] = []
     for ts, close_val, trend_val, seasonal_val, resid_val in zip(
         times,
         series,
@@ -212,9 +285,6 @@ async def _compute_and_store_stl(
     ):
         records.append(
             {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "period": adjusted_period,
                 "ts": ts,
                 "close": float(close_val),
                 "trend": float(trend_val),
@@ -222,11 +292,25 @@ async def _compute_and_store_stl(
                 "resid": float(resid_val),
             }
         )
-    inserted = await upsert_stl_components(pool, records)
+    run_meta = await create_stl_run(
+        pool,
+        symbol=symbol,
+        timeframe=timeframe,
+        period=adjusted_period,
+        start_ts=times[0],
+        end_ts=times[-1],
+        rows_count=len(series),
+    )
+    inserted = await insert_stl_components(pool, run_meta["id"], records)
+    created_at = run_meta.get("created_at")
     return {
+        "run_id": run_meta["id"],
         "inserted": inserted,
         "points": len(records),
         "period": adjusted_period,
+        "start_ts": times[0].isoformat(),
+        "end_ts": times[-1].isoformat(),
+        "created_at": created_at.isoformat() if created_at else None,
     }
 
 
@@ -864,6 +948,7 @@ async def make_app():
             (r"/api/positions", PositionsHandler),
             (r"/api/tick", TickHandler),
             (r"/api/stl", STLHandler, dict(pool=pool)),
+            (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler),
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
@@ -1024,21 +1109,123 @@ class STLHandler(tornado.web.RequestHandler):
     async def get(self):
         symbol = self.get_argument("symbol", default=default_symbol()).upper()
         timeframe = self.get_argument("tf", default="H1").upper()
-        period_arg = self.get_argument("period", default=None)
-        limit = int(self.get_argument("limit", default="500"))
-        period = None
-        if period_arg:
+        run_id_arg = self.get_argument("run_id", default=None)
+        start_arg = self.get_argument("start", default=None)
+        end_arg = self.get_argument("end", default=None)
+        all_data_flag = self.get_argument("all_data", "1").lower() not in ("0", "false", "no", "off")
+        include_runs = self.get_argument("include_runs", "1").lower() not in ("0", "false", "no", "off")
+        include_data = self.get_argument("include_data", "1").lower() not in ("0", "false", "no", "off")
+        limit_arg = self.get_argument("limit", default=None)
+        limit = int(limit_arg) if limit_arg else None
+
+        run_id = None
+        if run_id_arg:
             try:
-                period = int(period_arg)
+                run_id = int(run_id_arg)
             except ValueError:
-                period = None
-        data = await fetch_stl_components(
-            self.pool,
-            symbol,
-            timeframe,
-            period=period,
-            limit=limit,
-        )
+                run_id = None
+
+        start_dt = _normalize_dt(start_arg) if start_arg else None
+        end_dt = _normalize_dt(end_arg) if end_arg else None
+
+        dataset_range = await ohlc_range(self.pool, symbol, timeframe)
+        if not dataset_range:
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "runs": [],
+                        "rows": [],
+                        "selected_run_id": None,
+                        "needs_compute": False,
+                        "dataset": None,
+                        "target_range": None,
+                        "reason": "no_data",
+                    }
+                )
+            )
+            return
+
+        target_start = start_dt if (not all_data_flag and start_dt) else dataset_range["start_ts"]
+        target_end = end_dt if (not all_data_flag and end_dt) else dataset_range["end_ts"]
+        if target_start and target_start < dataset_range["start_ts"]:
+            target_start = dataset_range["start_ts"]
+        if target_end and target_end > dataset_range["end_ts"]:
+            target_end = dataset_range["end_ts"]
+
+        runs = await list_stl_runs(self.pool, symbol, timeframe) if include_runs else []
+        selected_run = None
+
+        if run_id is not None:
+            selected_run = await get_stl_run(self.pool, run_id)
+            if selected_run and (
+                selected_run["symbol"].upper() != symbol
+                or selected_run["timeframe"].upper() != timeframe
+            ):
+                selected_run = None
+        if not selected_run and runs:
+            for run in runs:
+                if run["start_ts"] <= target_start and run["end_ts"] >= target_end:
+                    selected_run = run
+                    break
+            if not selected_run:
+                selected_run = runs[0]
+        if selected_run and include_runs and all(run["id"] != selected_run["id"] for run in runs):
+            runs = [selected_run, *runs]
+
+        needs_compute = False
+        reason = None
+        if target_start and target_end:
+            if selected_run is None:
+                needs_compute = True
+                reason = "missing_run"
+            else:
+                start_ok = selected_run["start_ts"] <= target_start
+                end_ok = selected_run["end_ts"] >= target_end
+                if not all_data_flag:
+                    start_ok = abs((selected_run["start_ts"] - target_start).total_seconds()) < 1
+                    end_ok = abs((selected_run["end_ts"] - target_end).total_seconds()) < 1
+                if not (start_ok and end_ok):
+                    needs_compute = True
+                    reason = "range_mismatch"
+                elif all_data_flag:
+                    dataset_start = dataset_range["start_ts"]
+                    dataset_end = dataset_range["end_ts"]
+                    if (
+                        selected_run["start_ts"] > dataset_start
+                        or selected_run["end_ts"] < dataset_end
+                        or selected_run["rows_count"] < dataset_range["rows_count"]
+                    ):
+                        needs_compute = True
+                        reason = "dataset_extended"
+
+        rows = []
+        selected_run_serialized = None
+        if selected_run and include_data:
+            run_data = await fetch_stl_run_data(self.pool, selected_run["id"])
+            if run_data:
+                rows = run_data["rows"]
+                if limit and limit > 0:
+                    rows = rows[-limit:]
+                selected_run = run_data["run"]
+        selected_run_serialized = _serialize_run(selected_run)
+
+        response_runs = [_serialize_run(run) for run in runs] if include_runs else []
+        dataset_payload = {
+            "start_ts": _dt_to_iso(dataset_range["start_ts"]),
+            "end_ts": _dt_to_iso(dataset_range["end_ts"]),
+            "rows_count": dataset_range["rows_count"],
+        }
+        target_payload = {
+            "start_ts": _dt_to_iso(target_start),
+            "end_ts": _dt_to_iso(target_end),
+            "all_data": all_data_flag,
+        }
+
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(
@@ -1047,9 +1234,14 @@ class STLHandler(tornado.web.RequestHandler):
                     "ok": True,
                     "symbol": symbol,
                     "timeframe": timeframe,
-                    "period": data.get("period"),
-                    "updated": data.get("updated"),
-                    "rows": data.get("rows", []),
+                    "runs": response_runs,
+                    "rows": rows,
+                    "selected_run_id": selected_run_serialized["id"] if selected_run_serialized else None,
+                    "selected_run": selected_run_serialized,
+                    "dataset": dataset_payload,
+                    "target_range": target_payload,
+                    "needs_compute": needs_compute,
+                    "reason": reason,
                 }
             )
         )
@@ -1083,6 +1275,10 @@ class STLComputeHandler(tornado.web.RequestHandler):
             period_override = int(period_override) if period_override is not None else None
         except (TypeError, ValueError):
             period_override = None
+
+        all_data_flag = str(payload.get("all_data", "1")).lower() not in ("0", "false", "no", "off")
+        start_dt = None if all_data_flag else _normalize_dt(payload.get("start") or payload.get("start_ts"))
+        end_dt = None if all_data_flag else _normalize_dt(payload.get("end") or payload.get("end_ts"))
 
         timeframes = payload.get("timeframes")
         if isinstance(timeframes, str):
@@ -1130,6 +1326,8 @@ class STLComputeHandler(tornado.web.RequestHandler):
         async def runner():
             logger.info("[stl] starting %d jobs scope=%s period=%s", len(tasks), scope, period_override)
             for sym, tf in tasks:
+                event_start = _dt_to_iso(start_dt) if scope in ("current", "single") else None
+                event_end = _dt_to_iso(end_dt) if scope in ("current", "single") else None
                 await emit_stl_event(
                     symbol=sym,
                     timeframe=tf,
@@ -1137,6 +1335,8 @@ class STLComputeHandler(tornado.web.RequestHandler):
                     status="scheduled",
                     scope=scope,
                     background=True,
+                    start_ts=event_start,
+                    end_ts=event_end,
                 )
                 try:
                     result = await _compute_and_store_stl(
@@ -1144,7 +1344,8 @@ class STLComputeHandler(tornado.web.RequestHandler):
                         sym,
                         tf,
                         period=period_override,
-                        limit=limit,
+                        start_dt=start_dt if scope in ("current", "single") else None,
+                        end_dt=end_dt if scope in ("current", "single") else None,
                     )
                     logger.info(
                         "[stl] %s %s completed period=%s points=%s inserted=%s",
@@ -1163,6 +1364,10 @@ class STLComputeHandler(tornado.web.RequestHandler):
                         background=True,
                         points=result.get("points"),
                         note=f"inserted={result.get('inserted')}",
+                        run_id=result.get("run_id"),
+                        start_ts=result.get("start_ts"),
+                        end_ts=result.get("end_ts"),
+                        created_at=result.get("created_at"),
                     )
                 except Exception as exc:
                     logger.warning("[stl] %s %s failed: %s", sym, tf, exc)
@@ -1173,6 +1378,8 @@ class STLComputeHandler(tornado.web.RequestHandler):
                         status="error",
                         scope=scope,
                         background=True,
+                        start_ts=event_start,
+                        end_ts=event_end,
                         error=str(exc),
                     )
                 await asyncio.sleep(0.05)
@@ -1193,6 +1400,27 @@ class STLComputeHandler(tornado.web.RequestHandler):
                 }
             )
         )
+
+
+class STLDeleteHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def delete(self, run_id: str):
+        try:
+            run_id_int = int(run_id)
+        except (TypeError, ValueError):
+            self.set_status(400)
+            self.finish(json.dumps({"ok": False, "error": "invalid run id"}))
+            return
+        deleted = await delete_stl_run(self.pool, run_id_int)
+        if deleted == 0:
+            self.set_status(404)
+            self.finish(json.dumps({"ok": False, "error": "run not found"}))
+            return
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "run_id": run_id_int}))
 
 
 class PreferencesHandler(tornado.web.RequestHandler):

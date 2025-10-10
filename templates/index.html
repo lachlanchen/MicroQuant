@@ -44,6 +44,8 @@
     .btn:disabled { opacity: 0.6; cursor: default; }
     .grid { display:grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items:start; }
     pre { margin:0; }
+    .switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; user-select:none; }
+    .switch input[type="checkbox"] { width:18px; height:18px; accent-color: var(--accent); cursor:pointer; }
   </style>
   <link rel="icon" href="data:," />
   </head>
@@ -145,6 +147,27 @@
               <button class="btn secondary" id="btnStlAll" style="padding:6px 10px;">All</button>
             </div>
           </div>
+          <div class="row" style="gap:10px; margin-top:8px; flex-wrap:wrap;">
+            <label class="switch">
+              <input type="checkbox" id="chkStlAllData" checked />
+              <span>Use all data</span>
+            </label>
+            <label>From
+              <input type="datetime-local" id="stlStart" disabled />
+            </label>
+            <label>To
+              <input type="datetime-local" id="stlEnd" disabled />
+            </label>
+          </div>
+          <div class="row" style="gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <label style="flex:1; min-width:220px;">
+              Saved runs
+              <select id="stlRuns" style="width:100%;">
+                <option value="">Latest (auto)</option>
+              </select>
+            </label>
+            <button class="btn secondary" id="btnStlDelete" style="padding:6px 10px;" disabled>Delete</button>
+          </div>
           <div id="stlStatus" style="font-size:13px; color:var(--muted); margin-top:6px;">STL overlay not loaded yet.</div>
         </div>
         <!-- Strategy panel -->
@@ -196,6 +219,83 @@
       let stlSeasonSeries = null;
       let stlResidSeries = null;
       let stlLastMeta = null;
+      let stlLastRows = [];
+      let stlAllData = true;
+      let stlPendingCompute = false;
+      let stlDatasetRange = null;
+      let stlSelectedRunId = null;
+      let stlTargetStart = null;
+      let stlTargetEnd = null;
+      const stlAllToggle = el('chkStlAllData');
+      const stlStartInput = el('stlStart');
+      const stlEndInput = el('stlEnd');
+      const stlRunsSelect = el('stlRuns');
+      const stlDeleteBtn = el('btnStlDelete');
+
+      const isoToLocalInput = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
+        const offset = d.getTimezoneOffset();
+        const local = new Date(d.getTime() - offset * 60000);
+        return local.toISOString().slice(0, 16);
+      };
+
+      const localInputToIso = (value) => {
+        if (!value) return null;
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return null;
+        return d.toISOString();
+      };
+
+      const formatDateShort = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toISOString().slice(0, 10);
+      };
+
+      const formatDateTime = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toISOString().slice(0, 16).replace('T', ' ');
+      };
+
+      const updateStlInputsFromState = () => {
+        if (stlAllToggle) stlAllToggle.checked = stlAllData;
+        if (stlStartInput) {
+          stlStartInput.disabled = stlAllData;
+          stlStartInput.value = stlAllData ? '' : isoToLocalInput(stlTargetStart);
+          if (stlDatasetRange && stlDatasetRange.start_ts) stlStartInput.min = isoToLocalInput(stlDatasetRange.start_ts);
+          if (stlDatasetRange && stlDatasetRange.end_ts) stlStartInput.max = isoToLocalInput(stlDatasetRange.end_ts);
+        }
+        if (stlEndInput) {
+          stlEndInput.disabled = stlAllData;
+          stlEndInput.value = stlAllData ? '' : isoToLocalInput(stlTargetEnd);
+          if (stlDatasetRange && stlDatasetRange.start_ts) stlEndInput.min = isoToLocalInput(stlDatasetRange.start_ts);
+          if (stlDatasetRange && stlDatasetRange.end_ts) stlEndInput.max = isoToLocalInput(stlDatasetRange.end_ts);
+        }
+        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
+      };
+
+      const populateStlRuns = (runs, selectedId) => {
+        if (!stlRunsSelect) return;
+        stlRunsSelect.innerHTML = '';
+        const defaultOption = new Option('Latest (auto)', '');
+        stlRunsSelect.appendChild(defaultOption);
+        if (Array.isArray(runs)) {
+          runs.forEach((run) => {
+            if (!run) return;
+            const label = `${formatDateShort(run.start_ts)} → ${formatDateShort(run.end_ts)} • P${run.period}`;
+            const opt = new Option(label, String(run.id));
+            if (selectedId && String(run.id) === String(selectedId)) opt.selected = true;
+            stlRunsSelect.appendChild(opt);
+          });
+        }
+        if (!selectedId) stlRunsSelect.value = '';
+        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlRunsSelect.value;
+      };
 
       function makeChart(type) {
         curType = type;
@@ -210,6 +310,7 @@
             data: { labels: [], datasets: [{ label: 'Close', data: [], borderColor: '#1976d2', tension: 0.1, fill: false }] },
             options: { scales: { x: { type: 'time', time: { unit: 'hour' } }, y: { beginAtZero: false } } }
           });
+          clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
           return chart;
         }
         canvas.style.display = 'none';
@@ -243,54 +344,11 @@
             height: rectInit.height || lwContainer.clientHeight || 400
           });
         }
+        if (stlLastRows.length && stlLastMeta) {
+          applyStlData(stlLastRows.slice(), stlLastMeta);
+        }
         return lwChart;
       }
-
-      makeChart(curType);
-
-      const PREF_DEBOUNCE_MS = 400;
-      let prefBuffer = {};
-      let prefTimer = null;
-
-      async function flushPrefs() {
-        const payload = { ...prefBuffer };
-        prefBuffer = {};
-        prefTimer = null;
-        const keys = Object.keys(payload);
-        if (!keys.length) return;
-        try {
-          await fetch('/api/preferences', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            cache: 'no-store'
-          });
-          console.log('[Prefs] saved', keys.join(', '));
-        } catch (err) {
-          console.warn('[Prefs] save failed', err);
-        }
-      }
-
-      function queuePrefUpdate(key, value) {
-        if (!key) return;
-        prefBuffer[key] = value;
-        if (prefTimer) clearTimeout(prefTimer);
-        prefTimer = setTimeout(() => { flushPrefs(); }, PREF_DEBOUNCE_MS);
-      }
-
-      const currentSymbol = () => el('symbol').value.trim().toUpperCase();
-      const currentTf = () => el('tf').value.toUpperCase();
-      let wsRefreshTimer = null;
-
-      function scheduleChartRefresh(reason) {
-        if (wsRefreshTimer) clearTimeout(wsRefreshTimer);
-        wsRefreshTimer = setTimeout(() => {
-          wsRefreshTimer = null;
-          refreshChart();
-        }, 250);
-        console.log('[WS] refresh queued:', reason);
-      }
-
       function handleFetchEvent(data) {
         if (!data) return;
         console.log('[WS] fetch event', data);
@@ -324,6 +382,11 @@
       function handleStlEvent(data) {
         if (!data) return;
         const desc = `${data.symbol} ${data.timeframe}`;
+        const sameSymbol = data.symbol === currentSymbol();
+        const sameTf = data.timeframe === currentTf();
+        if (sameSymbol && sameTf && data.status === 'scheduled') {
+          stlPendingCompute = true;
+        }
         const box = el('stlStatus');
         if (data.status === 'scheduled') {
           if (box) box.textContent = `STL job scheduled (${desc})...`;
@@ -334,22 +397,25 @@
           const message = `STL error (${desc}): ${data.error || 'unknown'}`;
           if (box) box.textContent = message;
           status(message);
+          if (sameSymbol && sameTf) {
+            stlPendingCompute = false;
+            refreshStlOverlay({ autoCompute: false });
+          }
           return;
         }
-        const metaInfo = `period ${data.period || '—'}${data.points ? `, points ${data.points}` : ''}`;
+        const rangeInfo = data.start_ts && data.end_ts ? `, ${formatDateShort(data.start_ts)} → ${formatDateShort(data.end_ts)}` : '';
+        const metaInfo = `period ${data.period || '—'}${rangeInfo}${data.points ? `, points ${data.points}` : ''}`;
         const note = data.note ? ` • ${data.note}` : '';
         if (box) box.textContent = `STL ${data.status} (${desc}, ${metaInfo}${note})`;
-        const sameSymbol = data.symbol === currentSymbol();
-        const sameTf = data.timeframe === currentTf();
-        if (data.status === 'completed' && sameSymbol && sameTf) {
+        if (sameSymbol && sameTf && data.status === 'completed') {
+          stlPendingCompute = false;
+          if (data.run_id) stlSelectedRunId = data.run_id;
           status(`STL updated (${desc}, ${metaInfo})`);
-          refreshStlOverlay();
-        }
-        if (!sameSymbol || !sameTf) {
+          refreshStlOverlay({ runId: data.run_id || null, autoCompute: false });
+        } else if (!sameSymbol || !sameTf) {
           status(`STL ${data.status} (${desc}${note ? `, ${data.note}` : ''})`);
         }
       }
-
       function ensureStlSeries() {
         if (!lwChart) return;
         const dotted = (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dotted !== undefined)
@@ -388,24 +454,16 @@
         });
       }
 
-      function clearStlOverlay(message) {
-        if (stlTrendSeries) stlTrendSeries.setData([]);
-        if (stlSeasonSeries) stlSeasonSeries.setData([]);
-        if (stlResidSeries) stlResidSeries.setData([]);
-        stlLastMeta = null;
-        if (lwChart) {
-          lwChart.priceScale('left').applyOptions({ visible: false });
-        }
-        if (message) {
-          const box = el('stlStatus');
-          if (box) box.textContent = message;
-        }
-      }
-
       function applyStlData(rows, meta) {
         const box = el('stlStatus');
         if (!rows || !rows.length) {
           clearStlOverlay('No STL data cached yet. Use Recalculate to compute.');
+          return;
+        }
+        stlLastRows = rows.slice();
+        stlLastMeta = meta || null;
+        if (curType === 'line') {
+          clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
           return;
         }
         ensureStlSeries();
@@ -422,42 +480,202 @@
         if (trendData.length && stlTrendSeries) stlTrendSeries.setData(trendData);
         if (seasonalData.length && stlSeasonSeries) stlSeasonSeries.setData(seasonalData);
         if (residData.length && stlResidSeries) stlResidSeries.setData(residData);
-        stlLastMeta = meta || null;
         if (box) {
-          const updated = meta && meta.updated ? ` • updated ${meta.updated}` : '';
-          box.textContent = `STL period ${meta && meta.period ? meta.period : '—'} • ${rows.length} points${updated}`;
+          const periodLabel = meta && meta.period ? meta.period : '—';
+          const rangeLabel = meta && meta.start_ts && meta.end_ts ? ` • ${formatDateShort(meta.start_ts)} → ${formatDateShort(meta.end_ts)}` : '';
+          const updatedIso = meta && (meta.updated || meta.created_at);
+          const updatedLabel = updatedIso ? ` • run ${formatDateTime(updatedIso)}` : '';
+          box.textContent = `STL period ${periodLabel}${rangeLabel} • ${rows.length} points${updatedLabel}`;
         }
       }
-
-      async function refreshStlOverlay() {
-        const statusBox = el('stlStatus');
-        if (!statusBox) return;
-        if (curType === 'line') {
-          clearStlOverlay('Switch to candlestick view to see STL overlay.');
-          return;
+      function ensureStlSeries() {
+        if (!lwChart) return;
+        const dotted = (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dotted !== undefined)
+          ? LightweightCharts.LineStyle.Dotted
+          : (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Solid !== undefined
+              ? LightweightCharts.LineStyle.Solid
+              : 2);
+        if (!stlTrendSeries) {
+          stlTrendSeries = lwChart.addLineSeries({
+            color: '#ff9800',
+            lineWidth: 2,
+            priceScaleId: 'right',
+            title: 'Trend',
+          });
         }
+        if (!stlSeasonSeries) {
+          stlSeasonSeries = lwChart.addLineSeries({
+            color: '#03a9f4',
+            lineWidth: 1,
+            priceScaleId: 'left',
+            title: 'Seasonal',
+          });
+        }
+        if (!stlResidSeries) {
+          stlResidSeries = lwChart.addLineSeries({
+            color: '#9c27b0',
+            lineWidth: 1,
+            lineStyle: dotted,
+            priceScaleId: 'left',
+            title: 'Residual',
+          });
+        }
+        lwChart.priceScale('left').applyOptions({
+          visible: true,
+          scaleMargins: { top: 0.8, bottom: 0.05 },
+        });
+      }
+
+      function clearStlOverlay(message, preserveData = false) {
+        if (stlTrendSeries) stlTrendSeries.setData([]);
+        if (stlSeasonSeries) stlSeasonSeries.setData([]);
+        if (stlResidSeries) stlResidSeries.setData([]);
+        if (!preserveData) {
+          stlLastRows = [];
+          stlLastMeta = null;
+        } else if (!stlLastMeta) {
+          stlLastRows = [];
+        }
+        if (lwChart) {
+          lwChart.priceScale('left').applyOptions({ visible: false });
+        }
+        if (message) {
+          const box = el('stlStatus');
+          if (box) box.textContent = message;
+        }
+      }
+      async function refreshStlOverlay(options = {}) {
+        const { runId = stlSelectedRunId, autoCompute = true } = options || {};
+        const statusBox = el('stlStatus');
         const symbol = currentSymbol();
         const tf = currentTf();
+        if (!symbol || !tf) return;
+        let startIso = stlAllData ? null : stlTargetStart;
+        let endIso = stlAllData ? null : stlTargetEnd;
+        if (!stlAllData) {
+          if (!startIso && stlStartInput && stlStartInput.value) startIso = localInputToIso(stlStartInput.value);
+          if (!endIso && stlEndInput && stlEndInput.value) endIso = localInputToIso(stlEndInput.value);
+          if (!startIso || !endIso) {
+            clearStlOverlay('Select a start and end datetime for STL.');
+            if (statusBox) statusBox.textContent = 'Select a start and end datetime for STL.';
+            return;
+          }
+          if (new Date(startIso) >= new Date(endIso)) {
+            clearStlOverlay('STL start must be before end.');
+            status('STL range invalid: start must be before end.');
+            return;
+          }
+          stlTargetStart = startIso;
+          stlTargetEnd = endIso;
+        }
         try {
-          const r = await fetch(`/api/stl?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}`, { cache: 'no-store' });
+          const params = new URLSearchParams({
+            symbol,
+            tf,
+            include_runs: '1',
+            include_data: '1',
+            all_data: stlAllData ? '1' : '0',
+          });
+          if (!stlAllData) {
+            params.set('start', stlTargetStart);
+            params.set('end', stlTargetEnd);
+          }
+          if (runId) params.set('run_id', String(runId));
+          const limit = Math.max(10, Number(el('count').value) || 500);
+          params.set('limit', String(limit));
+          const r = await fetch(`/api/stl?${params.toString()}`, { cache: 'no-store' });
           const js = await r.json().catch(() => ({}));
-          if (r.ok && js.ok && Array.isArray(js.rows) && js.rows.length) {
-            applyStlData(js.rows, { period: js.period, updated: js.updated, symbol: js.symbol, timeframe: js.timeframe });
+          if (!r.ok || !js.ok) {
+            const message = `STL fetch failed: ${js.error || r.statusText}`;
+            status(message);
+            clearStlOverlay(message);
+            return;
+          }
+          stlDatasetRange = js.dataset || stlDatasetRange;
+          if (js.target_range) {
+            stlAllData = !!js.target_range.all_data;
+            stlTargetStart = js.target_range.start_ts || stlTargetStart;
+            stlTargetEnd = js.target_range.end_ts || stlTargetEnd;
+          } else if (stlAllData && stlDatasetRange) {
+            stlTargetStart = stlDatasetRange.start_ts;
+            stlTargetEnd = stlDatasetRange.end_ts;
+          }
+          updateStlInputsFromState();
+          if (Array.isArray(js.runs)) {
+            populateStlRuns(js.runs, js.selected_run_id || runId || null);
+          }
+          stlSelectedRunId = js.selected_run_id || runId || null;
+          if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
+          const runMeta = js.selected_run
+            ? {
+                id: js.selected_run.id,
+                period: js.selected_run.period,
+                start_ts: js.selected_run.start_ts,
+                end_ts: js.selected_run.end_ts,
+                updated: js.selected_run.created_at,
+                created_at: js.selected_run.created_at,
+              }
+            : null;
+          if (js.rows && js.rows.length) {
+            if (curType === 'line') {
+              stlLastRows = js.rows.slice();
+              stlLastMeta = runMeta;
+              clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
+            } else {
+              applyStlData(js.rows, runMeta);
+            }
           } else {
-            clearStlOverlay('No STL data cached yet. Use Recalculate to compute.');
+            const reason = js.reason || (js.needs_compute ? 'needs_compute' : 'no_rows');
+            const message =
+              reason === 'range_mismatch'
+                ? 'No STL run covers the requested range. Use Recalculate to compute.'
+                : reason === 'dataset_extended'
+                  ? 'New data detected. Re-run STL to refresh.'
+                  : 'No STL data cached yet. Use Recalculate to compute.';
+            clearStlOverlay(message);
+            if (statusBox) statusBox.textContent = message;
+          }
+          if (js.needs_compute && autoCompute) {
+            if (!stlPendingCompute) {
+              stlPendingCompute = true;
+              triggerStl('current');
+            }
+          } else if (!js.needs_compute) {
+            stlPendingCompute = false;
           }
         } catch (err) {
           console.warn('STL fetch failed', err);
           clearStlOverlay('STL fetch failed.');
+          status('STL fetch failed.');
         }
       }
-
       async function triggerStl(scope) {
         const symbol = currentSymbol();
         const tf = currentTf();
         queuePrefUpdate('last_symbol', symbol);
         queuePrefUpdate('last_tf', tf);
         const payload = { scope, symbol, timeframe: tf };
+        if (scope === 'current' || scope === 'single') {
+          payload.all_data = stlAllData ? 1 : 0;
+          if (!stlAllData) {
+            const startIso = stlTargetStart || (stlStartInput && stlStartInput.value ? localInputToIso(stlStartInput.value) : null);
+            const endIso = stlTargetEnd || (stlEndInput && stlEndInput.value ? localInputToIso(stlEndInput.value) : null);
+            if (!startIso || !endIso) {
+              status('Select a start and end datetime before recalculating STL.');
+              return;
+            }
+            if (new Date(startIso) >= new Date(endIso)) {
+              status('STL range invalid: start must be before end.');
+              return;
+            }
+            payload.start = startIso;
+            payload.end = endIso;
+            stlTargetStart = startIso;
+            stlTargetEnd = endIso;
+          }
+        } else {
+          payload.all_data = 1;
+        }
         if (scope === 'symbol_all_tf') {
           payload.timeframes = ALL_TFS;
         } else if (scope === 'timeframe_all_symbols') {
@@ -468,6 +686,7 @@
         }
         const box = el('stlStatus');
         if (box) box.textContent = `Scheduling STL (${scope})...`;
+        stlPendingCompute = true;
         try {
           const r = await fetch('/api/stl/compute', {
             method: 'POST',
@@ -480,6 +699,7 @@
             const message = js.error || r.statusText;
             if (box) box.textContent = `STL schedule failed: ${message}`;
             status(`STL schedule failed: ${message}`);
+            stlPendingCompute = false;
           } else {
             status(`STL tasks scheduled (${js.scheduled} jobs, scope ${js.scope})`);
           }
@@ -487,9 +707,9 @@
           console.error('STL schedule failed', err);
           if (box) box.textContent = `STL schedule failed: ${err.message || err}`;
           status(`STL schedule failed: ${err.message || err}`);
+          stlPendingCompute = false;
         }
       }
-
       function connectUpdates(retryDelay = 2000) {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const wsUrl = `${proto}://${window.location.host}/ws/updates`;
@@ -556,7 +776,7 @@
             lwChart.timeScale().fitContent();
           }
           status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
-          await refreshStlOverlay();
+          await refreshStlOverlay({ autoCompute: true });
         } catch (err) {
           console.error('Refresh failed', err);
           status('Refresh failed');
@@ -631,6 +851,10 @@
       el('btnRefresh').addEventListener('click', refreshChart);
       // Auto-fetch when user changes symbol or timeframe
       el('symbol').addEventListener('change', async () => {
+        stlSelectedRunId = null;
+        stlPendingCompute = false;
+        stlLastRows = [];
+        stlLastMeta = null;
         queuePrefUpdate('last_symbol', currentSymbol());
         try {
           console.log('[App] Auto-fetch on symbol change');
@@ -644,6 +868,10 @@
       });
       const tfSel = document.getElementById('tf');
       if (tfSel) tfSel.addEventListener('change', async () => {
+        stlSelectedRunId = null;
+        stlPendingCompute = false;
+        stlLastRows = [];
+        stlLastMeta = null;
         queuePrefUpdate('last_tf', currentTf());
         try {
           console.log('[App] Auto-fetch on timeframe change');
@@ -678,6 +906,65 @@
       if (btnStlTfAll) btnStlTfAll.addEventListener('click', () => triggerStl('timeframe_all_symbols'));
       const btnStlAll = el('btnStlAll');
       if (btnStlAll) btnStlAll.addEventListener('click', () => triggerStl('all'));
+      if (stlAllToggle) stlAllToggle.addEventListener('change', () => {
+        stlAllData = !!stlAllToggle.checked;
+        if (stlAllData && stlDatasetRange) {
+          stlTargetStart = stlDatasetRange.start_ts;
+          stlTargetEnd = stlDatasetRange.end_ts;
+        }
+        updateStlInputsFromState();
+        refreshStlOverlay({ autoCompute: true });
+      });
+      if (stlStartInput) stlStartInput.addEventListener('change', () => {
+        if (stlAllData) return;
+        const iso = localInputToIso(stlStartInput.value);
+        if (!iso) { status('Invalid STL start time.'); return; }
+        stlTargetStart = iso;
+        if (stlTargetEnd && new Date(stlTargetStart) >= new Date(stlTargetEnd)) {
+          status('STL range invalid: start must be before end.');
+          return;
+        }
+        refreshStlOverlay({ autoCompute: true });
+      });
+      if (stlEndInput) stlEndInput.addEventListener('change', () => {
+        if (stlAllData) return;
+        const iso = localInputToIso(stlEndInput.value);
+        if (!iso) { status('Invalid STL end time.'); return; }
+        stlTargetEnd = iso;
+        if (stlTargetStart && new Date(stlTargetStart) >= new Date(stlTargetEnd)) {
+          status('STL range invalid: start must be before end.');
+          return;
+        }
+        refreshStlOverlay({ autoCompute: true });
+      });
+      if (stlRunsSelect) stlRunsSelect.addEventListener('change', () => {
+        stlSelectedRunId = stlRunsSelect.value ? Number(stlRunsSelect.value) : null;
+        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
+        refreshStlOverlay({ runId: stlSelectedRunId, autoCompute: false });
+      });
+      if (stlDeleteBtn) stlDeleteBtn.addEventListener('click', async () => {
+        const selected = stlRunsSelect && stlRunsSelect.value ? stlRunsSelect.value : '';
+        if (!selected) {
+          status('Select a saved STL run to delete.');
+          return;
+        }
+        if (typeof window.confirm === 'function' && !window.confirm(`Delete STL run ${selected}?`)) return;
+        try {
+          const resp = await fetch(`/api/stl/run/${encodeURIComponent(selected)}`, { method: 'DELETE', cache: 'no-store' });
+          const js = await resp.json().catch(() => ({}));
+          if (!resp.ok || !js.ok) {
+            status(`Delete failed: ${js.error || resp.statusText}`);
+          } else {
+            status(`Deleted STL run ${selected}`);
+            stlSelectedRunId = null;
+            stlLastRows = [];
+            stlLastMeta = null;
+            refreshStlOverlay({ autoCompute: true });
+          }
+        } catch (err) {
+          status(`Delete failed: ${err.message || err}`);
+        }
+      });
       const volumeInput = el('volume');
       if (volumeInput) volumeInput.addEventListener('change', () => queuePrefUpdate('last_volume', volumeInput.value));
       const slInput = el('sl');
@@ -1003,6 +1290,7 @@
       const btnNews = document.getElementById('btnNews');
       if (btnNews) btnNews.addEventListener('click', refreshNews);
 
+      updateStlInputsFromState();
       refreshChart();
       refreshNews();
     </script>
