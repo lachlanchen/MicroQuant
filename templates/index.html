@@ -8,16 +8,67 @@
   <!-- Time scale adapter for Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
+  <!-- Candlestick plugin (auto-register build) -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@3.3.0/dist/chartjs-chart-financial.min.js"></script>
+  <script>
+    // Debug registration info
+    (function(){
+      const C = window.Chart; const fin = window['chartjs-chart-financial'];
+      console.info('[ChartJS] Chart version', C && C.version);
+      console.info('[ChartJS] Financial plugin present?', !!fin);
+      // Auto build should already register; mark a flag for our checks
+      window.__finReg = true;
+    })();
+  </script>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    #status { margin-top: 8px; color: #555; }
-    #chart-wrap { max-width: 1000px; }
+    :root {
+      --gold: #d4a017;
+      --accent: #1976d2; /* vivid blue */
+      --accent2: #ff9800; /* orange */
+      --buy: #2ecc71; /* green */
+      --sell: #e74c3c; /* red */
+      --muted: #555;
+      --bg: #ffffff;
+      --panel: #f7f9fc;
+      --text: #111;
+      --line: #e0e6ef;
+    }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    header { display:flex; justify-content:space-between; align-items:center; padding: 12px 20px; background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; }
+    header h2 { margin: 0; font-weight: 600; }
+    #ticker { font-variant-numeric: tabular-nums; }
+    .container { padding: 16px 20px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    label { color: var(--muted); }
+    input, select { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+    #status { margin-top: 8px; color: var(--muted); }
+    #chart-wrap { max-width: 1100px; background: var(--panel); padding: 12px; border:1px solid var(--line); border-radius: 8px; }
+    .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
+    .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+    .btn.secondary { background: #607d8b; }
+    .btn-buy { background: var(--buy); font-weight:600; }
+    .btn-sell { background: var(--sell); font-weight:600; }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    .grid { display:grid; grid-template-columns: 1fr 360px; gap: 16px; align-items:start; }
+    pre { margin:0; }
   </style>
   <link rel="icon" href="data:," />
   </head>
   <body>
-    <h2>MT5 Gold Data — Starter</h2>
+    <header>
+      <h2>MT5 Gold Data — Starter</h2>
+      <div style="display:flex; gap:16px; align-items:center;">
+        <div id="signalBar" style="display:flex; gap:8px; align-items:center;">
+          <span id="signalDot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#999;"></span>
+          <span id="signalText">Signal: —</span>
+          <button class="btn secondary" id="btnRunStratTop" style="padding:6px 10px">Run</button>
+          <button class="btn secondary" id="btnAutoStrat" style="padding:6px 10px">Auto Off</button>
+          <button class="btn" id="btnTradeSignalTop" style="padding:6px 10px" disabled>Trade Signal</button>
+        </div>
+        <div id="ticker">—</div>
+      </div>
+    </header>
+    <div class="container">
     <div class="row">
       <label>Symbol
         <input id="symbol" value="XAUUSD" />
@@ -36,10 +87,53 @@
       <label>Bars
         <input id="count" type="number" min="10" max="5000" value="500" />
       </label>
-      <button id="btnFetch">Fetch + Save</button>
-      <button id="btnRefresh">Refresh Chart</button>
+      <label>Volume
+        <input id="volume" type="number" step="0.01" min="0.01" value="0.10" />
+      </label>
+      <label>SL (price)
+        <input id="sl" type="number" step="0.01" min="0" placeholder="optional" />
+      </label>
+      <label>TP (price)
+        <input id="tp" type="number" step="0.01" min="0" placeholder="optional" />
+      </label>
+      <span class="pill">
+        Chart:
+        <label><input type="radio" name="ctype" value="line" checked> Line</label>
+        <label><input type="radio" name="ctype" value="candlestick"> Candlestick</label>
+      </span>
+      <button class="btn" id="btnFetch">Fetch + Save</button>
+      <button class="btn secondary" id="btnRefresh">Refresh</button>
+      <button class="btn secondary" id="btnAuto">Start Auto</button>
+      <button class="btn btn-buy" id="btnBuy">Buy</button>
+      <button class="btn btn-sell" id="btnSell">Sell</button>
+      <button class="btn secondary" id="btnClose">Close All</button>
     </div>
     <div id="status"></div>
+
+    <div class="grid">
+      <div>
+        <div id="chart-wrap">
+          <canvas id="chart" height="400"></canvas>
+        </div>
+        <div style="margin-top:12px; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; max-width:1100px;">
+          <div class="row">
+            <strong style="color:var(--accent)">Strategy: SMA Crossover</strong>
+            <label>Fast <input id="fast" type="number" min="2" value="20" /></label>
+            <label>Slow <input id="slow" type="number" min="3" value="50" /></label>
+            <button class="btn" id="btnRunStrat">Run Strategy</button>
+            <button class="btn secondary" id="btnTradeSignal" disabled>Trade Signal</button>
+          </div>
+          <div id="stratStatus" style="color:var(--muted)">Signal: —</div>
+        </div>
+      </div>
+      <div>
+        <div class="row">
+          <button class="btn secondary" id="btnPos">Refresh Positions</button>
+        </div>
+        <pre id="positionsBox" style="background:var(--panel); padding:8px; border:1px solid var(--accent); border-radius:8px; height:400px; overflow:auto;"></pre>
+      </div>
+    </div>
+    </div>
 
     <div id="chart-wrap">
       <canvas id="chart" height="400"></canvas>
@@ -49,26 +143,43 @@
       const el = (id) => document.getElementById(id);
       const status = (msg) => el('status').textContent = msg || '';
 
+      let curType = 'line';
       const ctx = document.getElementById('chart');
-      const chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: [],
-          datasets: [{
-            label: 'Close',
-            data: [],
-            borderColor: '#d4a017',
-            tension: 0.1,
-            fill: false,
-          }]
-        },
-        options: {
-          scales: {
-            x: { type: 'time', time: { unit: 'hour' } },
-            y: { beginAtZero: false }
-          }
+      let chart = null; // initialize first to avoid TDZ during makeChart
+
+      function makeChart(type) {
+        if (chart) { chart.destroy(); chart = null; }
+        const existing = Chart.getChart(ctx);
+        if (existing) { existing.destroy(); }
+        if (type === 'candlestick' && !window.__finReg) {
+          console.warn('[ChartJS] Financial plugin not registered; falling back to line');
+          type = 'line';
         }
-      });
+        const cfg = (type === 'line') ? {
+          type: 'line',
+          data: { labels: [], datasets: [{ label: 'Close', data: [], borderColor: '#1976d2', tension: 0.1, fill: false }] },
+          options: { scales: { x: { type: 'time', time: { unit: 'hour' } }, y: { beginAtZero: false } } }
+        } : {
+          type: 'candlestick',
+          data: { datasets: [{ label: 'OHLC', data: [] /* colors supplied by plugin defaults */ }] },
+          options: { scales: { x: { type: 'time' }, y: { beginAtZero: false } } }
+        };
+        try {
+          chart = new Chart(ctx, cfg);
+        } catch (e) {
+          console.error('[ChartJS] Chart creation failed, retrying as line. Error:', e);
+          const fallback = {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Close', data: [], borderColor: '#1976d2', tension: 0.1, fill: false }] },
+            options: { scales: { x: { type: 'time', time: { unit: 'hour' } }, y: { beginAtZero: false } } }
+          };
+          chart = new Chart(ctx, fallback);
+          curType = 'line';
+        }
+        return chart;
+      }
+
+      chart = makeChart('line');
 
       async function refreshChart() {
         const symbol = el('symbol').value.trim();
@@ -77,8 +188,12 @@
         const r = await fetch(`/api/data?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&limit=500`);
         const js = await r.json();
         const rows = js.rows || [];
-        chart.data.labels = rows.map(r => r.ts);
-        chart.data.datasets[0].data = rows.map(r => r.close);
+        if (curType === 'line') {
+          chart.data.labels = rows.map(r => r.ts);
+          chart.data.datasets[0].data = rows.map(r => r.close);
+        } else {
+          chart.data.datasets[0].data = rows.map(r => ({ x: r.ts, o: r.open, h: r.high, l: r.low, c: r.close }));
+        }
         chart.update();
         status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
       }
@@ -98,8 +213,168 @@
         }
       }
 
+      // Controls
       el('btnFetch').addEventListener('click', fetchAndSave);
       el('btnRefresh').addEventListener('click', refreshChart);
+      document.querySelectorAll('input[name="ctype"]').forEach(r => r.addEventListener('change', (e) => {
+        curType = e.target.value;
+        chart = makeChart(curType);
+        refreshChart();
+      }));
+
+      let autoTimer = null;
+      el('btnAuto').addEventListener('click', async () => {
+        if (autoTimer) {
+          clearInterval(autoTimer);
+          autoTimer = null;
+          el('btnAuto').textContent = 'Start Auto';
+          status('Auto stopped');
+        } else {
+          const tf = el('tf').value;
+          const ms = tf.startsWith('M') ? 60_000 : (tf.startsWith('H') ? 60*60_000 : 15*60_000);
+          autoTimer = setInterval(fetchAndSave, ms);
+          el('btnAuto').textContent = 'Stop Auto';
+          status('Auto started');
+        }
+      });
+
+      async function trade(side) {
+        const symbol = el('symbol').value.trim();
+        const volume = el('volume').value;
+        status(`${side.toUpperCase()} submitting...`);
+        const sl = el('sl').value; const tp = el('tp').value;
+        const body = new URLSearchParams({ symbol, side, volume, sl, tp });
+        const r = await fetch(`/api/trade`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
+        const js = await r.json().catch(() => ({}));
+        if (js.ok) {
+          status(`${side.toUpperCase()} ok: ${JSON.stringify(js.result)}`);
+          await refreshChart();
+          await refreshPositions();
+        } else {
+          status(`Trade error: ${js.error || r.statusText}`);
+        }
+      }
+
+      async function closeAll() {
+        const symbol = el('symbol').value.trim();
+        status('Closing positions...');
+        const body = new URLSearchParams({ symbol });
+        const r = await fetch(`/api/close`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
+        const js = await r.json().catch(() => ({}));
+        if (js.ok) {
+          status(`Closed positions: ${JSON.stringify(js.closed)}`);
+          await refreshChart();
+          await refreshPositions();
+        } else {
+          status(`Close error: ${js.error || r.statusText}`);
+        }
+      }
+
+      async function refreshPositions() {
+        const symbol = el('symbol').value.trim();
+        const r = await fetch(`/api/positions?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+        const js = await r.json().catch(() => ({}));
+        if (js.ok) {
+          const list = (js.positions || []).map(p => `#${p.ticket} ${p.type===0?'BUY':'SELL'} vol=${p.volume} @ ${p.price_open} pnl=${p.profit}`);
+          el('positionsBox').textContent = list.length ? list.join('\n') : 'No open positions.';
+        } else {
+          el('positionsBox').textContent = `Positions error: ${js.error || r.statusText}`;
+        }
+      }
+
+      el('btnBuy').addEventListener('click', () => trade('buy'));
+      el('btnSell').addEventListener('click', () => trade('sell'));
+      el('btnClose').addEventListener('click', closeAll);
+      el('btnPos').addEventListener('click', refreshPositions);
+
+      // Initial positions load
+      refreshPositions();
+      // Poll ticker
+      async function pollTick() {
+        const symbol = el('symbol').value.trim();
+        try {
+          const r = await fetch(`/api/tick?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+          const js = await r.json();
+          if (js && js.ok && js.tick) {
+            const { bid, ask } = js.tick;
+            const spr = (ask - bid).toFixed(3);
+            document.getElementById('ticker').textContent = `${symbol}  Bid ${bid.toFixed(3)}  Ask ${ask.toFixed(3)}  Spr ${spr}`;
+            // Update button labels for clarity
+            const b = document.getElementById('btnBuy');
+            const s = document.getElementById('btnSell');
+            if (b) b.textContent = `Buy @ ${ask.toFixed(3)}`;
+            if (s) s.textContent = `Sell @ ${bid.toFixed(3)}`;
+          }
+        } catch {}
+      }
+      pollTick();
+      setInterval(pollTick, 2000);
+      // Top strategy monitor
+      let lastSignal = 'hold';
+      let autoStratTimer = null;
+      function updateSignalUI(sig, reason) {
+        const dot = document.getElementById('signalDot');
+        const txt = document.getElementById('signalText');
+        const btn = document.getElementById('btnTradeSignalTop');
+        let color = '#999';
+        if (sig === 'buy') color = '#2ecc71';
+        else if (sig === 'sell') color = '#e74c3c';
+        dot.style.background = color;
+        txt.textContent = `Signal: ${sig ? sig.toUpperCase() : '—'}${reason? ' ('+reason+')':''}`;
+        btn.disabled = !(sig === 'buy' || sig === 'sell');
+      }
+      async function runStrategyTop() {
+        const symbol = el('symbol').value.trim();
+        const tf = el('tf').value;
+        const fast = 20, slow = 50;
+        try {
+          const r = await fetch(`/api/strategy/run?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&fast=${fast}&slow=${slow}`, { cache:'no-store' });
+          const js = await r.json();
+          const sig = js && js.signal ? (js.signal.signal || js.signal) : 'hold';
+          lastSignal = sig;
+          updateSignalUI(sig, js.signal && js.signal.reason);
+        } catch (e) {
+          console.error('Strategy fetch failed', e);
+          updateSignalUI('hold', 'error');
+        }
+      }
+      document.getElementById('btnRunStratTop').addEventListener('click', runStrategyTop);
+      document.getElementById('btnTradeSignalTop').addEventListener('click', () => {
+        if (lastSignal === 'buy' || lastSignal === 'sell') trade(lastSignal);
+      });
+      document.getElementById('btnAutoStrat').addEventListener('click', (ev) => {
+        if (autoStratTimer) {
+          clearInterval(autoStratTimer); autoStratTimer = null; ev.target.textContent = 'Auto Off';
+        } else {
+          runStrategyTop();
+          autoStratTimer = setInterval(runStrategyTop, 15000); // every 15s
+          ev.target.textContent = 'Auto On';
+        }
+      });
+      // initial strategy read
+      runStrategyTop();
+      // Strategy panel
+      let lastSignal = 'hold';
+      async function runStrategy() {
+        const symbol = el('symbol').value.trim();
+        const tf = el('tf').value;
+        const fast = el('fast').value || 20;
+        const slow = el('slow').value || 50;
+        const r = await fetch(`/api/strategy/run?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&fast=${encodeURIComponent(fast)}&slow=${encodeURIComponent(slow)}`, { cache:'no-store' });
+        const js = await r.json().catch(() => ({}));
+        if (js && js.signal) {
+          lastSignal = js.signal.signal || js.signal;
+          el('stratStatus').textContent = `Signal: ${lastSignal.toUpperCase()} (${js.signal.reason||''})`;
+          el('btnTradeSignal').disabled = !(lastSignal === 'buy' || lastSignal === 'sell');
+        } else {
+          el('stratStatus').textContent = `Strategy error: ${js.error || r.statusText}`;
+          el('btnTradeSignal').disabled = true;
+        }
+      }
+      document.getElementById('btnRunStrat').addEventListener('click', runStrategy);
+      document.getElementById('btnTradeSignal').addEventListener('click', () => {
+        if (lastSignal === 'buy' || lastSignal === 'sell') trade(lastSignal);
+      });
       // Initial load
       refreshChart();
     </script>

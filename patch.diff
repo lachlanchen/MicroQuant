@@ -1,0 +1,87 @@
+*** Begin Patch
+*** Update File: app/server.py
+@@
+-import os
+-import json
++import os
++import json
++import logging
+@@
+-from dotenv import load_dotenv
++from dotenv import load_dotenv
+@@
+-EXECUTOR = ThreadPoolExecutor(max_workers=2)
++EXECUTOR = ThreadPoolExecutor(max_workers=2)
++logger = logging.getLogger("mt5app")
+@@
+     async def get(self):
+         symbol = self.get_argument("symbol", default="XAUUSD")
+         timeframe = self.get_argument("tf", default="H1").upper()
+         count = int(self.get_argument("count", default="500"))
++        logger.info("/api/fetch symbol=%s tf=%s count=%s", symbol, timeframe, count)
+@@
+-        try:
+-            bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+-        except Exception as e:
+-            self.set_status(500)
+-            self.set_header("Content-Type", "application/json")
+-            self.finish(json.dumps({"ok": False, "error": str(e)}))
+-            return
++        try:
++            bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
++        except Exception as e:
++            logger.exception("fetch failed: %s", e)
++            self.set_status(500)
++            self.set_header("Content-Type", "application/json")
++            self.finish(json.dumps({"ok": False, "error": str(e)}))
++            return
+@@
+-        inserted = await upsert_ohlc_bars(self.pool, bars)
++        inserted = await upsert_ohlc_bars(self.pool, bars)
++        logger.info("/api/fetch upserted=%s", inserted)
+         self.set_header("Content-Type", "application/json")
+         self.finish(json.dumps({"ok": True, "symbol": symbol, "timeframe": timeframe, "inserted": inserted}))
+@@
+-        limit = int(self.get_argument("limit", default="500"))
++        limit = int(self.get_argument("limit", default="500"))
++        logger.debug("/api/data symbol=%s tf=%s limit=%s", symbol, timeframe, limit)
+         rows = await fetch_ohlc_bars(self.pool, symbol, timeframe, limit)
+         self.set_header("Content-Type", "application/json")
+         self.finish(json.dumps({"symbol": symbol, "timeframe": timeframe, "rows": rows}))
+@@
+-        limit = max(slow + 5, 200)
++        limit = max(slow + 5, 200)
++        logger.info("/api/strategy/run symbol=%s tf=%s fast=%s slow=%s", symbol, timeframe, fast, slow)
+         rows = await fetch_ohlc_bars(self.pool, symbol, timeframe, limit)
+@@
+-            except Exception as e:
+-                trade_result = {"ok": False, "error": str(e)}
++            except Exception as e:
++                logger.exception("trade failed: %s", e)
++                trade_result = {"ok": False, "error": str(e)}
+@@
+ def main():
+     # Load .env automatically if present (handy on Windows)
+     # Allow .env to override any previously-set variables in this process
+     load_dotenv(override=True)
++    # Configure logging
++    level = os.getenv("LOG_LEVEL", "INFO").upper()
++    logging.basicConfig(level=getattr(logging, level, logging.INFO),
++                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+     port = int(os.getenv("PORT", "8888"))
+     loop = tornado.ioloop.IOLoop.current()
+@@
+-        app = await make_app()
+-        app.listen(port)
+-        print(f"Tornado running on http://localhost:{port}")
++        app = await make_app()
++        app.listen(port)
++        mt5_path = os.getenv("MT5_PATH")
++        logger.info("Tornado running on http://localhost:%s", port)
++        logger.info("MT5_PATH=%r", mt5_path)
+@@
+-            except Exception as e:
+-                print(f"auto-fetch error: {e}")
++            except Exception as e:
++                logger.exception("auto-fetch error: %s", e)
+*** End Patch

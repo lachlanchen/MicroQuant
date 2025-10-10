@@ -14,6 +14,24 @@ A minimal Tornado + Postgres app that fetches OHLC bars from MetaTrader 5 (via t
 
 ## Setup
 ```bash
+# Windows (PowerShell)
+# 1) Create venv with Python 3.11 (MetaTrader5 has no wheels for 3.13 yet)
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 2) Configure env
+Copy-Item .env.example .env
+# Edit .env and set DATABASE_URL, MT5_PATH (e.g. C:\\Program Files\\MetaTrader 5\\terminal64.exe), and your MT5 demo creds
+# Load env for this session
+Get-Content .env | Where-Object { $_ -and $_ -notmatch '^#' } | ForEach-Object { $n,$v = $_ -split '=',2; [Environment]::SetEnvironmentVariable($n, $v, 'Process') }
+
+# 3) Run app
+python -m app.server
+# Open http://localhost:8888
+
+# Linux/mac (bash)
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -46,6 +64,7 @@ Notes:
 ## Endpoints
 - `GET /api/fetch?symbol=XAUUSD&tf=H1&count=500` — fetch from MT5 and upsert to DB
 - `GET /api/data?symbol=XAUUSD&tf=H1&limit=500` — read from DB for charting
+- `GET /api/strategy/run?symbol=XAUUSD&tf=H1&fast=20&slow=50` — run SMA crossover; if `TRADING_ENABLED=1` places trade
 - `GET /` — simple UI with a line chart of closes
 
 ## Schema
@@ -58,5 +77,7 @@ See `sql/schema.sql`. Primary key on `(symbol, timeframe, ts)` prevents duplicat
 - Postgres connection: ensure `DATABASE_URL` is correct; test with `psql "$DATABASE_URL" -c 'select 1;'`.
 
 ## Dev tips
-- For candlestick charts, you can later add the `chartjs-chart-financial` plugin. The starter uses a line chart for simplicity.
+- The UI supports both Line and Candlestick (via `chartjs-chart-financial`).
 - For scheduled fetching, add a periodic callback in Tornado that calls `/api/fetch` logic.
+  - Or set env on server: `AUTO_FETCH=1 AUTO_FETCH_SYMBOL=XAUUSD AUTO_FETCH_TF=H1 AUTO_FETCH_SEC=60`
+  - For demo trading, export `TRADING_ENABLED=1 TRADING_VOLUME=0.1` (use demo accounts only).

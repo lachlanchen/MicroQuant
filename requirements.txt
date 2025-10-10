@@ -2,3 +2,4 @@ tornado
 asyncpg
 MetaTrader5
 numpy
+python-dotenv
