@@ -1,0 +1,4 @@
+tornado
+asyncpg
+MetaTrader5
+numpy
