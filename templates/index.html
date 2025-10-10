@@ -40,6 +40,19 @@
     .indicator-panel { background: var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
     .indicator-panel h4 { margin:0 0 6px; font-size:13px; color:var(--muted); font-weight:600; letter-spacing:0.4px; text-transform:uppercase; }
     #indicator-wrap canvas { width: 100% !important; height: 190px !important; }
+    .news-card { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:#fff; margin:10px 0; box-shadow:0 1px 2px rgba(0,0,0,0.04); display:flex; flex-direction:column; gap:8px; }
+    .news-card h4 { margin:0; font-size:15px; color:var(--text); font-weight:600; }
+    .news-meta { font-size:12px; color:var(--muted); display:flex; gap:8px; flex-wrap:wrap; }
+    .news-summary { font-size:13px; color:var(--text); line-height:1.4; }
+    .news-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .news-ai-btn { padding:6px 10px; font-size:12px; }
+    .news-answers { display:none; flex-wrap:wrap; gap:6px; margin-top:4px; }
+    .news-answers.active { display:flex; }
+    .news-answer { padding:4px 8px; border-radius:6px; font-size:12px; font-weight:600; border:1px solid var(--line); background:var(--panel); color:var(--muted); }
+    .news-answer.yes { border-color:#2ecc71; color:#1b5e20; background:rgba(46, 204, 113, 0.12); }
+    .news-answer.no { border-color:#e74c3c; color:#b71c1c; background:rgba(231, 76, 60, 0.12); }
+    .news-answer.unknown { border-color:#b0bec5; color:#546e7a; background:rgba(84, 110, 122, 0.12); }
+    .news-answer span { font-weight:500; }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
@@ -313,6 +326,18 @@
             console.warn('[App] Chart refresh failed for', reason, err);
           }
         }, 400);
+      };
+
+      const newsAnalysisCache = new Map();
+
+      const newsArticleKey = (article) => {
+        if (!article) return '';
+        return (
+          article.url ||
+          article.id ||
+          article.article_id ||
+          `${article.title || article.headline || ''}|${article.publishedAt || article.published_at || article.date || ''}`
+        );
       };
 
       const computeEMA = (series, period) => {
@@ -1810,23 +1835,162 @@
       function renderNews(items) {
         const box = el('newsBox');
         if (!box) return;
+        box.innerHTML = '';
         if (!items || !items.length) {
           box.innerHTML = '<em style="color:var(--muted)">No recent news found for this symbol.</em>';
           return;
         }
-        const html = items.map(it => {
-          const t = htmlEscape(it.title || '(no title)');
-          const src = htmlEscape(it.source || it.site || '');
-          const dt = htmlEscape(it.publishedAt || it.publishedDate || '');
-          const summary = htmlEscape(it.summary || '');
-          const url = htmlEscape(it.url || '#');
-          return `<div style="margin:8px 0; padding-bottom:6px; border-bottom:1px solid var(--line);">
-                    <a href="${url}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none; font-weight:600;">${t}</a>
-                    <div style="font-size:12px; color:var(--muted); margin-top:2px;">${[src, dt].filter(Boolean).join(' • ')}</div>
-                    ${summary ? `<div style="font-size:13px; color:var(--text); margin-top:4px;">${summary}</div>` : ''}
-                  </div>`;
-        }).join('');
-        box.innerHTML = html;
+        const fragment = document.createDocumentFragment();
+        items.forEach((item) => {
+          const card = document.createElement('div');
+          card.className = 'news-card';
+
+          const titleText = item.title || item.headline || '(no title)';
+          const titleEl = document.createElement('h4');
+          const titleLink = document.createElement('a');
+          titleLink.textContent = titleText;
+          if (item.url) {
+            titleLink.href = item.url;
+            titleLink.target = '_blank';
+            titleLink.rel = 'noopener';
+          } else {
+            titleLink.href = '#';
+          }
+          titleLink.style.color = 'var(--accent)';
+          titleLink.style.textDecoration = 'none';
+          titleEl.appendChild(titleLink);
+          card.appendChild(titleEl);
+
+          const metaParts = [];
+          if (item.source || item.site) metaParts.push(item.source || item.site);
+          if (item.publishedAt || item.publishedDate || item.date) {
+            metaParts.push(item.publishedAt || item.publishedDate || item.date);
+          }
+          if (metaParts.length) {
+            const metaEl = document.createElement('div');
+            metaEl.className = 'news-meta';
+            metaEl.textContent = metaParts.join(' • ');
+            card.appendChild(metaEl);
+          }
+
+          const summaryText = item.summary || item.description || item.snippet || '';
+          if (summaryText) {
+            const summaryEl = document.createElement('div');
+            summaryEl.className = 'news-summary';
+            summaryEl.textContent = summaryText;
+            card.appendChild(summaryEl);
+          }
+
+          const fallbackKey = [titleText, summaryText, metaParts.join('|')].filter(Boolean).join('|');
+
+          const actionsEl = document.createElement('div');
+          actionsEl.className = 'news-actions';
+          const aiBtn = document.createElement('button');
+          aiBtn.type = 'button';
+          aiBtn.className = 'btn secondary news-ai-btn';
+          aiBtn.textContent = 'Ask AI (30 checks)';
+          actionsEl.appendChild(aiBtn);
+          card.appendChild(actionsEl);
+
+          const answersWrap = document.createElement('div');
+          answersWrap.className = 'news-answers';
+          card.appendChild(answersWrap);
+
+          const cacheKey = newsArticleKey(item) || `${titleText}|${Math.random().toString(36).slice(2)}`;
+          aiBtn.addEventListener('click', () => requestNewsAnalysis(item, cacheKey, aiBtn, answersWrap));
+          if (newsAnalysisCache.has(cacheKey)) {
+            renderNewsAnswers(answersWrap, newsAnalysisCache.get(cacheKey));
+          }
+
+          fragment.appendChild(card);
+        });
+        box.appendChild(fragment);
+      }
+
+      function renderNewsAnswers(container, answers) {
+        if (!container) return;
+        container.innerHTML = '';
+        if (!answers || !answers.length) {
+          container.classList.remove('active');
+          return;
+        }
+        container.classList.add('active');
+        answers.forEach((ans) => {
+          const pill = document.createElement('span');
+          const answerValue = (ans && ans.answer) ? String(ans.answer).toLowerCase() : 'no';
+          pill.className = `news-answer ${answerValue}`;
+          const labelText = ans && ans.label ? ans.label : ans.id || 'Question';
+          pill.textContent = `${labelText}: ${answerValue.toUpperCase()}`;
+          if (ans && ans.question) {
+            pill.title = ans.question;
+          }
+          container.appendChild(pill);
+        });
+      }
+
+      function setNewsAnalysisUnavailable(container, message) {
+        if (!container) return;
+        container.classList.add('active');
+        container.innerHTML = '';
+        const pill = document.createElement('span');
+        pill.className = 'news-answer unknown';
+        pill.textContent = message || 'Analysis unavailable';
+        container.appendChild(pill);
+      }
+
+      async function requestNewsAnalysis(article, cacheKey, button, container) {
+        if (!article) return;
+        if (cacheKey && newsAnalysisCache.has(cacheKey)) {
+          renderNewsAnswers(container, newsAnalysisCache.get(cacheKey));
+          return;
+        }
+        if (button) {
+          button.disabled = true;
+          button.textContent = 'Analyzing…';
+        }
+        if (container) {
+          container.classList.add('active');
+          container.innerHTML = '<span class="news-answer unknown">Analyzing…</span>';
+        }
+        const payload = {
+          article_id: cacheKey,
+          title: article.title || article.headline || '',
+          summary: article.summary || article.description || '',
+          body: article.content || article.text || '',
+          url: article.url || '',
+          source: article.source || article.site || '',
+          published_at: article.publishedAt || article.publishedDate || article.date || '',
+          symbol: currentSymbol(),
+        };
+        try {
+          const resp = await fetch('/api/news/analyze', {
+            method: 'POST',
+            cache: 'no-store',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const js = await resp.json().catch(() => ({}));
+          if (!resp.ok || !js.ok) {
+            const msg = js.error || resp.statusText || 'AI analysis failed';
+            status(msg);
+            setNewsAnalysisUnavailable(container, msg);
+            return;
+          }
+          const answers = js.answers || [];
+          if (cacheKey) {
+            newsAnalysisCache.set(cacheKey, answers);
+          }
+          renderNewsAnswers(container, answers);
+          status('AI micro-checks completed for news article.');
+        } catch (err) {
+          status(`AI analysis failed: ${err.message || err}`);
+          setNewsAnalysisUnavailable(container, 'Analysis failed');
+        } finally {
+          if (button) {
+            button.disabled = false;
+            button.textContent = 'Ask AI (30 checks)';
+          }
+        }
       }
 
       async function refreshNews() {

@@ -5,6 +5,8 @@ import asyncio
 from functools import partial
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
 
 import tornado.ioloop
 import tornado.web
@@ -36,11 +38,252 @@ from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
 from app.news_fetcher import fetch_symbol_digest
 
+try:
+    from llm_model.echomind.mixed_ai_request import MixedAIRequestJSONBase  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    MixedAIRequestJSONBase = None  # type: ignore
+
 
 EXECUTOR = ThreadPoolExecutor(max_workers=2)
 logger = logging.getLogger("mt5app")
 
 WS_CLIENTS: set = set()
+
+
+NEWS_MICRO_QUESTIONS: list[dict[str, str]] = [
+    {
+        "id": "fed_hawkish_language",
+        "label": "Fed hawkish tone",
+        "question": "Does the article describe the Federal Reserve's latest communication as hawkish compared to recent statements?",
+    },
+    {
+        "id": "rate_hike_currency_strength",
+        "label": "Rate hikes strengthen currency",
+        "question": "Does the article state that a central bank rate hike is strengthening its domestic currency?",
+    },
+    {
+        "id": "ecb_data_tightening",
+        "label": "ECB data-dependent tightening",
+        "question": "Does the article portray the ECB as emphasizing inflation risks and data-dependent tightening?",
+    },
+    {
+        "id": "fed_dual_mandate",
+        "label": "Fed dual mandate mentioned",
+        "question": "Does the article mention the Federal Reserve's dual mandate of maximum employment and price stability?",
+    },
+    {
+        "id": "qe_money_supply",
+        "label": "QE increases money supply",
+        "question": "Does the article state that quantitative easing increases the money supply?",
+    },
+    {
+        "id": "boe_vote_hawkish",
+        "label": "BoE split is hawkish",
+        "question": "Does the article state that a split Bank of England vote (with dissenters for hikes) is more hawkish than a unanimous hold?",
+    },
+    {
+        "id": "cpi_rate_hike_probability",
+        "label": "High CPI boosts hike odds",
+        "question": "Does the article claim that higher-than-expected CPI increases the probability of a rate hike?",
+    },
+    {
+        "id": "nfp_usd_strength",
+        "label": "Strong NFP boosts USD",
+        "question": "Does the article state that a strong Non-Farm Payrolls report strengthens the USD?",
+    },
+    {
+        "id": "pmi_above_50_expansion",
+        "label": "PMI > 50 means expansion",
+        "question": "Does the article confirm that a PMI reading above 50 indicates economic expansion?",
+    },
+    {
+        "id": "gdp_two_quarter_recession",
+        "label": "Two negative GDP = recession",
+        "question": "Does the article note that two consecutive quarters of negative GDP constitute a recession?",
+    },
+    {
+        "id": "retail_sales_strength",
+        "label": "Retail sales imply demand",
+        "question": "Does the article say that stronger retail sales imply stronger consumer demand?",
+    },
+    {
+        "id": "trade_surplus_supports_currency",
+        "label": "Trade surplus supports FX",
+        "question": "Does the article claim that a trade surplus supports the domestic currency?",
+    },
+    {
+        "id": "low_unemployment_inflation_pressure",
+        "label": "Low jobless rate lifts inflation",
+        "question": "Does the article state that unemployment below the natural rate creates upward inflation pressure?",
+    },
+    {
+        "id": "eurusd_usdchf_negative_corr",
+        "label": "EUR/USD vs USD/CHF inverse",
+        "question": "Does the article mention EUR/USD and USD/CHF moving in opposite directions?",
+    },
+    {
+        "id": "aud_nzd_risk_on",
+        "label": "AUD & NZD are risk-on",
+        "question": "Does the article describe AUD or NZD as risk-on currencies?",
+    },
+    {
+        "id": "jpy_chf_safe_haven",
+        "label": "JPY & CHF safe havens",
+        "question": "Does the article call JPY or CHF safe-haven currencies during market stress?",
+    },
+    {
+        "id": "audusd_commodity_link",
+        "label": "AUD/USD tied to commodities",
+        "question": "Does the article link AUD/USD performance to commodity prices?",
+    },
+    {
+        "id": "gbpusd_eurusd_positive_corr",
+        "label": "GBP/USD mirrors EUR/USD",
+        "question": "Does the article note GBP/USD and EUR/USD moving together?",
+    },
+    {
+        "id": "dxy_rises_with_usd",
+        "label": "DXY rises with USD",
+        "question": "Does the article state that the US Dollar Index rises when the USD strengthens?",
+    },
+    {
+        "id": "risk_on_high_yield",
+        "label": "Risk-on favors carry FX",
+        "question": "Does the article say that risk-on periods favor high-yielding currencies like AUD or NZD?",
+    },
+    {
+        "id": "gold_safe_haven",
+        "label": "Gold strengthens in risk-off",
+        "question": "Does the article describe gold strengthening during risk-off market conditions?",
+    },
+    {
+        "id": "equity_rally_risk_on",
+        "label": "Equity rally = risk-on",
+        "question": "Does the article associate strong equity rallies with risk-on sentiment?",
+    },
+    {
+        "id": "vix_spike_risk_off",
+        "label": "VIX spike = risk-off",
+        "question": "Does the article claim that a spike in the VIX signals risk-off sentiment?",
+    },
+    {
+        "id": "em_fx_weakens_crisis",
+        "label": "EM FX weakens in crises",
+        "question": "Does the article report emerging-market currencies weakening during geopolitical crises?",
+    },
+    {
+        "id": "carry_trade_borrow_low",
+        "label": "Carry trade borrow low",
+        "question": "Does the article explain that carry traders borrow low-yield currencies and buy high-yield ones?",
+    },
+    {
+        "id": "widening_diff_strengthens_currency",
+        "label": "Wider differentials boost FX",
+        "question": "Does the article say widening interest-rate differentials strengthen the higher-yield currency?",
+    },
+    {
+        "id": "fed_vs_boj_usdjpy",
+        "label": "Fed vs BoJ lifts USD/JPY",
+        "question": "Does the article state that Fed hikes versus BoJ easing strengthen USD/JPY?",
+    },
+    {
+        "id": "inflation_erodes_power",
+        "label": "Inflation erodes purchasing power",
+        "question": "Does the article state that higher inflation weakens a currency's purchasing power?",
+    },
+    {
+        "id": "positive_surprise_strengthens_currency",
+        "label": "Positive surprises lift FX",
+        "question": "Does the article report that better-than-expected economic data strengthens the referenced currency?",
+    },
+    {
+        "id": "rate_cut_depreciation",
+        "label": "Rate cuts weaken currency",
+        "question": "Does the article say an unexpected rate cut leads to currency depreciation?",
+    },
+]
+
+_NEWS_QUESTION_IDS = [item["id"] for item in NEWS_MICRO_QUESTIONS]
+NEWS_ANALYSIS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "answers": {
+            "type": "array",
+            "minItems": len(_NEWS_QUESTION_IDS),
+            "maxItems": len(_NEWS_QUESTION_IDS),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "enum": _NEWS_QUESTION_IDS},
+                    "answer": {"type": "string", "enum": ["yes", "no"]},
+                },
+                "required": ["id", "answer"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["answers"],
+    "additionalProperties": False,
+}
+
+AI_CLIENT: MixedAIRequestJSONBase | None = None
+
+
+def _compose_article_payload(article: dict[str, Any]) -> tuple[str, str]:
+    """Return article_id, combined text from the incoming payload."""
+    parts: list[str] = []
+    title = str(article.get("title") or article.get("headline") or "").strip()
+    summary = str(article.get("summary") or article.get("description") or "").strip()
+    body = str(
+        article.get("body")
+        or article.get("content")
+        or article.get("text")
+        or ""
+    ).strip()
+    url = str(article.get("url") or "").strip()
+    if title:
+        parts.append(f"Title: {title}")
+    if summary and summary.lower() != title.lower():
+        parts.append(f"Summary: {summary}")
+    if body:
+        parts.append(f"Body: {body}")
+    if url:
+        parts.append(f"Source URL: {url}")
+    article_text = "\n\n".join(parts).strip()
+    article_id = str(
+        article.get("article_id")
+        or article.get("id")
+        or url
+        or f"{hash(title + summary) & 0xFFFFFFFF:X}"
+    )
+    return article_id, article_text
+
+
+def _build_news_prompt(article_text: str) -> str:
+    question_lines = []
+    for idx, item in enumerate(NEWS_MICRO_QUESTIONS, start=1):
+        question_lines.append(f"{idx}. {item['id']}: {item['question']}")
+    questions_block = "\n".join(question_lines)
+    return (
+        "You are an analyst that only answers with JSON. "
+        "Read the news article and answer each question with \"yes\" or \"no\". "
+        "If the article does not provide enough evidence, answer \"no\". "
+        "Base answers solely on the article provided.\n\n"
+        f"Article:\n---\n{article_text}\n---\n\n"
+        "Questions:\n"
+        f"{questions_block}\n\n"
+        "Respond using the provided JSON schema."
+    )
+
+
+def _run_news_analysis(ai_client: MixedAIRequestJSONBase, article_text: str) -> dict[str, Any]:
+    prompt = _build_news_prompt(article_text)
+    return ai_client.send_request_with_json_schema(
+        prompt,
+        NEWS_ANALYSIS_SCHEMA,
+        system_content="You are a precise analyst. Reply only with JSON that matches the schema.",
+        schema_name="news_micro_answers",
+    )
 
 
 async def _broadcast_ws(event: dict[str, object]) -> None:
@@ -951,6 +1194,7 @@ async def make_app():
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler),
+            (r"/api/news/analyze", NewsAnalysisHandler, dict(ai_client=AI_CLIENT, questions=NEWS_MICRO_QUESTIONS)),
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
@@ -1501,6 +1745,72 @@ class NewsHandler(tornado.web.RequestHandler):
             self.finish(json.dumps({"ok": False, "error": str(e), "news": [], "snapshot": {}}))
 
 
+class NewsAnalysisHandler(tornado.web.RequestHandler):
+    def initialize(self, ai_client: MixedAIRequestJSONBase | None, questions: list[dict[str, str]]):
+        self.ai_client = ai_client
+        self.questions = questions
+
+    async def post(self):
+        if not self.ai_client:
+            self.set_status(503)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "LLM analysis unavailable"}))
+            return
+        try:
+            payload = json.loads(self.request.body or "{}")
+        except json.JSONDecodeError:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "Invalid JSON body"}))
+            return
+
+        article_id, article_text = _compose_article_payload(payload)
+        if not article_text:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "Article text required"}))
+            return
+
+        loop = tornado.ioloop.IOLoop.current()
+        try:
+            raw = await loop.run_in_executor(
+                EXECUTOR, lambda: _run_news_analysis(self.ai_client, article_text)
+            )
+        except Exception as exc:  # pragma: no cover - network/LLM failure
+            logger.warning("news analysis failed: %s", exc)
+            self.set_status(502)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "AI analysis failed"}))
+            return
+
+        answers_raw = raw.get("answers", []) if isinstance(raw, dict) else []
+        answer_map = {}
+        for item in answers_raw:
+            if not isinstance(item, dict):
+                continue
+            qid = str(item.get("id", "")).strip()
+            ans = str(item.get("answer", "")).strip().lower()
+            if qid in _NEWS_QUESTION_IDS and ans in {"yes", "no"}:
+                answer_map[qid] = ans
+
+        structured = []
+        for q in self.questions:
+            qid = q["id"]
+            ans = answer_map.get(qid, "no")
+            structured.append(
+                {
+                    "id": qid,
+                    "label": q["label"],
+                    "question": q["question"],
+                    "answer": ans,
+                }
+            )
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "article_id": article_id, "answers": structured}))
+
+
 def main():
     # Load .env automatically if present (handy on Windows)
     # Allow .env to override any previously-set variables in this process
@@ -1513,6 +1823,18 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logger.info("Supported symbols: %s", ", ".join(symbols))
+    global AI_CLIENT
+    if MixedAIRequestJSONBase is not None:
+        cache_root = Path(__file__).resolve().parents[1] / "cache"
+        try:
+            AI_CLIENT = MixedAIRequestJSONBase(use_cache=True, max_retries=2, cache_dir=str(cache_root))
+            providers = ", ".join(AI_CLIENT.providers)
+            logger.info("News AI providers initialized: %s", providers)
+        except Exception as exc:  # pragma: no cover - optional dependency failure
+            AI_CLIENT = None
+            logger.warning("News AI client initialization failed: %s", exc)
+    else:
+        logger.info("MixedAIRequestJSONBase not available; news analysis endpoint disabled.")
     port = int(os.getenv("PORT", "8888"))
     loop = tornado.ioloop.IOLoop.current()
 
