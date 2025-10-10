@@ -270,6 +270,7 @@
       const PREF_ENDPOINT = '/api/preferences';
       let prefQueue = {};
       let prefTimer = null;
+      let chartRefreshTimer = null;
 
       const flushPrefQueue = async () => {
         if (!Object.keys(prefQueue).length) {
@@ -297,6 +298,21 @@
         if (!prefTimer) {
           prefTimer = setTimeout(flushPrefQueue, 400);
         }
+      };
+
+      const scheduleChartRefresh = (reason) => {
+        if (chartRefreshTimer) {
+          clearTimeout(chartRefreshTimer);
+        }
+        chartRefreshTimer = setTimeout(async () => {
+          chartRefreshTimer = null;
+          try {
+            console.log('[App] Refreshing chart due to', reason);
+            await refreshChart();
+          } catch (err) {
+            console.warn('[App] Chart refresh failed for', reason, err);
+          }
+        }, 400);
       };
 
       const computeEMA = (series, period) => {
