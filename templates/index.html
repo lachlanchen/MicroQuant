@@ -129,16 +129,16 @@
         </div>
         <div id="indicator-wrap">
           <div class="indicator-panel">
-            <h4>Volume</h4>
-            <canvas id="volChart"></canvas>
-          </div>
-          <div class="indicator-panel">
             <h4>RSI (14)</h4>
             <canvas id="rsiChart"></canvas>
           </div>
           <div class="indicator-panel">
             <h4>MACD (12, 26, 9)</h4>
             <canvas id="macdChart"></canvas>
+          </div>
+          <div class="indicator-panel">
+            <h4>Volume</h4>
+            <canvas id="volChart"></canvas>
           </div>
         </div>
       </div>
@@ -236,6 +236,9 @@
       let chart = null;
       let lwChart = null;
       let lwSeries = null;
+      let lwBollingerUpper = null;
+      let lwBollingerLower = null;
+      let lwBollingerMid = null;
       let lwObserver = null;
       let stlTrendSeries = null;
       let stlSeasonSeries = null;
@@ -394,10 +397,41 @@
         return { macd: macdLine, signal: signalLine, histogram };
       };
 
+      const computeBollingerBands = (values, period = 20, stdMultiplier = 2) => {
+        const upper = new Array(values.length).fill(null);
+        const lower = new Array(values.length).fill(null);
+        const middle = new Array(values.length).fill(null);
+        if (!Array.isArray(values) || values.length < period) {
+          return { upper, lower, middle };
+        }
+        const window = [];
+        for (let i = 0; i < values.length; i++) {
+          const val = values[i];
+          if (val == null) {
+            window.length = 0;
+            continue;
+          }
+          window.push(val);
+          if (window.length > period) {
+            window.shift();
+          }
+          if (window.length === period) {
+            const mean = window.reduce((acc, v) => acc + v, 0) / period;
+            const variance = window.reduce((acc, v) => acc + (v - mean) ** 2, 0) / period;
+            const std = Math.sqrt(variance);
+            middle[i] = mean;
+            upper[i] = mean + stdMultiplier * std;
+            lower[i] = mean - stdMultiplier * std;
+          }
+        }
+        return { upper, lower, middle };
+      };
+
       const ensureVolumeChart = () => {
         if (volumeChart || !volumeCtx) return;
         volumeChart = new window.Chart(volumeCtx, {
           type: 'bar',
+          parsing: false,
           data: {
             labels: [],
             datasets: [
@@ -436,6 +470,7 @@
         if (rsiChart || !rsiCtx) return;
         rsiChart = new window.Chart(rsiCtx, {
           type: 'line',
+          parsing: false,
           data: {
             labels: [],
             datasets: [
@@ -477,6 +512,7 @@
         if (macdChart || !macdCtx) return;
         macdChart = new window.Chart(macdCtx, {
           type: 'bar',
+          parsing: false,
           data: {
             labels: [],
             datasets: [
@@ -485,7 +521,8 @@
                 label: 'Histogram',
                 data: [],
                 backgroundColor: (context) => {
-                  const value = context.raw;
+                  const raw = context.raw;
+                  const value = raw != null && typeof raw === 'object' ? raw.y : raw;
                   if (value == null) return 'rgba(158, 158, 158, 0.35)';
                   return value >= 0 ? 'rgba(76, 175, 80, 0.5)' : 'rgba(244, 67, 54, 0.5)';
                 },
@@ -569,23 +606,39 @@
         ensureVolumeChart();
         ensureRsiChart();
         ensureMacdChart();
+        const toPoints = (values) =>
+          rows.map((row, idx) => {
+            const val = values[idx];
+            if (val == null || !Number.isFinite(val)) {
+              return { x: row.ts, y: null };
+            }
+            return { x: row.ts, y: Number(val) };
+          });
         if (volumeChart) {
           volumeChart.data.labels = labels;
-          volumeChart.data.datasets[0].data = volumes;
+          volumeChart.data.datasets[0].data = rows.map((row, idx) => ({
+            x: row.ts,
+            y: volumes[idx],
+          }));
           volumeChart.update('none');
         }
         const rsiValues = computeRSI(closes);
         if (rsiChart) {
           rsiChart.data.labels = labels;
-          rsiChart.data.datasets[0].data = rsiValues;
+          rsiChart.data.datasets[0].data = toPoints(rsiValues);
           rsiChart.update('none');
         }
         const macdObj = computeMACD(closes);
         if (macdChart) {
           macdChart.data.labels = labels;
-          macdChart.data.datasets[0].data = macdObj.histogram;
-          macdChart.data.datasets[1].data = macdObj.macd;
-          macdChart.data.datasets[2].data = macdObj.signal;
+          macdChart.data.datasets[0].data = rows.map((row, idx) => ({
+            x: row.ts,
+            y: macdObj.histogram[idx] != null && Number.isFinite(macdObj.histogram[idx])
+              ? macdObj.histogram[idx]
+              : null,
+          }));
+          macdChart.data.datasets[1].data = toPoints(macdObj.macd);
+          macdChart.data.datasets[2].data = toPoints(macdObj.signal);
           macdChart.update('none');
         }
       };
@@ -695,12 +748,41 @@
                   tension: 0.15,
                   fill: false,
                 },
+                {
+                  label: 'Bollinger Mid',
+                  data: [],
+                  borderColor: '#90a4ae',
+                  borderWidth: 1,
+                  pointRadius: 0,
+                  tension: 0.15,
+                  fill: false,
+                  borderDash: [6, 4],
+                },
+                {
+                  label: 'Bollinger Upper',
+                  data: [],
+                  borderColor: '#ff9800',
+                  borderWidth: 1.2,
+                  pointRadius: 0,
+                  tension: 0.15,
+                  fill: false,
+                },
+                {
+                  label: 'Bollinger Lower',
+                  data: [],
+                  borderColor: '#ff9800',
+                  borderWidth: 1.2,
+                  pointRadius: 0,
+                  tension: 0.15,
+                  fill: '-1',
+                  backgroundColor: 'rgba(255, 152, 0, 0.08)',
+                },
               ],
             },
             options: {
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
+              plugins: { legend: { display: true, position: 'top' } },
               interaction: { intersect: false, mode: 'index' },
               scales: {
                 x: {
@@ -736,6 +818,31 @@
             wickDownColor: '#e74c3c',
             borderVisible: false
           });
+          if (!lwBollingerUpper) {
+            lwBollingerUpper = lwChart.addLineSeries({
+              color: '#ff9800',
+              lineWidth: 1.5,
+              priceLineVisible: false,
+              title: 'Bollinger Upper',
+            });
+          }
+          if (!lwBollingerLower) {
+            lwBollingerLower = lwChart.addLineSeries({
+              color: '#ff9800',
+              lineWidth: 1.5,
+              priceLineVisible: false,
+              title: 'Bollinger Lower',
+            });
+          }
+          if (!lwBollingerMid) {
+            lwBollingerMid = lwChart.addLineSeries({
+              color: '#607d8b',
+              lineWidth: 1,
+              lineStyle: LightweightCharts.LineStyle.Dashed,
+              priceLineVisible: false,
+              title: 'Bollinger Mid',
+            });
+          }
           lwObserver = new ResizeObserver(() => {
             const rect = lwContainer.getBoundingClientRect();
             lwChart.applyOptions({
@@ -1164,10 +1271,19 @@
           const r = await fetch(`/api/data?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&limit=${encodeURIComponent(limit)}`, { cache: 'no-store' });
           const js = await r.json();
           const rows = js.rows || [];
+          const labels = rows.map((row) => row.ts);
+          const closes = rows.map((row) => {
+            const v = Number(row.close);
+            return Number.isFinite(v) ? v : null;
+          });
+          const boll = computeBollingerBands(closes);
           if (curType === 'line') {
             if (!chart) { makeChart('line'); }
-            chart.data.labels = rows.map(r => r.ts);
-            chart.data.datasets[0].data = rows.map(r => Number(r.close));
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = closes;
+            if (chart.data.datasets[1]) chart.data.datasets[1].data = boll.middle;
+            if (chart.data.datasets[2]) chart.data.datasets[2].data = boll.upper;
+            if (chart.data.datasets[3]) chart.data.datasets[3].data = boll.lower;
             chart.update('none');
           } else {
             if (!lwChart || !lwSeries) { makeChart('candlestick'); }
@@ -1179,6 +1295,17 @@
               close: Number(r.close)
             }));
             lwSeries.setData(data);
+            const toLwPoints = (values) =>
+              rows
+                .map((row, idx) => {
+                  const val = values[idx];
+                  if (val == null || !Number.isFinite(val)) return null;
+                  return { time: Math.floor(new Date(row.ts).getTime() / 1000), value: val };
+                })
+                .filter(Boolean);
+            if (lwBollingerUpper) lwBollingerUpper.setData(toLwPoints(boll.upper));
+            if (lwBollingerLower) lwBollingerLower.setData(toLwPoints(boll.lower));
+            if (lwBollingerMid) lwBollingerMid.setData(toLwPoints(boll.middle));
             lwChart.timeScale().fitContent();
           }
           updateIndicatorCharts(rows);
@@ -1188,6 +1315,16 @@
           console.error('Refresh failed', err);
           status('Refresh failed');
           updateIndicatorCharts([]);
+          if (chart && chart.data && chart.data.datasets) {
+            chart.data.labels = [];
+            chart.data.datasets.forEach((ds) => {
+              ds.data = [];
+            });
+            chart.update('none');
+          }
+          if (lwBollingerUpper) lwBollingerUpper.setData([]);
+          if (lwBollingerLower) lwBollingerLower.setData([]);
+          if (lwBollingerMid) lwBollingerMid.setData([]);
           clearStlOverlay('STL unavailable (chart refresh failed).');
         }
       }
