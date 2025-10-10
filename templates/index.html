@@ -203,10 +203,14 @@
       const APP_SYMBOLS = _csv ? _csv.split(',').map(s => s.trim()).filter(Boolean) : ['XAUUSD'];
       const APP_DEFAULT_SYMBOL = _def || (APP_SYMBOLS.length ? APP_SYMBOLS[0] : 'XAUUSD');
       console.log('[App] Config symbols/default:', APP_SYMBOLS, APP_DEFAULT_SYMBOL);
-
+      const DEFAULT_TF = "{{ default_tf }}";
+      const DEFAULT_BARS = Number("{{ default_count }}") || 500;
       const ALL_TFS = ['M1','M5','M15','M30','H1','H4','D1','W1','MN1','Y1'];
 
       const DEFAULT_CHART_TYPE = "{{ default_chart_type }}";
+      const symbolSelect = document.getElementById('symbol');
+      const tfSelect = document.getElementById('tf');
+      const countInput = document.getElementById('count');
       const canvas = document.getElementById('chart');
       const ctx = canvas.getContext('2d');
       const lwContainer = document.getElementById('lwChart');
@@ -231,6 +235,24 @@
       const stlEndInput = el('stlEnd');
       const stlRunsSelect = el('stlRuns');
       const stlDeleteBtn = el('btnStlDelete');
+
+      const currentSymbol = () => {
+        if (symbolSelect && symbolSelect.value) return symbolSelect.value.trim();
+        return APP_DEFAULT_SYMBOL;
+      };
+
+      const currentTf = () => {
+        if (tfSelect && tfSelect.value) return tfSelect.value.trim();
+        return DEFAULT_TF || 'H1';
+      };
+
+      const currentBarsLimit = () => {
+        if (countInput && countInput.value) {
+          const parsed = Number(countInput.value);
+          if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+        }
+        return DEFAULT_BARS || 500;
+      };
 
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
