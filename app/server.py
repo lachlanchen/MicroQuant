@@ -974,6 +974,7 @@ class MainHandler(tornado.web.RequestHandler):
             default_fast=fast_pref,
             default_slow=slow_pref,
             default_tf=tf,
+            news_ai_available=bool(AI_CLIENT),
             default_stl_auto_period=stl_auto_pref,
             default_stl_manual_period=stl_manual_pref,
         )

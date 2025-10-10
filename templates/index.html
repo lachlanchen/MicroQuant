@@ -10,7 +10,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
   <!-- Config via data attributes (avoids HTML entity issues) -->
-  <div id="app-cfg" data-symbols="{{ symbols_csv }}" data-default="{{ default_symbol_plain }}" style="display:none"></div>
+  <div id="app-cfg" data-symbols="{{ symbols_csv }}" data-default="{{ default_symbol_plain }}" data-ai="{{ 1 if news_ai_available else 0 }}" style="display:none"></div>
   <style>
     :root {
       --gold: #d4a017;
@@ -240,6 +240,7 @@
       const cfgNode = document.getElementById('app-cfg');
       const _csv = cfgNode ? (cfgNode.getAttribute('data-symbols') || '') : '';
       const _def = cfgNode ? (cfgNode.getAttribute('data-default') || '') : '';
+      const NEWS_AI_AVAILABLE = cfgNode ? (cfgNode.getAttribute('data-ai') === '1') : false;
       const APP_SYMBOLS = _csv ? _csv.split(',').map(s => s.trim()).filter(Boolean) : ['XAUUSD'];
       const APP_DEFAULT_SYMBOL = _def || (APP_SYMBOLS.length ? APP_SYMBOLS[0] : 'XAUUSD');
       console.log('[App] Config symbols/default:', APP_SYMBOLS, APP_DEFAULT_SYMBOL);
@@ -2061,18 +2062,25 @@
           const aiBtn = document.createElement('button');
           aiBtn.type = 'button';
           aiBtn.className = 'btn secondary news-ai-btn';
-          aiBtn.textContent = 'Ask AI (30 checks)';
+          aiBtn.textContent = NEWS_AI_AVAILABLE ? 'Ask AI (30 checks)' : 'AI unavailable';
+          aiBtn.disabled = !NEWS_AI_AVAILABLE;
           actionsEl.appendChild(aiBtn);
           card.appendChild(actionsEl);
 
           const answersWrap = document.createElement('div');
           answersWrap.className = 'news-answers';
+          if (!NEWS_AI_AVAILABLE) {
+            answersWrap.classList.add('active');
+            answersWrap.innerHTML = '<span class="news-answer unknown">Enable OPENAI_API_KEY for AI checks.</span>';
+          }
           card.appendChild(answersWrap);
 
-          const cacheKey = newsArticleKey(item) || `${titleText}|${Math.random().toString(36).slice(2)}`;
-          aiBtn.addEventListener('click', () => requestNewsAnalysis(item, cacheKey, aiBtn, answersWrap));
-          if (newsAnalysisCache.has(cacheKey)) {
-            renderNewsAnswers(answersWrap, newsAnalysisCache.get(cacheKey));
+          const cacheKey = newsArticleKey(item) || fallbackKey || titleText;
+          if (NEWS_AI_AVAILABLE) {
+            aiBtn.addEventListener('click', () => requestNewsAnalysis(item, cacheKey, aiBtn, answersWrap));
+            if (newsAnalysisCache.has(cacheKey)) {
+              renderNewsAnswers(answersWrap, newsAnalysisCache.get(cacheKey));
+            }
           }
 
           fragment.appendChild(card);
@@ -2112,6 +2120,11 @@
       }
 
       async function requestNewsAnalysis(article, cacheKey, button, container) {
+        if (!NEWS_AI_AVAILABLE) {
+          status('LLM analysis unavailable (set OPENAI_API_KEY).');
+          setNewsAnalysisUnavailable(container, 'AI unavailable');
+          return;
+        }
         if (!article) return;
         if (cacheKey && newsAnalysisCache.has(cacheKey)) {
           renderNewsAnswers(container, newsAnalysisCache.get(cacheKey));
