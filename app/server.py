@@ -226,7 +226,7 @@ NEWS_ANALYSIS_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-AI_CLIENT: MixedAIRequestJSONBase | None = None
+AI_CLIENT = None
 
 
 def _compose_article_payload(article: dict[str, Any]) -> tuple[str, str]:
@@ -1746,7 +1746,7 @@ class NewsHandler(tornado.web.RequestHandler):
 
 
 class NewsAnalysisHandler(tornado.web.RequestHandler):
-    def initialize(self, ai_client: MixedAIRequestJSONBase | None, questions: list[dict[str, str]]):
+    def initialize(self, ai_client, questions: list[dict[str, str]]):
         self.ai_client = ai_client
         self.questions = questions
 
