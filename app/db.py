@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Iterable, Mapping
 import asyncpg
 
@@ -146,4 +147,107 @@ async def set_prefs(pool: asyncpg.pool.Pool, mapping: Mapping[str, str]) -> None
         async with conn.transaction():
             for key, value in mapping.items():
                 await conn.execute(q, key, value)
+
+
+async def upsert_stl_components(pool: asyncpg.pool.Pool, rows: list[dict]) -> int:
+    """Insert/update STL component rows."""
+    if not rows:
+        return 0
+    q = (
+        """
+        INSERT INTO stl_components
+            (symbol, timeframe, period, ts, close, trend, seasonal, resid)
+        VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (symbol, timeframe, period, ts) DO UPDATE SET
+            close     = EXCLUDED.close,
+            trend     = EXCLUDED.trend,
+            seasonal  = EXCLUDED.seasonal,
+            resid     = EXCLUDED.resid,
+            created_at = NOW()
+        """
+    )
+    args = []
+    for r in rows:
+        ts = r["ts"]
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        args.append(
+            (
+                r["symbol"],
+                r["timeframe"],
+                int(r["period"]),
+                ts,
+                r.get("close"),
+                r.get("trend"),
+                r.get("seasonal"),
+                r.get("resid"),
+            )
+        )
+    async with pool.acquire() as conn:
+        await conn.executemany(q, args)
+    return len(rows)
+
+
+async def fetch_stl_components(
+    pool: asyncpg.pool.Pool,
+    symbol: str,
+    timeframe: str,
+    *,
+    period: int | None = None,
+    limit: int = 500,
+) -> dict:
+    """Fetch cached STL rows (ascending by time) and associated metadata."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            if period is None:
+                period = await conn.fetchval(
+                    """
+                    SELECT period
+                    FROM stl_components
+                    WHERE symbol=$1 AND timeframe=$2
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    symbol,
+                    timeframe,
+                )
+                if period is None:
+                    return {"period": None, "rows": [], "updated": None}
+            rows = await conn.fetch(
+                """
+                SELECT ts, close, trend, seasonal, resid, created_at
+                FROM stl_components
+                WHERE symbol=$1 AND timeframe=$2 AND period=$3
+                ORDER BY ts DESC
+                LIMIT $4
+                """,
+                symbol,
+                timeframe,
+                int(period),
+                limit,
+            )
+    if not rows:
+        return {"period": period, "rows": [], "updated": None}
+    created_at = rows[0]["created_at"]
+    result = []
+    for rec in reversed(rows):
+        ts = rec["ts"]
+        if isinstance(ts, datetime):
+            ts_iso = ts.isoformat()
+        else:
+            ts_iso = str(ts)
+        result.append(
+            {
+                "ts": ts_iso,
+                "close": float(rec["close"]) if rec["close"] is not None else None,
+                "trend": float(rec["trend"]) if rec["trend"] is not None else None,
+                "seasonal": float(rec["seasonal"]) if rec["seasonal"] is not None else None,
+                "resid": float(rec["resid"]) if rec["resid"] is not None else None,
+            }
+        )
+    updated_iso = created_at.isoformat() if isinstance(created_at, datetime) else None
+    return {"period": int(period), "rows": result, "updated": updated_iso}
 

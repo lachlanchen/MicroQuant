@@ -10,11 +10,25 @@ import tornado.ioloop
 import tornado.web
 from tornado.websocket import WebSocketHandler
 from dotenv import load_dotenv
+import numpy as np
+from statsmodels.tsa.seasonal import STL
 
-from app.db import create_pool, init_schema, upsert_ohlc_bars, fetch_ohlc_bars, set_pref, get_pref, latest_bar_ts, set_prefs, get_prefs
+from app.db import (
+    create_pool,
+    init_schema,
+    upsert_ohlc_bars,
+    fetch_ohlc_bars,
+    set_pref,
+    get_pref,
+    latest_bar_ts,
+    set_prefs,
+    get_prefs,
+    upsert_stl_components,
+    fetch_stl_components,
+)
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
-from app.news_fetcher import fetch_news_for_symbol
+from app.news_fetcher import fetch_symbol_digest
 
 
 EXECUTOR = ThreadPoolExecutor(max_workers=2)
@@ -78,16 +92,225 @@ async def emit_fetch_event(
     await _broadcast_ws(event)
 
 
-ALL_TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]
+async def emit_stl_event(
+    *,
+    symbol: str,
+    timeframe: str,
+    period: int | None,
+    status: str,
+    scope: str | None,
+    background: bool,
+    points: int | None = None,
+    note: str | None = None,
+    error: str | None = None,
+) -> None:
+    event = {
+        "type": "stl_complete",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "symbol": symbol.upper(),
+        "timeframe": timeframe.upper(),
+        "period": period,
+        "status": status,
+        "scope": scope,
+        "background": background,
+    }
+    if points is not None:
+        event["points"] = points
+    if note:
+        event["note"] = note
+    if error:
+        event["error"] = error
+    await _broadcast_ws(event)
+
+
+ALL_TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1", "Y1"]
 PREF_KEYS = ["last_symbol", "last_tf", "last_count", "chart_type", "last_volume", "last_sl", "last_tp", "last_fast", "last_slow"]
 
 def _default_backfill_days(tf: str) -> int:
     tf = (tf or "").upper()
+    if tf == "Y1":
+        return 3650  # ~10 years
+    if tf.startswith("MN"):
+        return 1825  # ~5 years
+    if tf.startswith("W"):
+        return 1000
     if tf.startswith("D"):
         return 2000
     if tf.startswith("H"):
         return 365
     return 30
+
+
+STL_PERIOD_MAP = {
+    "M1": 1440,
+    "M5": 288,
+    "M15": 96,
+    "M30": 48,
+    "H1": 24,
+    "H4": 6,
+    "D1": 30,
+    "W1": 26,
+    "MN1": 12,
+    "Y1": 10,
+}
+
+
+def _stl_period_for_tf(tf: str) -> int:
+    return STL_PERIOD_MAP.get((tf or "").upper(), 30)
+
+
+async def _compute_and_store_stl(
+    pool,
+    symbol: str,
+    timeframe: str,
+    *,
+    period: int | None = None,
+    limit: int = 1500,
+) -> dict:
+    rows = await fetch_ohlc_bars(pool, symbol, timeframe, limit)
+    if not rows:
+        raise ValueError("No bar data available for STL decomposition")
+    times: list[datetime] = []
+    closes: list[float] = []
+    for row in rows:
+        close = row.get("close")
+        ts_raw = row.get("ts")
+        if close is None or ts_raw is None:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_raw)
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Invalid timestamp encountered: {ts_raw}") from exc
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        times.append(ts)
+        closes.append(float(close))
+    if len(closes) < 12:
+        raise ValueError(f"Not enough samples ({len(closes)}) for STL decomposition")
+    base_period = period or _stl_period_for_tf(timeframe)
+    base_period = max(3, int(base_period))
+    adjusted_period = min(base_period, max(3, len(closes) // 2))
+    if adjusted_period < 3:
+        raise ValueError("Unable to determine a valid STL period for the available data")
+    series = np.asarray(closes, dtype=float)
+    if not np.isfinite(series).all():
+        mask = np.isfinite(series)
+        series = series[mask]
+        times = [t for t, keep in zip(times, mask, strict=False) if keep]
+    if len(series) < 3:
+        raise ValueError("Insufficient finite values for STL decomposition")
+    stl = STL(series, period=adjusted_period, robust=True)
+    res = stl.fit()
+    records = []
+    for ts, close_val, trend_val, seasonal_val, resid_val in zip(
+        times,
+        series,
+        res.trend,
+        res.seasonal,
+        res.resid,
+        strict=False,
+    ):
+        records.append(
+            {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "period": adjusted_period,
+                "ts": ts,
+                "close": float(close_val),
+                "trend": float(trend_val),
+                "seasonal": float(seasonal_val),
+                "resid": float(resid_val),
+            }
+        )
+    inserted = await upsert_stl_components(pool, records)
+    return {
+        "inserted": inserted,
+        "points": len(records),
+        "period": adjusted_period,
+    }
+
+
+def _aggregate_yearly_from_monthly(symbol: str, monthly_bars: list[dict]) -> list[dict]:
+    if not monthly_bars:
+        return []
+    # Ensure chronological order
+    sorted_bars = sorted(
+        (bar for bar in monthly_bars if bar.get("ts")),
+        key=lambda b: b["ts"],
+    )
+    buckets: dict[int, dict] = {}
+    for bar in sorted_bars:
+        ts = bar["ts"]
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        year = ts.year
+        high = bar.get("high")
+        low = bar.get("low")
+        tick_vol = int(bar.get("tick_volume") or 0)
+        real_vol = int(bar.get("real_volume") or 0)
+        spread = bar.get("spread")
+
+        entry = buckets.get(year)
+        if entry is None:
+            entry = {
+                "symbol": symbol,
+                "timeframe": "Y1",
+                "ts": ts,
+                "open": float(bar.get("open") or 0),
+                "high": float(high) if high is not None else float(bar.get("open") or 0),
+                "low": float(low) if low is not None else float(bar.get("open") or 0),
+                "close": float(bar.get("close") or 0),
+                "tick_volume": tick_vol,
+                "spread": int(spread or 0),
+                "real_volume": real_vol,
+            }
+            buckets[year] = entry
+        else:
+            # Preserve earliest open
+            entry["ts"] = ts
+            entry["close"] = float(bar.get("close") or entry["close"])
+            entry["tick_volume"] += tick_vol
+            entry["real_volume"] += real_vol
+            if spread:
+                entry["spread"] = int(spread)
+
+        entry = buckets[year]
+        if high is not None:
+            entry["high"] = max(entry["high"], float(high))
+        if low is not None:
+            entry["low"] = min(entry["low"], float(low))
+
+    # Normalize lows/highs just in case
+    for entry in buckets.values():
+        if entry["low"] > entry["high"]:
+            entry["low"], entry["high"] = entry["high"], entry["low"]
+
+    return sorted(buckets.values(), key=lambda b: b["ts"])
+
+
+async def _compute_yearly_bars(symbol: str, *, count: int | None = None, since: datetime | None = None) -> list[dict]:
+    loop = tornado.ioloop.IOLoop.current()
+    months_to_fetch = max((count or 20) * 12, 120)
+    months_to_fetch = min(months_to_fetch, 1200)
+    monthly_bars: list[dict] = []
+    if since:
+        since_dt = since
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+        # Go back an extra year to ensure full aggregation windows
+        since_dt = since_dt - timedelta(days=370)
+        fetch_fn = partial(mt5_client.fetch_bars_since, symbol, "MN1", since_dt)
+        monthly_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+    else:
+        fetch_fn = partial(mt5_client.fetch_bars, symbol, "MN1", months_to_fetch)
+        monthly_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+
+    yearly = _aggregate_yearly_from_monthly(symbol, monthly_bars)
+    if count and count > 0:
+        yearly = yearly[-count:]
+    return yearly
 
 
 def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None = None):
@@ -99,11 +322,17 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
     async def _runner():
         now = datetime.now(timezone.utc)
         for tf in tfs:
+            fetch_mode_name = "since"
             try:
                 days = _default_backfill_days(tf)
                 since = now - timedelta(days=days)
-                fetch_fn = partial(mt5_client.fetch_bars_since, symbol, tf, since)
-                bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+                if tf == "Y1":
+                    bars = await _compute_yearly_bars(symbol, since=since)
+                    fetch_mode_name = "derived_yearly"
+                else:
+                    fetch_fn = partial(mt5_client.fetch_bars_since, symbol, tf, since)
+                    bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+                    fetch_mode_name = "since"
                 if bars:
                     inserted = await upsert_ohlc_bars(pool, bars)
                     logger.info("[backfill] %s %s +%d bars (inserted=%d)", symbol, tf, len(bars), inserted)
@@ -111,7 +340,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                         symbol=symbol,
                         timeframe=tf,
                         mode="backfill",
-                        fetch_mode="since",
+                        fetch_mode=fetch_mode_name,
                         inserted=inserted,
                         fetched=len(bars),
                         scope="symbol_backfill",
@@ -124,7 +353,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                         symbol=symbol,
                         timeframe=tf,
                         mode="backfill",
-                        fetch_mode="since",
+                        fetch_mode=fetch_mode_name,
                         inserted=0,
                         fetched=0,
                         scope="symbol_backfill",
@@ -138,7 +367,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                     symbol=symbol,
                     timeframe=tf,
                     mode="backfill",
-                    fetch_mode="since",
+                    fetch_mode=fetch_mode_name,
                     inserted=0,
                     fetched=0,
                     scope="symbol_backfill",
@@ -175,7 +404,12 @@ async def _perform_fetch(
     try:
         bars: list[dict] = []
         fetch_mode = None
-        if mode == "inc":
+        if timeframe == "Y1":
+            fetch_mode = "derived_yearly"
+            yearly_count = count if count and count > 0 else None
+            bars = await _compute_yearly_bars(symbol, count=yearly_count)
+            info["source_timeframe"] = "MN1"
+        elif mode == "inc":
             last = await latest_bar_ts(pool, symbol, timeframe)
             if last:
                 try:
@@ -334,7 +568,7 @@ def _parse_supported_symbols():
         os.getenv("MT5_SYMBOL_LIST")
         or os.getenv("SUPPORTED_SYMBOLS")
         or os.getenv("SYMBOL_LIST")
-        or "XAUUSD, XAGUSD, EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD, MSFT, NVDA, TSLA, AAPL, AMZN, GOOGL"
+        or "XAUUSD, XAGUSD, EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD, MSFT, NVDA, TSLA, AAPL, AMZN, GOOGL, META, NFLX"
     )
     symbols = []
     for item in raw.split(","):
@@ -377,7 +611,7 @@ class MainHandler(tornado.web.RequestHandler):
         if sym not in SUPPORTED_SYMBOLS:
             sym = default_symbol()
         tf = (last_tf or "H1").upper()
-        if tf not in ("M1","M5","M15","M30","H1","H4","D1"):
+        if tf not in ALL_TIMEFRAMES:
             tf = "H1"
         extras = extras or {}
         count_pref = extras.get("last_count") or "500"
@@ -629,6 +863,8 @@ async def make_app():
             (r"/api/close", CloseHandler),
             (r"/api/positions", PositionsHandler),
             (r"/api/tick", TickHandler),
+            (r"/api/stl", STLHandler, dict(pool=pool)),
+            (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler),
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
@@ -781,6 +1017,184 @@ class TickHandler(tornado.web.RequestHandler):
         self.finish(json.dumps({"ok": True, "tick": t}))
 
 
+class STLHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        symbol = self.get_argument("symbol", default=default_symbol()).upper()
+        timeframe = self.get_argument("tf", default="H1").upper()
+        period_arg = self.get_argument("period", default=None)
+        limit = int(self.get_argument("limit", default="500"))
+        period = None
+        if period_arg:
+            try:
+                period = int(period_arg)
+            except ValueError:
+                period = None
+        data = await fetch_stl_components(
+            self.pool,
+            symbol,
+            timeframe,
+            period=period,
+            limit=limit,
+        )
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            json.dumps(
+                {
+                    "ok": True,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "period": data.get("period"),
+                    "updated": data.get("updated"),
+                    "rows": data.get("rows", []),
+                }
+            )
+        )
+
+
+class STLComputeHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        payload: dict[str, object] = {}
+        if self.request.body:
+            ctype = self.request.headers.get("Content-Type", "")
+            if "json" in ctype:
+                try:
+                    payload = json.loads(self.request.body.decode() or "{}")
+                except Exception:
+                    payload = {}
+        for key, values in self.request.arguments.items():
+            if not values:
+                continue
+            payload[key] = values[0].decode() if isinstance(values[0], (bytes, bytearray)) else values[0]
+
+        symbol = str(payload.get("symbol") or default_symbol()).upper()
+        timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
+        scope = str(payload.get("scope") or "current")
+        limit = int(payload.get("limit") or 1500)
+
+        period_override = payload.get("period")
+        try:
+            period_override = int(period_override) if period_override is not None else None
+        except (TypeError, ValueError):
+            period_override = None
+
+        timeframes = payload.get("timeframes")
+        if isinstance(timeframes, str):
+            timeframes = [tf.strip().upper() for tf in timeframes.split(",") if tf.strip()]
+        elif isinstance(timeframes, list):
+            timeframes = [str(tf).strip().upper() for tf in timeframes if str(tf).strip()]
+        else:
+            timeframes = None
+
+        symbols_param = payload.get("symbols")
+        if isinstance(symbols_param, str):
+            symbols_list = [s.strip().upper() for s in symbols_param.split(",") if s.strip()]
+        elif isinstance(symbols_param, list):
+            symbols_list = [str(s).strip().upper() for s in symbols_param if str(s).strip()]
+        else:
+            symbols_list = None
+
+        tasks: list[tuple[str, str]] = []
+        if scope in ("current", "single"):
+            tasks = [(symbol, timeframe)]
+        elif scope == "symbol_all_tf":
+            tfs = timeframes or ALL_TIMEFRAMES
+            tasks = [(symbol, tf) for tf in tfs]
+        elif scope in ("timeframe_all_symbols", "tf_all_symbols"):
+            syms = symbols_list or SUPPORTED_SYMBOLS
+            tasks = [(sym, timeframe) for sym in syms]
+        elif scope in ("all", "all_symbols"):
+            syms = symbols_list or SUPPORTED_SYMBOLS
+            tfs = timeframes or ALL_TIMEFRAMES
+            tasks = [(sym, tf) for sym in syms for tf in tfs]
+        else:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": f"unknown scope {scope}"}))
+            return
+
+        if not tasks:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "no tasks scheduled"}))
+            return
+
+        loop = tornado.ioloop.IOLoop.current()
+
+        async def runner():
+            logger.info("[stl] starting %d jobs scope=%s period=%s", len(tasks), scope, period_override)
+            for sym, tf in tasks:
+                await emit_stl_event(
+                    symbol=sym,
+                    timeframe=tf,
+                    period=period_override,
+                    status="scheduled",
+                    scope=scope,
+                    background=True,
+                )
+                try:
+                    result = await _compute_and_store_stl(
+                        self.pool,
+                        sym,
+                        tf,
+                        period=period_override,
+                        limit=limit,
+                    )
+                    logger.info(
+                        "[stl] %s %s completed period=%s points=%s inserted=%s",
+                        sym,
+                        tf,
+                        result.get("period"),
+                        result.get("points"),
+                        result.get("inserted"),
+                    )
+                    await emit_stl_event(
+                        symbol=sym,
+                        timeframe=tf,
+                        period=result.get("period"),
+                        status="completed",
+                        scope=scope,
+                        background=True,
+                        points=result.get("points"),
+                        note=f"inserted={result.get('inserted')}",
+                    )
+                except Exception as exc:
+                    logger.warning("[stl] %s %s failed: %s", sym, tf, exc)
+                    await emit_stl_event(
+                        symbol=sym,
+                        timeframe=tf,
+                        period=period_override,
+                        status="error",
+                        scope=scope,
+                        background=True,
+                        error=str(exc),
+                    )
+                await asyncio.sleep(0.05)
+
+        loop.spawn_callback(runner)
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            json.dumps(
+                {
+                    "ok": True,
+                    "scheduled": len(tasks),
+                    "scope": scope,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "period": period_override,
+                }
+            )
+        )
+
+
 class PreferencesHandler(tornado.web.RequestHandler):
     def initialize(self, pool):
         self.pool = pool
@@ -839,15 +1253,24 @@ class NewsHandler(tornado.web.RequestHandler):
         symbol = self.get_argument("symbol", default=default_symbol())
         loop = tornado.ioloop.IOLoop.current()
         try:
-            items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(symbol, limit=25))
+            digest = await loop.run_in_executor(EXECUTOR, lambda: fetch_symbol_digest(symbol, limit=25))
             self.set_header("Content-Type", "application/json")
             self.set_header("Cache-Control", "no-store")
-            self.finish(json.dumps({"ok": True, "symbol": symbol, "items": items}))
+            self.finish(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "symbol": symbol,
+                        "news": digest.get("news", []),
+                        "snapshot": digest.get("snapshot", {}),
+                    }
+                )
+            )
         except Exception as e:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
             self.set_header("Cache-Control", "no-store")
-            self.finish(json.dumps({"ok": False, "error": str(e), "items": []}))
+            self.finish(json.dumps({"ok": False, "error": str(e), "news": [], "snapshot": {}}))
 
 
 def main():

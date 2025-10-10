@@ -33,15 +33,16 @@
     label { color: var(--muted); }
     input, select { background: #fff; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
     #status { margin-top: 8px; color: var(--muted); }
-    #chart-wrap { max-width: 1100px; background: var(--panel); padding: 12px; border:1px solid var(--line); border-radius: 8px; }
-    #lwChart { width: 100%; height: 400px; }
+    #chart-wrap { width: 100%; max-width: 100%; background: var(--panel); padding: 12px; border:1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
+    #lwChart { width: 100%; min-height: 420px; height: clamp(420px, 60vh, 700px); }
+    canvas { width: 100% !important; height: clamp(360px, 55vh, 640px); }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
     .btn-buy { background: var(--buy); font-weight:600; }
     .btn-sell { background: var(--sell); font-weight:600; }
     .btn:disabled { opacity: 0.6; cursor: default; }
-    .grid { display:grid; grid-template-columns: 1fr 360px; gap: 16px; align-items:start; }
+    .grid { display:grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items:start; }
     pre { margin:0; }
   </style>
   <link rel="icon" href="data:," />
@@ -78,6 +79,9 @@
           <option value="H1"{% if default_tf == 'H1' %} selected{% end %}>H1</option>
           <option value="H4"{% if default_tf == 'H4' %} selected{% end %}>H4</option>
           <option value="D1"{% if default_tf == 'D1' %} selected{% end %}>D1</option>
+          <option value="W1"{% if default_tf == 'W1' %} selected{% end %}>W1 (Weekly)</option>
+          <option value="MN1"{% if default_tf == 'MN1' %} selected{% end %}>MN1 (Monthly)</option>
+          <option value="Y1"{% if default_tf == 'Y1' %} selected{% end %}>Y1 (Yearly)</option>
         </select>
       </label>
       <label>Bars
@@ -120,12 +124,28 @@
       </div>
       <div>
         <!-- News panel -->
-        <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px; max-height:260px; overflow:auto;">
+        <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px; max-height:320px; overflow:auto;">
           <div class="row" style="justify-content:space-between;">
-            <strong style="color:var(--accent)">News</strong>
+            <strong style="color:var(--accent)">News &amp; Intel</strong>
             <button class="btn secondary" id="btnNews" style="padding:6px 10px">Refresh News</button>
           </div>
+          <div id="symbolInfoBox" style="font-size:13px; line-height:1.45; color:var(--muted); margin-bottom:8px;">
+            <em>Snapshot will appear here…</em>
+          </div>
           <div id="newsBox" style="font-size:14px; line-height:1.35; color:var(--text);"><em style="color:var(--muted)">No news yet…</em></div>
+        </div>
+        <!-- STL panel -->
+        <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
+          <div class="row" style="justify-content:space-between; gap:8px;">
+            <strong style="color:var(--accent)">STL Decomposition</strong>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button class="btn secondary" id="btnStlCurrent" style="padding:6px 10px;">Recalculate</button>
+              <button class="btn secondary" id="btnStlSymbolAll" style="padding:6px 10px;">Symbol × TFs</button>
+              <button class="btn secondary" id="btnStlTfAll" style="padding:6px 10px;">TF × Symbols</button>
+              <button class="btn secondary" id="btnStlAll" style="padding:6px 10px;">All</button>
+            </div>
+          </div>
+          <div id="stlStatus" style="font-size:13px; color:var(--muted); margin-top:6px;">STL overlay not loaded yet.</div>
         </div>
         <!-- Strategy panel -->
         <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
@@ -161,6 +181,8 @@
       const APP_DEFAULT_SYMBOL = _def || (APP_SYMBOLS.length ? APP_SYMBOLS[0] : 'XAUUSD');
       console.log('[App] Config symbols/default:', APP_SYMBOLS, APP_DEFAULT_SYMBOL);
 
+      const ALL_TFS = ['M1','M5','M15','M30','H1','H4','D1','W1','MN1','Y1'];
+
       const DEFAULT_CHART_TYPE = "{{ default_chart_type }}";
       const canvas = document.getElementById('chart');
       const ctx = canvas.getContext('2d');
@@ -170,6 +192,10 @@
       let lwChart = null;
       let lwSeries = null;
       let lwObserver = null;
+      let stlTrendSeries = null;
+      let stlSeasonSeries = null;
+      let stlResidSeries = null;
+      let stlLastMeta = null;
 
       function makeChart(type) {
         curType = type;
@@ -265,6 +291,205 @@
         console.log('[WS] refresh queued:', reason);
       }
 
+      function handleFetchEvent(data) {
+        if (!data) return;
+        console.log('[WS] fetch event', data);
+        if (data.status === 'scheduled' && data.background) {
+          status(`Background fetch scheduled (${data.symbol} ${data.timeframe})`);
+          return;
+        }
+        if (data.status === 'error') {
+          status(`Fetch error (${data.symbol} ${data.timeframe}): ${data.error || 'unknown'}`);
+          return;
+        }
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const sameSymbol = data.symbol === symbol;
+        const sameTf = data.timeframe === tf;
+        const inserted = Number(data.inserted || 0);
+        if (sameSymbol && sameTf) {
+          if (data.background) {
+            status(`Background fetch done (${data.symbol} ${data.timeframe}, +${inserted} bars)`);
+          }
+          scheduleChartRefresh(`${data.symbol}/${data.timeframe}`);
+        } else if (data.scope === 'symbol_all_tf' && sameSymbol) {
+          status(`Background fetch done (${data.symbol} ${data.timeframe})`);
+          scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope symbol_all_tf]`);
+        } else if (data.scope === 'all_symbols' && data.symbol === symbol) {
+          status(`Bulk fetch updated ${data.symbol} ${data.timeframe}`);
+          scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope all_symbols]`);
+        }
+      }
+
+      function handleStlEvent(data) {
+        if (!data) return;
+        const desc = `${data.symbol} ${data.timeframe}`;
+        const box = el('stlStatus');
+        if (data.status === 'scheduled') {
+          if (box) box.textContent = `STL job scheduled (${desc})...`;
+          status(`STL scheduled (${desc})`);
+          return;
+        }
+        if (data.status === 'error') {
+          const message = `STL error (${desc}): ${data.error || 'unknown'}`;
+          if (box) box.textContent = message;
+          status(message);
+          return;
+        }
+        const metaInfo = `period ${data.period || '—'}${data.points ? `, points ${data.points}` : ''}`;
+        const note = data.note ? ` • ${data.note}` : '';
+        if (box) box.textContent = `STL ${data.status} (${desc}, ${metaInfo}${note})`;
+        const sameSymbol = data.symbol === currentSymbol();
+        const sameTf = data.timeframe === currentTf();
+        if (data.status === 'completed' && sameSymbol && sameTf) {
+          status(`STL updated (${desc}, ${metaInfo})`);
+          refreshStlOverlay();
+        }
+        if (!sameSymbol || !sameTf) {
+          status(`STL ${data.status} (${desc}${note ? `, ${data.note}` : ''})`);
+        }
+      }
+
+      function ensureStlSeries() {
+        if (!lwChart) return;
+        const dotted = (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dotted !== undefined)
+          ? LightweightCharts.LineStyle.Dotted
+          : (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Solid !== undefined
+              ? LightweightCharts.LineStyle.Solid
+              : 2);
+        if (!stlTrendSeries) {
+          stlTrendSeries = lwChart.addLineSeries({
+            color: '#ff9800',
+            lineWidth: 2,
+            priceScaleId: 'right',
+            title: 'Trend',
+          });
+        }
+        if (!stlSeasonSeries) {
+          stlSeasonSeries = lwChart.addLineSeries({
+            color: '#03a9f4',
+            lineWidth: 1,
+            priceScaleId: 'left',
+            title: 'Seasonal',
+          });
+        }
+        if (!stlResidSeries) {
+          stlResidSeries = lwChart.addLineSeries({
+            color: '#9c27b0',
+            lineWidth: 1,
+            lineStyle: dotted,
+            priceScaleId: 'left',
+            title: 'Residual',
+          });
+        }
+        lwChart.priceScale('left').applyOptions({
+          visible: true,
+          scaleMargins: { top: 0.8, bottom: 0.05 },
+        });
+      }
+
+      function clearStlOverlay(message) {
+        if (stlTrendSeries) stlTrendSeries.setData([]);
+        if (stlSeasonSeries) stlSeasonSeries.setData([]);
+        if (stlResidSeries) stlResidSeries.setData([]);
+        stlLastMeta = null;
+        if (lwChart) {
+          lwChart.priceScale('left').applyOptions({ visible: false });
+        }
+        if (message) {
+          const box = el('stlStatus');
+          if (box) box.textContent = message;
+        }
+      }
+
+      function applyStlData(rows, meta) {
+        const box = el('stlStatus');
+        if (!rows || !rows.length) {
+          clearStlOverlay('No STL data cached yet. Use Recalculate to compute.');
+          return;
+        }
+        ensureStlSeries();
+        const toSeriesData = (key) =>
+          rows
+            .map((r) => ({
+              time: Math.floor(new Date(r.ts).getTime() / 1000),
+              value: Number(r[key]),
+            }))
+            .filter((pt) => Number.isFinite(pt.value));
+        const trendData = toSeriesData('trend');
+        const seasonalData = toSeriesData('seasonal');
+        const residData = toSeriesData('resid');
+        if (trendData.length && stlTrendSeries) stlTrendSeries.setData(trendData);
+        if (seasonalData.length && stlSeasonSeries) stlSeasonSeries.setData(seasonalData);
+        if (residData.length && stlResidSeries) stlResidSeries.setData(residData);
+        stlLastMeta = meta || null;
+        if (box) {
+          const updated = meta && meta.updated ? ` • updated ${meta.updated}` : '';
+          box.textContent = `STL period ${meta && meta.period ? meta.period : '—'} • ${rows.length} points${updated}`;
+        }
+      }
+
+      async function refreshStlOverlay() {
+        const statusBox = el('stlStatus');
+        if (!statusBox) return;
+        if (curType === 'line') {
+          clearStlOverlay('Switch to candlestick view to see STL overlay.');
+          return;
+        }
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        try {
+          const r = await fetch(`/api/stl?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}`, { cache: 'no-store' });
+          const js = await r.json().catch(() => ({}));
+          if (r.ok && js.ok && Array.isArray(js.rows) && js.rows.length) {
+            applyStlData(js.rows, { period: js.period, updated: js.updated, symbol: js.symbol, timeframe: js.timeframe });
+          } else {
+            clearStlOverlay('No STL data cached yet. Use Recalculate to compute.');
+          }
+        } catch (err) {
+          console.warn('STL fetch failed', err);
+          clearStlOverlay('STL fetch failed.');
+        }
+      }
+
+      async function triggerStl(scope) {
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        queuePrefUpdate('last_symbol', symbol);
+        queuePrefUpdate('last_tf', tf);
+        const payload = { scope, symbol, timeframe: tf };
+        if (scope === 'symbol_all_tf') {
+          payload.timeframes = ALL_TFS;
+        } else if (scope === 'timeframe_all_symbols') {
+          payload.symbols = APP_SYMBOLS;
+        } else if (scope === 'all') {
+          payload.symbols = APP_SYMBOLS;
+          payload.timeframes = ALL_TFS;
+        }
+        const box = el('stlStatus');
+        if (box) box.textContent = `Scheduling STL (${scope})...`;
+        try {
+          const r = await fetch('/api/stl/compute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            cache: 'no-store',
+          });
+          const js = await r.json().catch(() => ({}));
+          if (!r.ok || !js.ok) {
+            const message = js.error || r.statusText;
+            if (box) box.textContent = `STL schedule failed: ${message}`;
+            status(`STL schedule failed: ${message}`);
+          } else {
+            status(`STL tasks scheduled (${js.scheduled} jobs, scope ${js.scope})`);
+          }
+        } catch (err) {
+          console.error('STL schedule failed', err);
+          if (box) box.textContent = `STL schedule failed: ${err.message || err}`;
+          status(`STL schedule failed: ${err.message || err}`);
+        }
+      }
+
       function connectUpdates(retryDelay = 2000) {
         const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const wsUrl = `${proto}://${window.location.host}/ws/updates`;
@@ -275,37 +500,18 @@
         });
 
         ws.addEventListener('message', (ev) => {
+          let data;
           try {
-            const data = JSON.parse(ev.data);
-            if (!data || data.type !== 'fetch_complete') return;
-            console.log('[WS] event', data);
-            if (data.status === 'scheduled' && data.background) {
-              status(`Background fetch scheduled (${data.symbol} ${data.timeframe})`);
-              return;
-            }
-            if (data.status === 'error') {
-              status(`Fetch error (${data.symbol} ${data.timeframe}): ${data.error || 'unknown'}`);
-              return;
-            }
-            const symbol = currentSymbol();
-            const tf = currentTf();
-            const sameSymbol = data.symbol === symbol;
-            const sameTf = data.timeframe === tf;
-            const inserted = Number(data.inserted || 0);
-            if (sameSymbol && sameTf) {
-              if (data.background) {
-                status(`Background fetch done (${data.symbol} ${data.timeframe}, +${inserted} bars)`);
-              }
-              scheduleChartRefresh(`${data.symbol}/${data.timeframe}`);
-            } else if (data.scope === 'symbol_all_tf' && sameSymbol) {
-              status(`Background fetch done (${data.symbol} ${data.timeframe})`);
-              scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope symbol_all_tf]`);
-            } else if (data.scope === 'all_symbols' && data.symbol === symbol) {
-              status(`Bulk fetch updated ${data.symbol} ${data.timeframe}`);
-              scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope all_symbols]`);
-            }
+            data = JSON.parse(ev.data);
           } catch (err) {
             console.warn('[WS] message parse failed', err);
+            return;
+          }
+          if (!data || !data.type) return;
+          if (data.type === 'fetch_complete') {
+            handleFetchEvent(data);
+          } else if (data.type === 'stl_complete') {
+            handleStlEvent(data);
           }
         });
 
@@ -350,9 +556,11 @@
             lwChart.timeScale().fitContent();
           }
           status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
+          await refreshStlOverlay();
         } catch (err) {
           console.error('Refresh failed', err);
           status('Refresh failed');
+          clearStlOverlay('STL unavailable (chart refresh failed).');
         }
       }
 
@@ -428,8 +636,11 @@
           console.log('[App] Auto-fetch on symbol change');
           await fetchAndSave();
           await refreshPositions();
+        } catch (e) {
+          console.warn('[App] Auto-fetch failed', e);
+        } finally {
           await refreshNews();
-        } catch (e) { console.warn('[App] Auto-fetch failed', e); }
+        }
       });
       const tfSel = document.getElementById('tf');
       if (tfSel) tfSel.addEventListener('change', async () => {
@@ -437,8 +648,11 @@
         try {
           console.log('[App] Auto-fetch on timeframe change');
           await fetchAndSave();
+        } catch (e) {
+          console.warn('[App] Auto-fetch failed', e);
+        } finally {
           await refreshNews();
-        } catch (e) { console.warn('[App] Auto-fetch failed', e); }
+        }
       });
       const countSel = document.getElementById('count');
       if (countSel) countSel.addEventListener('change', async () => {
@@ -456,6 +670,14 @@
       if (btnFetchSymbolAll) btnFetchSymbolAll.addEventListener('click', () => backgroundFetch('symbol_all_tf', { mode: 'inc' }));
       const btnFetchAll = document.getElementById('btnFetchAll');
       if (btnFetchAll) btnFetchAll.addEventListener('click', () => backgroundFetch('all_symbols', { mode: 'inc' }));
+      const btnStlCurrent = el('btnStlCurrent');
+      if (btnStlCurrent) btnStlCurrent.addEventListener('click', () => triggerStl('current'));
+      const btnStlSymbolAll = el('btnStlSymbolAll');
+      if (btnStlSymbolAll) btnStlSymbolAll.addEventListener('click', () => triggerStl('symbol_all_tf'));
+      const btnStlTfAll = el('btnStlTfAll');
+      if (btnStlTfAll) btnStlTfAll.addEventListener('click', () => triggerStl('timeframe_all_symbols'));
+      const btnStlAll = el('btnStlAll');
+      if (btnStlAll) btnStlAll.addEventListener('click', () => triggerStl('all'));
       const volumeInput = el('volume');
       if (volumeInput) volumeInput.addEventListener('change', () => queuePrefUpdate('last_volume', volumeInput.value));
       const slInput = el('sl');
@@ -641,21 +863,119 @@
       });
 
       // Initial load
-      // News fetcher
+      // News & intel helpers
+      const htmlEscape = (str) => {
+        if (typeof str !== 'string') return '';
+        return str.replace(/[&<>\"']/g, (ch) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        })[ch] || ch);
+      };
+      const isFiniteNumber = (val) => val !== null && val !== undefined && val !== '' && Number.isFinite(Number(val));
+      const niceNumber = (val, opts = {}) => {
+        if (!isFiniteNumber(val)) return '—';
+        return Number(val).toLocaleString(undefined, opts);
+      };
+      const formatBigNumber = (val) => {
+        if (!isFiniteNumber(val)) return '—';
+        const num = Number(val);
+        const abs = Math.abs(num);
+        if (abs >= 1e12) return `${(num / 1e12).toFixed(2)}T`;
+        if (abs >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
+        if (abs >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
+        if (abs >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
+        return num.toLocaleString();
+      };
+      const priceDigits = (sym, type) => {
+        const upper = (sym || '').toUpperCase();
+        if (type === 'forex') {
+          if (upper.startsWith('XAU') || upper.startsWith('XAG') || upper.startsWith('XPT') || upper.startsWith('XPD')) {
+            return 2;
+          }
+          return 5;
+        }
+        return 2;
+      };
+
+      function renderSymbolInfo(snapshot) {
+        const box = el('symbolInfoBox');
+        if (!box) return;
+        if (!snapshot || Object.keys(snapshot).length === 0) {
+          box.innerHTML = '<em style="color:var(--muted)">Provide FMP/Alpha Vantage API keys in <code>.env</code> to enable symbol intelligence.</em>';
+          return;
+        }
+        const type = snapshot.type || 'equity';
+        const symbol = snapshot.symbol || currentSymbol();
+        const name = snapshot.name || symbol;
+        const priceVal = isFiniteNumber(snapshot.price) ? Number(snapshot.price) : null;
+        const changeVal = isFiniteNumber(snapshot.change) ? Number(snapshot.change) : null;
+        const pctVal = isFiniteNumber(snapshot.changesPercentage) ? Number(snapshot.changesPercentage) : null;
+        const fractionDigits = priceDigits(symbol, type);
+        const priceStr = niceNumber(priceVal, { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits });
+        const changePieces = [];
+        if (changeVal !== null) changePieces.push(niceNumber(changeVal, { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }));
+        if (pctVal !== null) changePieces.push(`${niceNumber(pctVal, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`);
+        const changeColor = changeVal !== null
+          ? (changeVal > 0 ? 'var(--buy)' : changeVal < 0 ? 'var(--sell)' : 'var(--muted)')
+          : (pctVal !== null ? (pctVal > 0 ? 'var(--buy)' : pctVal < 0 ? 'var(--sell)' : 'var(--muted)') : 'var(--muted)');
+
+        const details = [];
+        if (snapshot.exchange) details.push(`Exchange: ${htmlEscape(snapshot.exchange)}`);
+        if (snapshot.sector) details.push(`Sector: ${htmlEscape(snapshot.sector)}`);
+        if (snapshot.industry) details.push(`Industry: ${htmlEscape(snapshot.industry)}`);
+        if (isFiniteNumber(snapshot.marketCap)) details.push(`Mkt Cap: ${formatBigNumber(snapshot.marketCap)}`);
+        if (isFiniteNumber(snapshot.volume)) details.push(`Vol: ${formatBigNumber(snapshot.volume)}`);
+        if (isFiniteNumber(snapshot.avgVolume)) details.push(`Avg Vol: ${formatBigNumber(snapshot.avgVolume)}`);
+        if (type === 'forex') {
+          if (isFiniteNumber(snapshot.dayHigh) || isFiniteNumber(snapshot.dayLow)) {
+            details.push(`Day: ${niceNumber(snapshot.dayLow, { maximumFractionDigits: fractionDigits })} → ${niceNumber(snapshot.dayHigh, { maximumFractionDigits: fractionDigits })}`);
+          }
+          if (isFiniteNumber(snapshot.yearLow) || isFiniteNumber(snapshot.yearHigh)) {
+            details.push(`52w: ${niceNumber(snapshot.yearLow, { maximumFractionDigits: fractionDigits })} → ${niceNumber(snapshot.yearHigh, { maximumFractionDigits: fractionDigits })}`);
+          }
+        }
+        let desc = '';
+        if (snapshot.description) {
+          const fullDesc = String(snapshot.description);
+          const trimmed = fullDesc.slice(0, 280);
+          desc = `<div style="font-size:12px; color:var(--muted); margin-top:4px;">${htmlEscape(trimmed)}${fullDesc.length > trimmed.length ? '…' : ''}</div>`;
+        }
+        if (snapshot.website) {
+          details.push(`<a href="${htmlEscape(snapshot.website)}" target="_blank" rel="noopener">Website</a>`);
+        }
+        box.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <div style="font-weight:600; color:var(--text);">${htmlEscape(name)} <span style="font-weight:500; color:var(--muted);">(${htmlEscape(symbol)})</span></div>
+            <div style="display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;">
+              <span style="font-size:20px; font-weight:600; color:var(--text);">${priceStr}</span>
+              <span style="font-weight:600; color:${changeColor};">${changePieces.join(' · ')}</span>
+            </div>
+            ${details.length ? `<div style="font-size:12px; color:var(--muted); display:flex; flex-wrap:wrap; gap:6px;">${details.join(' • ')}</div>` : ''}
+            ${desc}
+          </div>
+        `;
+      }
+
       function renderNews(items) {
         const box = el('newsBox');
+        if (!box) return;
         if (!items || !items.length) {
           box.innerHTML = '<em style="color:var(--muted)">No recent news found for this symbol.</em>';
           return;
         }
         const html = items.map(it => {
-          const t = it.title || '(no title)';
-          const src = it.source || it.site || '';
-          const dt = it.publishedAt || it.publishedDate || '';
-          const url = it.url || '#';
-          return `<div style="margin:6px 0;">
-                    <a href="${url}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none;">${t}</a>
-                    <div style="font-size:12px; color:var(--muted)">${src}${dt? ' • '+dt: ''}</div>
+          const t = htmlEscape(it.title || '(no title)');
+          const src = htmlEscape(it.source || it.site || '');
+          const dt = htmlEscape(it.publishedAt || it.publishedDate || '');
+          const summary = htmlEscape(it.summary || '');
+          const url = htmlEscape(it.url || '#');
+          return `<div style="margin:8px 0; padding-bottom:6px; border-bottom:1px solid var(--line);">
+                    <a href="${url}" target="_blank" rel="noopener" style="color:var(--accent); text-decoration:none; font-weight:600;">${t}</a>
+                    <div style="font-size:12px; color:var(--muted); margin-top:2px;">${[src, dt].filter(Boolean).join(' • ')}</div>
+                    ${summary ? `<div style="font-size:13px; color:var(--text); margin-top:4px;">${summary}</div>` : ''}
                   </div>`;
         }).join('');
         box.innerHTML = html;
@@ -664,12 +984,19 @@
       async function refreshNews() {
         const symbol = currentSymbol();
         try {
+          console.log('[App] Refresh news/intel for', symbol);
           const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
           const js = await r.json();
-          if (js && js.ok) renderNews(js.items || []);
-          else renderNews([]);
+          if (js && js.ok) {
+            renderSymbolInfo(js.snapshot || {});
+            renderNews(js.news || []);
+          } else {
+            renderSymbolInfo({});
+            renderNews([]);
+          }
         } catch (e) {
           console.warn('News fetch failed', e);
+          renderSymbolInfo({});
           renderNews([]);
         }
       }

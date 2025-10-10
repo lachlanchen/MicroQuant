@@ -1,7 +1,6 @@
 import os
 import re
-import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import requests
 
@@ -56,11 +55,20 @@ def _normalize_item(title: str, url: str, source: str = '', published: str = '',
     }
 
 
+def _is_fx_pair(symbol: str) -> bool:
+    sym = (symbol or '').upper()
+    return bool(re.fullmatch(r'[A-Z]{3}[A-Z]{3}', sym)) or sym.startswith(('XAU', 'XAG', 'XPT', 'XPD'))
+
+
 def fetch_fmp_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[Dict[str, Any]]:
     key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')
     if not key:
         return []
-    url = f'https://financialmodelingprep.com/api/v3/stock_news?limit=50&apikey={key}'
+    sym = (symbol or '').upper()
+    if _is_fx_pair(sym):
+        url = f'https://financialmodelingprep.com/api/v3/stock_news?limit=50&apikey={key}'
+    else:
+        url = f'https://financialmodelingprep.com/api/v3/stock_news?tickers={sym}&limit=50&apikey={key}'
     try:
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
@@ -92,7 +100,11 @@ def fetch_alpha_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List
     if not key:
         return []
     # Use broad FOREX topic and filter client-side
-    url = f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&topics=FOREX&sort=LATEST&apikey={key}'
+    sym = (symbol or '').upper()
+    if _is_fx_pair(sym):
+        url = f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&topics=FOREX&sort=LATEST&apikey={key}'
+    else:
+        url = f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers={sym}&sort=LATEST&apikey={key}'
     try:
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
@@ -138,3 +150,86 @@ def fetch_news_for_symbol(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
                 return out
     return out
 
+
+def fetch_fmp_snapshot(symbol: str, timeout: float = 5.0) -> Dict[str, Any]:
+    """Return a small fundamentals/quote snapshot for the selected symbol using FMP endpoints."""
+    key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')
+    if not key:
+        return {}
+    sym = (symbol or '').upper()
+    try:
+        if _is_fx_pair(sym):
+            url = f'https://financialmodelingprep.com/api/v3/fx/{sym}?apikey={key}'
+            r = requests.get(url, timeout=timeout)
+            r.raise_for_status()
+            data = r.json() or []
+            if not data:
+                return {}
+            item = data[0]
+            return {
+                'type': 'forex',
+                'symbol': sym,
+                'name': item.get('name') or sym,
+                'price': item.get('price'),
+                'change': item.get('change'),
+                'changesPercentage': item.get('changesPercentage'),
+                'dayHigh': item.get('dayHigh'),
+                'dayLow': item.get('dayLow'),
+                'yearHigh': item.get('yearHigh'),
+                'yearLow': item.get('yearLow'),
+            }
+        else:
+            quote_url = f'https://financialmodelingprep.com/api/v3/quote/{sym}?apikey={key}'
+            prof_url = f'https://financialmodelingprep.com/api/v3/profile/{sym}?apikey={key}'
+            quote_resp = requests.get(quote_url, timeout=timeout)
+            quote_resp.raise_for_status()
+            quote_data = (quote_resp.json() or [])
+            profile: Optional[Dict[str, Any]] = None
+            try:
+                prof_resp = requests.get(prof_url, timeout=timeout)
+                prof_resp.raise_for_status()
+                prof_data = prof_resp.json() or []
+                profile = prof_data[0] if prof_data else None
+            except Exception:
+                profile = None
+            item = quote_data[0] if quote_data else {}
+            snapshot = {
+                'type': 'equity',
+                'symbol': sym,
+                'name': profile.get('companyName') if profile else item.get('name') or sym,
+                'price': item.get('price'),
+                'change': item.get('change'),
+                'changesPercentage': item.get('changesPercentage'),
+                'dayHigh': item.get('dayHigh'),
+                'dayLow': item.get('dayLow'),
+                'yearHigh': item.get('yearHigh'),
+                'yearLow': item.get('yearLow'),
+                'previousClose': item.get('previousClose'),
+                'open': item.get('open'),
+                'volume': item.get('volume'),
+                'avgVolume': item.get('avgVolume'),
+                'marketCap': item.get('marketCap'),
+                'exchange': item.get('exchange'),
+            }
+            if profile:
+                snapshot['industry'] = profile.get('industry')
+                snapshot['sector'] = profile.get('sector')
+                snapshot['description'] = profile.get('description')
+                snapshot['currency'] = profile.get('currency')
+                snapshot['ceo'] = profile.get('ceo')
+                snapshot['website'] = profile.get('website')
+            return snapshot
+    except Exception:
+        return {}
+    return {}
+
+
+def fetch_symbol_digest(symbol: str, limit: int = 20) -> Dict[str, Any]:
+    """Return both news items and auxiliary snapshot information for a symbol."""
+    news = fetch_news_for_symbol(symbol, limit=limit)
+    snapshot = fetch_fmp_snapshot(symbol)
+    return {
+        'symbol': (symbol or '').upper(),
+        'news': news,
+        'snapshot': snapshot,
+    }

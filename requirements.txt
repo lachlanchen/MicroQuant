@@ -5,3 +5,5 @@ numpy
 python-dotenv
 requests
 httpx
+statsmodels
+pandas
