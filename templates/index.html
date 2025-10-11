@@ -171,6 +171,7 @@
         <button class="btn secondary" id="btnFetchAll">All Symbols</button>
       </div>
       <div class="control-group trade">
+        <div id="stlOverlayControls" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-right:auto;"></div>
         <label style="display:flex; align-items:center; gap:6px;">Vol
           <input id="volume" type="number" step="0.01" min="0.01" value="{{ default_volume }}" style="width:100px;" />
         </label>
@@ -416,6 +417,18 @@
       const stlEndInput = el('stlEnd');
       const stlRunsSelect = el('stlRuns');
       const stlDeleteBtn = el('btnStlDelete');
+      const stlOverlayControls = el('stlOverlayControls');
+      const STL_OVERLAY_TFS = ['M15', 'H1', 'H4', 'D1'];
+      const STL_OVERLAY_COLORS = {
+        M15: '#7e57c2',
+        H1: '#1e88e5',
+        H4: '#fb8c00',
+        D1: '#43a047',
+      };
+      const stlOverlaySeries = new Map();
+      const stlOverlayData = new Map();
+      const stlOverlayInputs = new Map();
+      const stlOverlayLoading = new Map();
       let stlAutoPeriod = !(DEFAULT_STL_AUTO_PERIOD === '0' || DEFAULT_STL_AUTO_PERIOD === 'false');
       let stlManualPeriod = DEFAULT_STL_MANUAL_PERIOD;
       const stlPeriodLinesToggle = el('chkStlPeriodLines');
@@ -1511,6 +1524,7 @@
           if (lwOverlay && lwOverlayCtx) {
             lwOverlayCtx.clearRect(0, 0, lwOverlay.width, lwOverlay.height);
           }
+          clearAllStlOverlaySeries();
           if (chart) {
             chart.destroy();
             chart = null;
@@ -1610,8 +1624,9 @@
           }
         }
         if (stlLastRows.length && stlLastMeta) {
-          applyStlData(stlLastRows.slice(), stlLastMeta);
+          applyStlData(stlLastRows.slice(), stlLastMeta).catch((err) => console.warn('STL overlay restore failed', err));
         }
+        syncStlOverlayVisibility();
         return lwChart;
       }
       function handleFetchEvent(data) {
@@ -1649,6 +1664,13 @@
         const desc = `${data.symbol} ${data.timeframe}`;
         const sameSymbol = data.symbol === currentSymbol();
         const sameTf = data.timeframe === currentTf();
+        const overlayKey = `${data.symbol}__${data.timeframe}`;
+        stlOverlayLoading.delete(overlayKey);
+        stlOverlayData.delete(overlayKey);
+        const pendingInput = stlOverlayInputs.get(data.timeframe);
+        if (pendingInput && pendingInput.dataset.loading === '1') {
+          pendingInput.dataset.loading = '';
+        }
         if (sameSymbol && sameTf && data.status === 'scheduled') {
           stlPendingCompute = true;
         }
@@ -1680,6 +1702,189 @@
         } else if (!sameSymbol || !sameTf) {
           status(`STL ${data.status} (${desc}${note ? `, ${data.note}` : ''})`);
         }
+        syncStlOverlayVisibility();
+      }
+      function ensureStlOverlaySeries(tf) {
+        if (!lwChart) return null;
+        if (stlOverlaySeries.has(tf)) return stlOverlaySeries.get(tf);
+        const dashed = (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dashed !== undefined)
+          ? LightweightCharts.LineStyle.Dashed
+          : (LightweightCharts && LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 2);
+        const series = lwChart.addLineSeries({
+          color: STL_OVERLAY_COLORS[tf] || '#607d8b',
+          lineWidth: 1.5,
+          lineStyle: dashed,
+          priceScaleId: 'right',
+          title: `Trend ${tf}`,
+        });
+        stlOverlaySeries.set(tf, series);
+        return series;
+      }
+      function clearStlOverlaySeries(tf) {
+        const series = stlOverlaySeries.get(tf);
+        if (series && typeof series.setData === 'function') {
+          series.setData([]);
+        }
+      }
+      function clearAllStlOverlaySeries() {
+        stlOverlaySeries.forEach((series) => {
+          if (series && typeof series.setData === 'function') series.setData([]);
+        });
+      }
+      function isStlOverlayEnabled(tf) {
+        const input = stlOverlayInputs.get(tf);
+        if (!input) return false;
+        if (input.disabled) return true;
+        return !!input.checked;
+      }
+      function overlayKey(symbol, tf) {
+        return `${symbol}__${tf}`;
+      }
+      function applyStoredOverlay(tf) {
+        if (curType !== 'candlestick') return;
+        const symbol = currentSymbol();
+        const key = overlayKey(symbol, tf);
+        const data = stlOverlayData.get(key);
+        const series = ensureStlOverlaySeries(tf);
+        if (!series) return;
+        series.setData(Array.isArray(data) ? data : (data && data.trend) || data || []);
+      }
+      async function loadStlOverlay(tf) {
+        if (curType !== 'candlestick') return;
+        const symbol = currentSymbol();
+        const key = overlayKey(symbol, tf);
+        if (stlOverlayData.has(key)) {
+          applyStoredOverlay(tf);
+          return;
+        }
+        if (stlOverlayLoading.has(key)) {
+          return stlOverlayLoading.get(key);
+        }
+        const input = stlOverlayInputs.get(tf);
+        if (input) input.dataset.loading = '1';
+        const limit = Math.max(200, Math.min(1500, currentBarsLimit() * 2));
+        const params = new URLSearchParams({
+          symbol,
+          tf,
+          include_data: '1',
+          all_data: '1',
+          limit: String(limit),
+        });
+        const promise = (async () => {
+          const resp = await fetch(`/api/stl?${params.toString()}`, { cache: 'no-store' });
+          const js = await resp.json().catch(() => ({}));
+          if (!resp.ok || !js || js.ok !== true) {
+            throw new Error(js && js.error ? js.error : resp.statusText || 'overlay fetch failed');
+          }
+          const rows = Array.isArray(js.rows) ? js.rows : [];
+          if (!rows.length) {
+            throw new Error('no STL rows');
+          }
+          const seriesData = rows
+            .map((r) => {
+              const t = new Date(r.ts).getTime();
+              const v = Number(r.trend);
+              if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+              return { time: Math.floor(t / 1000), value: v };
+            })
+            .filter(Boolean);
+          if (!seriesData.length) {
+            throw new Error('no usable trend points');
+          }
+          stlOverlayData.set(key, seriesData);
+          applyStoredOverlay(tf);
+          console.log(`[STL overlay] loaded ${symbol} ${tf}`);
+        })().catch((err) => {
+          console.warn('[STL overlay]', tf, err);
+          const inputEl = stlOverlayInputs.get(tf);
+          if (inputEl && !inputEl.disabled) {
+            inputEl.checked = false;
+          }
+          status(`STL overlay unavailable (${symbol} ${tf})`);
+        }).finally(() => {
+          stlOverlayLoading.delete(key);
+          const inputEl = stlOverlayInputs.get(tf);
+          if (inputEl) inputEl.dataset.loading = '';
+        });
+        stlOverlayLoading.set(key, promise);
+        return promise;
+      }
+      function syncStlOverlayVisibility() {
+        if (!stlOverlayControls) return;
+        if (curType !== 'candlestick') {
+          clearAllStlOverlaySeries();
+          return;
+        }
+        const symbol = currentSymbol();
+        STL_OVERLAY_TFS.forEach((tf) => {
+          if (tf === currentTf()) return;
+          if (!isStlOverlayEnabled(tf)) {
+            clearStlOverlaySeries(tf);
+            return;
+          }
+          const key = overlayKey(symbol, tf);
+          if (stlOverlayData.has(key)) {
+            applyStoredOverlay(tf);
+          } else {
+            loadStlOverlay(tf);
+          }
+        });
+      }
+      function buildStlOverlayControls() {
+        if (!stlOverlayControls) return;
+        const symbol = currentSymbol();
+        const current = currentTf();
+        stlOverlayControls.innerHTML = '';
+        stlOverlayInputs.clear();
+        const label = document.createElement('span');
+        label.textContent = 'Overlay STL';
+        label.style.fontSize = '12px';
+        label.style.fontWeight = '600';
+        label.style.color = 'var(--muted)';
+        stlOverlayControls.appendChild(label);
+        const tfs = [current, ...STL_OVERLAY_TFS.filter((tf) => tf !== current)];
+        tfs.forEach((tf) => {
+          const wrap = document.createElement('label');
+          wrap.style.display = 'flex';
+          wrap.style.alignItems = 'center';
+          wrap.style.gap = '4px';
+          wrap.style.fontSize = '12px';
+          wrap.style.color = 'var(--muted)';
+          wrap.style.cursor = 'pointer';
+          const input = document.createElement('input');
+          input.type = 'checkbox';
+          input.value = tf;
+          input.dataset.tf = tf;
+          if (tf === current) {
+            input.checked = true;
+            input.disabled = true;
+          } else {
+            const key = overlayKey(symbol, tf);
+            if (stlOverlayData.has(key)) {
+              input.checked = true;
+            }
+            input.addEventListener('change', () => {
+              if (input.checked) {
+                loadStlOverlay(tf);
+              } else {
+                clearStlOverlaySeries(tf);
+              }
+            });
+          }
+          stlOverlayInputs.set(tf, input);
+          const badge = document.createElement('span');
+          badge.textContent = tf;
+          badge.style.padding = '2px 6px';
+          badge.style.borderRadius = '4px';
+          const color = STL_OVERLAY_COLORS[tf] || '#607d8b';
+          badge.style.border = `1px solid ${color}`;
+          badge.style.color = color;
+          badge.style.fontWeight = '600';
+          wrap.appendChild(input);
+          wrap.appendChild(badge);
+          stlOverlayControls.appendChild(wrap);
+        });
+        syncStlOverlayVisibility();
       }
       function ensureStlSeries() {
         if (!lwChart) return;
@@ -1765,6 +1970,7 @@
           const updatedLabel = updatedIso ? ` • run ${formatDateTime(updatedIso)}` : '';
           box.textContent = `STL period ${periodLabel}${rangeLabel} • ${rows.length} points${updatedLabel}`;
         }
+        syncStlOverlayVisibility();
       }
       function ensureStlSeries() {
         if (!lwChart) return;
@@ -1827,6 +2033,7 @@
           const box = el('stlStatus');
           if (box) box.textContent = message;
         }
+        syncStlOverlayVisibility();
       }
       async function refreshStlOverlay(options = {}) {
         const { runId = stlSelectedRunId, autoCompute = true } = options || {};
@@ -1906,7 +2113,7 @@
               stlLastMeta = runMeta;
               clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
             } else {
-              applyStlData(js.rows, runMeta);
+              await applyStlData(js.rows, runMeta);
             }
           } else {
             const reason = js.reason || (js.needs_compute ? 'needs_compute' : 'no_rows');
@@ -1933,41 +2140,60 @@
           status('STL fetch failed.');
         }
       }
-      async function triggerStl(scope) {
-        const symbol = currentSymbol();
-        const tf = currentTf();
-        queuePrefUpdate('last_symbol', symbol);
-        queuePrefUpdate('last_tf', tf);
+      async function triggerStl(scope, options = {}) {
+        const opts = options || {};
+        const symbol = opts.symbol || currentSymbol();
+        const tf = opts.timeframe || currentTf();
+        const silent = !!opts.silent;
+        const skipPref = !!opts.skipPref;
+        const sameSymbol = symbol === currentSymbol();
+        const sameTf = tf === currentTf();
+        if (!skipPref && sameSymbol) queuePrefUpdate('last_symbol', symbol);
+        if (!skipPref && sameTf) queuePrefUpdate('last_tf', tf);
         const payload = { scope, symbol, timeframe: tf };
-        if (!stlAutoPeriod) {
-          if (!Number.isFinite(stlManualPeriod) || stlManualPeriod < 3) {
-            status('STL period must be >= 3.');
-            if (stlPeriodInput) stlPeriodInput.focus();
+        let periodValue = null;
+        if (opts.period != null) {
+          periodValue = opts.period;
+        } else if (sameSymbol && sameTf && !stlAutoPeriod) {
+          periodValue = stlManualPeriod;
+        }
+        if (periodValue != null) {
+          if (!Number.isFinite(periodValue) || periodValue < 3) {
+            if (!silent) {
+              status('STL period must be >= 3.');
+              if (sameTf && stlPeriodInput) stlPeriodInput.focus();
+            }
             return;
           }
-          payload.period = Math.round(stlManualPeriod);
-          queuePrefUpdate('stl_manual_period', Math.round(stlManualPeriod));
+          payload.period = Math.round(periodValue);
+          if (!skipPref && sameSymbol && sameTf && !stlAutoPeriod) {
+            queuePrefUpdate('stl_manual_period', payload.period);
+          }
         }
-        if (scope === 'current' || scope === 'single') {
-          payload.all_data = stlAllData ? 1 : 0;
-          if (!stlAllData) {
-            const startIso = stlTargetStart || (stlStartInput && stlStartInput.value ? localInputToIso(stlStartInput.value) : null);
-            const endIso = stlTargetEnd || (stlEndInput && stlEndInput.value ? localInputToIso(stlEndInput.value) : null);
-            if (!startIso || !endIso) {
-              status('Select a start and end datetime before recalculating STL.');
-              return;
-            }
-            if (new Date(startIso) >= new Date(endIso)) {
-              status('STL range invalid: start must be before end.');
-              return;
-            }
-            payload.start = startIso;
-            payload.end = endIso;
+        let allDataFlag;
+        if (opts.allData != null) {
+          allDataFlag = opts.allData ? 1 : 0;
+        } else {
+          allDataFlag = (sameSymbol && sameTf) ? (stlAllData ? 1 : 0) : 1;
+        }
+        payload.all_data = allDataFlag;
+        if (payload.all_data !== 1) {
+          const startIso = opts.start || stlTargetStart || (stlStartInput && stlStartInput.value ? localInputToIso(stlStartInput.value) : null);
+          const endIso = opts.end || stlTargetEnd || (stlEndInput && stlEndInput.value ? localInputToIso(stlEndInput.value) : null);
+          if (!startIso || !endIso) {
+            if (!silent) status('Select a start and end datetime before recalculating STL.');
+            return;
+          }
+          if (new Date(startIso) >= new Date(endIso)) {
+            if (!silent) status('STL range invalid: start must be before end.');
+            return;
+          }
+          payload.start = startIso;
+          payload.end = endIso;
+          if (sameSymbol && sameTf) {
             stlTargetStart = startIso;
             stlTargetEnd = endIso;
           }
-        } else {
-          payload.all_data = 1;
         }
         if (scope === 'symbol_all_tf') {
           payload.timeframes = ALL_TFS;
@@ -1977,9 +2203,9 @@
           payload.symbols = APP_SYMBOLS;
           payload.timeframes = ALL_TFS;
         }
-        const box = el('stlStatus');
-        if (box) box.textContent = `Scheduling STL (${scope})...`;
-        stlPendingCompute = true;
+        const statusBox = !silent ? el('stlStatus') : null;
+        if (statusBox) statusBox.textContent = `Scheduling STL (${scope})...`;
+        if (sameSymbol && sameTf && !silent) stlPendingCompute = true;
         try {
           const r = await fetch('/api/stl/compute', {
             method: 'POST',
@@ -1988,19 +2214,21 @@
             cache: 'no-store',
           });
           const js = await r.json().catch(() => ({}));
-          if (!r.ok || !js.ok) {
-            const message = js.error || r.statusText;
-            if (box) box.textContent = `STL schedule failed: ${message}`;
-            status(`STL schedule failed: ${message}`);
-            stlPendingCompute = false;
-          } else {
+          if (!r.ok || !js || js.ok !== true) {
+            const message = (js && js.error) || r.statusText || 'STL schedule failed';
+            if (statusBox) statusBox.textContent = `STL schedule failed: ${message}`;
+            if (!silent) status(`STL schedule failed: ${message}`);
+            if (sameSymbol && sameTf) stlPendingCompute = false;
+          } else if (!silent) {
             status(`STL tasks scheduled (${js.scheduled} jobs, scope ${js.scope})`);
           }
         } catch (err) {
-          console.error('STL schedule failed', err);
-          if (box) box.textContent = `STL schedule failed: ${err.message || err}`;
-          status(`STL schedule failed: ${err.message || err}`);
-          stlPendingCompute = false;
+          if (!silent) {
+            console.error('STL schedule failed', err);
+            if (statusBox) statusBox.textContent = `STL schedule failed: ${err.message || err}`;
+            status(`STL schedule failed: ${err.message || err}`);
+          }
+          if (sameSymbol && sameTf) stlPendingCompute = false;
         }
       }
       function connectUpdates(retryDelay = 2000) {
@@ -2118,6 +2346,7 @@
           updatePeriodOverlays(overlayPeriod && Number.isFinite(overlayPeriod) ? overlayPeriod : null);
           status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
           await refreshStlOverlay({ autoCompute: true });
+          syncStlOverlayVisibility();
         } catch (err) {
           console.error('Refresh failed', err);
           status('Refresh failed');
@@ -2207,6 +2436,10 @@
         stlPendingCompute = false;
         stlLastRows = [];
         stlLastMeta = null;
+        stlOverlayData.clear();
+        stlOverlayLoading.clear();
+        clearAllStlOverlaySeries();
+        buildStlOverlayControls();
         queuePrefUpdate('last_symbol', currentSymbol());
         try {
           console.log('[App] Auto-fetch on symbol change');
@@ -2226,6 +2459,10 @@
         stlPendingCompute = false;
         stlLastRows = [];
         stlLastMeta = null;
+        stlOverlayData.clear();
+        stlOverlayLoading.clear();
+        clearAllStlOverlaySeries();
+        buildStlOverlayControls();
         queuePrefUpdate('last_tf', currentTf());
         try {
           console.log('[App] Auto-fetch on timeframe change');
@@ -2926,6 +3163,7 @@
       if (symSel) symSel.addEventListener('change', startTickPoll);
 
       // Initial loads
+      buildStlOverlayControls();
       updateStlInputsFromState();
       refreshChart();
       refreshNews();
