@@ -1,41 +1,33 @@
-MetaTrader Project — Agents Guide
+# Repository Guidelines
 
-Scope
-- This file applies to the entire repository.
+## Project Structure & Module Organization
+- `app/` — Python backend (e.g., `server.py`, `mt5_client.py`, `strategy.py`, `news_fetcher.py`, `db.py`).
+- `templates/index.html` — Frontend UI (Lightweight Charts + Chart.js).
+- `scripts/` — Utilities and smoke tests (e.g., `test_mixed_ai.py`, `test_fmp.py`).
+- `docs/` — Documentation and setup notes.
+- `sql/schema.sql` — Database schema.
 
-Commit/Push Etiquette
-- Always commit and push after making functional changes.
-- Use concise commit messages that describe intent and scope.
-- Prefer small, focused patches over sweeping refactors.
+## Build, Test, and Development Commands
+- Create env and install: `python -m venv .venv && .venv\Scripts\activate` (Win) then `pip install -r requirements.txt`.
+- Run locally: `python -m app.server` (serves on port 8888).
+- Smoke tests: `python scripts/test_mixed_ai.py`, `python scripts/test_fmp.py`.
+- Windows helpers: `scripts/run_windows.ps1`, `scripts/setup_windows.ps1`.
 
-Frontend Chart Sync (Lightweight Charts + indicators)
-- Source of truth: use logical-range sync only. Do not mirror time ranges.
-- Debounce range propagation (requestAnimationFrame) to avoid oscillation.
-- One-time fit: call `fitContent()` only on the first render per symbol/TF.
-- Gate sync: keep `lwSubscriptionsEnabled = false` during context switches (symbol/TF/chart type); enable after first data render.
-- Avoid repeated auto-fit or programmatic range changes during refresh flows.
-- Only apply Chart.js viewport constraints when the line chart is active.
+## Coding Style & Naming Conventions
+- Python: PEP 8, 4‑space indents, type hints where practical, small focused functions.
+- JS/HTML (`templates/index.html`): use `const/let`, camelCase, avoid globals; keep chart logic simple. Use logical‑range sync and a one‑time `fitContent()` per symbol/TF to prevent jitter.
+- Commits: imperative mood with area prefix (e.g., `UI: …`, `Server: …`, `Docs: …`).
 
-STL Overlay
-- Trend line color must not conflict with Bollinger bands.
-- Show period bands with dashed boundaries and alternating shaded background.
-- Support both auto period and manual period; manual period should be a run parameter.
+## Testing Guidelines
+- No formal suite yet; rely on smoke tests and manual UI checks (pan/zoom sync, STL overlay, trading actions, news panel fallback).
+- Keep tests targeted to changed behavior; avoid adding slow or flaky tests.
+- Run server locally and verify in browser before pushing.
 
-News AI
-- Requires a valid provider key in `.env` (e.g., `OPENAI_API_KEY` or configured MixedAI provider).
-- If unavailable, UI must degrade gracefully and clearly communicate the disabled state.
+## Commit & Pull Request Guidelines
+- Small, scoped patches; explain motivation and user impact.
+- Include screenshots/GIFs for UI changes; link issues where applicable.
+- Avoid unrelated formatting churn; keep diffs minimal and readable.
 
-Volume Data
-- FX symbols often provide `tick_volume`. Prefer `real_volume`, then `tick_volume`, then `volume` as a fallback.
-- Ensure Market Watch visibility in MT5 so volume populates.
-
-General Coding Guidelines
-- Favor simple, readable code; avoid premature abstraction.
-- Don’t reintroduce startup jitter. Never call `fitContent()` on every refresh.
-- Guard nullable ranges (`getVisibleRange()`/`getVisibleLogicalRange()` can be null).
-- Beware Windows line endings (CRLF). Keep files UTF‑8; let Git normalize.
-
-Local Run
-- Start the server: `python -m app.server`
-- Configure `.env` from `.env.example` as needed.
-
+## Security & Configuration Tips
+- Configure `.env` (e.g., `OPENAI_API_KEY` or configured provider) and do not commit secrets.
+- MT5/volume: prefer `real_volume` → `tick_volume` → `volume`; ensure instruments are visible in MT5 Market Watch.
