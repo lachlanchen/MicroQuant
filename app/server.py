@@ -1283,6 +1283,7 @@ async def make_app():
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler, dict(pool=pool)),
+            (r"/api/news/backfill_forex", NewsBackfillHandler, dict(pool=pool)),
             (r"/api/news/analyze", NewsAnalysisHandler, dict(ai_client=AI_CLIENT, questions=NEWS_MICRO_QUESTIONS)),
             (r"/api/health/runs", HealthRunsHandler, dict(pool=pool)),
             (r"/api/health/run", HealthRunHandler, dict(pool=pool)),
@@ -2269,6 +2270,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
