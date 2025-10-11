@@ -295,6 +295,17 @@
           <button class="btn secondary" id="btnPos">Refresh Positions</button>
         </div>
         <pre id="positionsBox" style="background:var(--panel); padding:8px; border:1px solid var(--line); border-radius:8px; height:400px; overflow:auto;"></pre>
+        <div id="rfRightForecasts" style="margin-top:12px; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong style="color:var(--accent)">RoboForex Market Forecasts</strong>
+            <div class="rf-head" style="position:static;">
+              <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
+            </div>
+          </div>
+          <iframe width="100%" height="260" frameborder="0" class="efx" loading="lazy"
+            src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
+          </iframe>
+        </div>
       </div>
     </div>
     <!-- Health Check Modal -->
@@ -326,15 +337,6 @@
       <a href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
         <img loading="lazy" src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg" alt="RoboForex" width="728" height="90" />
       </a>
-    </div>
-
-    <div id="rfRightForecasts" class="rf-floating rf-br" style="width:304px; height:282px;">
-      <div class="rf-head">
-        <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
-      </div>
-      <iframe width="304" height="282" frameborder="0" class="efx" loading="lazy"
-        src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
-      </iframe>
     </div>
 
     <script>
