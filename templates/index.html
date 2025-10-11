@@ -265,6 +265,8 @@
       let lwBollingerLower = null;
       let lwBollingerMid = null;
       let lwObserver = null;
+      let lwTimeRangeSubscribed = false;
+      let currentTimeRange = null;
       let stlTrendSeries = null;
       let stlSeasonSeries = null;
       let stlResidSeries = null;
@@ -674,6 +676,9 @@
       };
 
       const updateIndicatorCharts = (rows) => {
+        if (Array.isArray(rows) && rows.length) {
+          lastPriceRows = rows.slice();
+        }
         if (!rows || !rows.length) {
           if (volumeChart) {
             volumeChart.data.labels = [];
@@ -742,6 +747,39 @@
           macdChart.data.datasets[2].data = toPoints(macdObj.signal);
           macdChart.update('none');
         }
+        if (currentTimeRange) {
+          applyIndicatorViewport(currentTimeRange);
+        } else {
+          applyIndicatorViewport(null);
+        }
+      };
+
+      const applyIndicatorViewport = (range) => {
+        const resetScale = (chart) => {
+          if (!chart || !chart.options || !chart.options.scales || !chart.options.scales.x) return;
+          delete chart.options.scales.x.min;
+          delete chart.options.scales.x.max;
+          chart.update('none');
+        };
+        if (!range || range.from == null || range.to == null) {
+          resetScale(volumeChart);
+          resetScale(rsiChart);
+          resetScale(macdChart);
+          if (chart && curType === 'line') resetScale(chart);
+          return;
+        }
+        const minDate = new Date(range.from * 1000);
+        const maxDate = new Date(range.to * 1000);
+        const applyScale = (chartInstance) => {
+          if (!chartInstance || !chartInstance.options || !chartInstance.options.scales || !chartInstance.options.scales.x) return;
+          chartInstance.options.scales.x.min = minDate;
+          chartInstance.options.scales.x.max = maxDate;
+          chartInstance.update('none');
+        };
+        applyScale(volumeChart);
+        applyScale(rsiChart);
+        applyScale(macdChart);
+        if (chart && curType === 'line') applyScale(chart);
       };
 
       const applyLightweightPeriodOverlay = (rows, period) => {
@@ -792,10 +830,18 @@
           chartPeriodWindows = [];
           if (chart && curType === 'line') chart.update('none');
           if (lwSeries && typeof lwSeries.setMarkers === 'function') lwSeries.setMarkers([]);
+          if (currentTimeRange) {
+            applyIndicatorViewport(currentTimeRange);
+          } else {
+            applyIndicatorViewport(null);
+          }
           return;
         }
         applyChartPeriodOverlay(lastPriceRows, period);
         applyLightweightPeriodOverlay(lastPriceRows, period);
+        if (currentTimeRange) {
+          applyIndicatorViewport(currentTimeRange);
+        }
       };
 
       const currentSymbol = () => {
@@ -959,6 +1005,8 @@
               },
             },
           });
+          currentTimeRange = null;
+          applyIndicatorViewport(null);
           clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
           return chart;
         }
@@ -1017,6 +1065,18 @@
             width: rectInit.width || lwContainer.clientWidth || 800,
             height: rectInit.height || lwContainer.clientHeight || 400
           });
+          if (!lwTimeRangeSubscribed) {
+            lwChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+              if (!range || range.from == null || range.to == null) {
+                currentTimeRange = null;
+                applyIndicatorViewport(null);
+                return;
+              }
+              currentTimeRange = range;
+              applyIndicatorViewport(range);
+            });
+            lwTimeRangeSubscribed = true;
+          }
         }
         if (stlLastRows.length && stlLastMeta) {
           applyStlData(stlLastRows.slice(), stlLastMeta);
@@ -1496,7 +1556,19 @@
             if (lwBollingerUpper) lwBollingerUpper.setData(toLwPoints(boll.upper));
             if (lwBollingerLower) lwBollingerLower.setData(toLwPoints(boll.lower));
             if (lwBollingerMid) lwBollingerMid.setData(toLwPoints(boll.middle));
+            const visibleRange = lwChart.timeScale().getVisibleRange();
+            if (visibleRange && visibleRange.from != null && visibleRange.to != null) {
+              currentTimeRange = visibleRange;
+              applyIndicatorViewport(visibleRange);
+            } else {
+              applyIndicatorViewport(null);
+            }
             lwChart.timeScale().fitContent();
+            const postFitRange = lwChart.timeScale().getVisibleRange();
+            if (postFitRange && postFitRange.from != null && postFitRange.to != null) {
+              currentTimeRange = postFitRange;
+              applyIndicatorViewport(postFitRange);
+            }
           }
           updateIndicatorCharts(rows);
           const overlayPeriod = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
