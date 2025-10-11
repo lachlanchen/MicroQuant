@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -73,6 +73,15 @@
     .modal-head h3 { margin:0; font-size:16px; }
     .modal-body { padding: 14px 16px; line-height:1.5; white-space: pre-wrap; }
     .modal-close { background: transparent; border: 0; font-size: 20px; cursor: pointer; color: #444; }
+    /* RoboForex affiliate widgets (non-intrusive, dismissible) */
+    .rf-floating { position: fixed; z-index: 9998; background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.15); overflow:hidden; }
+    .rf-top { top: 8px; right: 12px; }
+    .rf-bottom { bottom: 8px; left: 50%; transform: translateX(-50%); }
+    .rf-br { bottom: 12px; right: 12px; }
+    .rf-head { position:absolute; top:4px; right:6px; display:flex; gap:6px; }
+    .rf-btn { border:0; background:rgba(0,0,0,0.5); color:#fff; width:18px; height:18px; line-height:18px; border-radius:3px; font-size:12px; cursor:pointer; }
+    .rf-btn:hover { background:rgba(0,0,0,0.7); }
+    .rf-hidden { display:none !important; }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
@@ -121,6 +130,34 @@
         <label>Timeframe
           <select id="tf">
             <option value="M1"{% if default_tf == 'M1' %} selected{% end %}>M1</option>
+<div id="rfTopQuotes" class="rf-floating rf-top" style="width:600px; height:40px;">
+  <div class="rf-head">
+    <button class="rf-btn" id="rfTopQuotesClose" title="Hide">×</button>
+  </div>
+  <iframe width="600" height="40" frameborder="0" class="efx" loading="lazy"
+    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape">
+  </iframe>
+</div>
+
+<!-- Affiliate: Bottom Banner (minimizable) -->
+<div id="rfBottomBanner" class="rf-floating rf-bottom" style="width:728px; height:90px;">
+  <div class="rf-head">
+    <button class="rf-btn" id="rfBottomBannerClose" title="Hide">×</button>
+  </div>
+  <a href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
+    <img loading="lazy" src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg" alt="RoboForex" width="728" height="90" />
+  </a>
+</div>
+
+<!-- Affiliate: Bottom-right Forecasts widget (minimizable) -->
+<div id="rfRightForecasts" class="rf-floating rf-br" style="width:304px; height:282px;">
+  <div class="rf-head">
+    <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
+  </div>
+  <iframe width="304" height="282" frameborder="0" class="efx" loading="lazy"
+    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
+  </iframe>
+</div>
             <option value="M5"{% if default_tf == 'M5' %} selected{% end %}>M5</option>
             <option value="M15"{% if default_tf == 'M15' %} selected{% end %}>M15</option>
             <option value="M30"{% if default_tf == 'M30' %} selected{% end %}>M30</option>
@@ -1293,274 +1330,6 @@
         lwSyncing = true;
         try {
           if (lwVolChart && lwVolHasData) {
-            if (logicalRange) setLogicalRangeIfNeeded(lwVolChart, logicalRange);
-            setRangeIfNeeded(lwVolChart, range);
-          }
-          if (lwRsiChart && lwRsiHasData) {
-            if (logicalRange) setLogicalRangeIfNeeded(lwRsiChart, logicalRange);
-            setRangeIfNeeded(lwRsiChart, range);
-          }
-          if (lwMacdChart && lwMacdHasData) {
-            if (logicalRange) setLogicalRangeIfNeeded(lwMacdChart, logicalRange);
-            setRangeIfNeeded(lwMacdChart, range);
-          }
-        } finally {
-          lwSyncing = false;
-        }
-      };
-
-      const applyIndicatorViewport = (range, logicalRange) => {
-        if (!lastPriceRows.length) {
-          indicatorRangeMs = null;
-          currentTimeRange = null;
-          currentLogicalRange = null;
-          updateIndicatorDisplay([]);
-          return;
-        }
-        if (!range || range.from == null || range.to == null) {
-          indicatorRangeMs = null;
-          currentTimeRange = null;
-          currentLogicalRange = null;
-          updateIndicatorDisplay(lastPriceRows);
-          return;
-        }
-        const fromMs = range.from * 1000;
-        const toMs = range.to * 1000;
-        indicatorRangeMs = {
-          min: fromMs,
-          max: toMs,
-        };
-        currentTimeRange = range;
-        currentLogicalRange = logicalRange || null;
-        updateIndicatorDisplay(lastPriceRows);
-        enforceIndicatorRange(range, currentLogicalRange);
-      };
-
-      const updateIndicatorCharts = (rows) => {
-        if (Array.isArray(rows) && rows.length) {
-          lastPriceRows = rows.slice();
-        } else {
-          lastPriceRows = [];
-        }
-        if (currentTimeRange) {
-          applyIndicatorViewport(currentTimeRange, currentLogicalRange);
-        } else {
-          indicatorRangeMs = null;
-          updateIndicatorDisplay(lastPriceRows);
-        }
-      };
-
-      const applyLightweightPeriodOverlay = (rows, period) => {
-        // Replace vertical grid with series markers anchored to bars
-        if (!lwSeries || typeof lwSeries.setMarkers !== 'function' || !period || period < 1 || !Array.isArray(periodBoundaryTimes)) {
-          if (lwSeries && typeof lwSeries.setMarkers === 'function') lwSeries.setMarkers([]);
-          clearLwOverlay();
-          return;
-        }
-        const markers = periodBoundaryTimes.map((t) => ({
-          time: t,
-          position: 'belowBar',
-          shape: 'arrowUp',
-          color: '#d84315',
-          text: 'P',
-        }));
-        lwSeries.setMarkers(showPeriodLines ? markers : []);
-        // Do not draw vertical overlay lines
-        clearLwOverlay();
-      };
-
-      const applyChartPeriodOverlay = (rows, period) => {
-        if (!rows || !rows.length || !period || period < 1) {
-          chartPeriodWindows = [];
-          if (chart && curType === 'line') chart.update('none');
-          return;
-        }
-        const windows = [];
-        const total = rows.length;
-        for (let start = 0; start < total; start += period) {
-          const endIndex = Math.min(total - 1, start + period);
-          const startDate = new Date(rows[start].ts);
-          const endDate = new Date(rows[endIndex].ts);
-          if (!Number.isFinite(startDate.valueOf()) || !Number.isFinite(endDate.valueOf())) continue;
-          windows.push({ start: startDate, end: endDate });
-        }
-        chartPeriodWindows = windows;
-        if (chart && curType === 'line') chart.update('none');
-      };
-
-      const updatePeriodOverlays = (period) => {
-        if (!period || period < 1 || !lastPriceRows.length) {
-          chartPeriodWindows = [];
-          if (chart && curType === 'line') chart.update('none');
-          if (lwSeries && typeof lwSeries.setMarkers === 'function') lwSeries.setMarkers([]);
-          if (currentTimeRange) {
-            applyIndicatorViewport(currentTimeRange, currentLogicalRange);
-          } else {
-            applyIndicatorViewport(null, null);
-          }
-          periodBoundaryTimes = [];
-          if (curType === 'candlestick') { redrawPeriodLines(); }
-          return;
-        }
-        // Precompute boundary times anchored to specific bar indices
-        const eff = Math.max(1, Math.floor(period));
-        computePeriodBoundaryTimes(eff);
-        // Respect toggle: draw in Chart.js when enabled, clear when disabled
-        if (showPeriodLines) {
-          applyChartPeriodOverlay(lastPriceRows, eff);
-        } else {
-          chartPeriodWindows = [];
-          if (chart && curType === 'line') chart.update('none');
-        }
-        applyLightweightPeriodOverlay(lastPriceRows, eff);
-        if (curType === 'candlestick') {
-          redrawPeriodLines();
-        }
-        if (currentTimeRange) {
-          applyIndicatorViewport(currentTimeRange, currentLogicalRange);
-        }
-      };
-
-      const currentSymbol = () => {
-        if (symbolSelect && symbolSelect.value) return symbolSelect.value.trim();
-        return APP_DEFAULT_SYMBOL;
-      };
-
-      const currentTf = () => {
-        if (tfSelect && tfSelect.value) return tfSelect.value.trim();
-        return DEFAULT_TF || 'H1';
-      };
-
-      const currentBarsLimit = () => {
-        if (countInput && countInput.value) {
-          const parsed = Number(countInput.value);
-          if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-        }
-        return DEFAULT_BARS || 500;
-      };
-
-      const isoToLocalInput = (iso) => {
-        if (!iso) return '';
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) return '';
-        const offset = d.getTimezoneOffset();
-        const local = new Date(d.getTime() - offset * 60000);
-        return local.toISOString().slice(0, 16);
-      };
-
-      const localInputToIso = (value) => {
-        if (!value) return null;
-        const d = new Date(value);
-        if (Number.isNaN(d.getTime())) return null;
-        return d.toISOString();
-      };
-
-      const formatDateShort = (iso) => {
-        if (!iso) return '';
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) return iso;
-        return d.toISOString().slice(0, 10);
-      };
-
-      const formatDateTime = (iso) => {
-        if (!iso) return '';
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) return iso;
-        return d.toISOString().slice(0, 16).replace('T', ' ');
-      };
-
-      const updateStlInputsFromState = () => {
-        if (stlAllToggle) stlAllToggle.checked = stlAllData;
-        if (stlAutoToggle) stlAutoToggle.checked = stlAutoPeriod;
-        if (stlPeriodLinesToggle) stlPeriodLinesToggle.checked = !!showPeriodLines;
-        if (stlPeriodInput) {
-          stlPeriodInput.disabled = !!stlAutoPeriod;
-          stlPeriodInput.value = stlManualPeriod || '';
-          stlPeriodInput.placeholder = stlAutoPeriod && stlLastPeriod ? String(stlLastPeriod) : '';
-        }
-        if (stlStartInput) {
-          stlStartInput.disabled = stlAllData;
-          stlStartInput.value = stlAllData ? '' : isoToLocalInput(stlTargetStart);
-          if (stlDatasetRange && stlDatasetRange.start_ts) stlStartInput.min = isoToLocalInput(stlDatasetRange.start_ts);
-          if (stlDatasetRange && stlDatasetRange.end_ts) stlStartInput.max = isoToLocalInput(stlDatasetRange.end_ts);
-        }
-        if (stlEndInput) {
-          stlEndInput.disabled = stlAllData;
-          stlEndInput.value = stlAllData ? '' : isoToLocalInput(stlTargetEnd);
-          if (stlDatasetRange && stlDatasetRange.start_ts) stlEndInput.min = isoToLocalInput(stlDatasetRange.start_ts);
-          if (stlDatasetRange && stlDatasetRange.end_ts) stlEndInput.max = isoToLocalInput(stlDatasetRange.end_ts);
-        }
-        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
-      };
-
-      const populateStlRuns = (runs, selectedId) => {
-        if (!stlRunsSelect) return;
-        stlRunsSelect.innerHTML = '';
-        const defaultOption = new Option('Latest (auto)', '');
-        stlRunsSelect.appendChild(defaultOption);
-        if (Array.isArray(runs)) {
-          runs.forEach((run) => {
-            if (!run) return;
-            const label = `${formatDateShort(run.start_ts)} → ${formatDateShort(run.end_ts)} • P${run.period}`;
-            const opt = new Option(label, String(run.id));
-            if (selectedId && String(run.id) === String(selectedId)) opt.selected = true;
-            stlRunsSelect.appendChild(opt);
-          });
-        }
-        if (!selectedId) stlRunsSelect.value = '';
-        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlRunsSelect.value;
-      };
-
-      function makeChart(type) {
-        curType = type;
-        if (type === 'line') {
-          lwContainer.style.display = 'none';
-          canvas.style.display = 'block';
-          if (chart) { chart.destroy(); chart = null; }
-          const existing = window.Chart.getChart(canvas);
-          if (existing) { existing.destroy(); }
-          chart = new window.Chart(ctx, {
-            type: 'line',
-            data: {
-              labels: [],
-              datasets: [
-                {
-                  label: 'Close',
-                  data: [],
-                  borderColor: '#1976d2',
-                  borderWidth: 1.5,
-                  pointRadius: 0,
-                  tension: 0.15,
-                  fill: false,
-                },
-                {
-                  label: 'Bollinger Mid',
-                  data: [],
-                  borderColor: '#90a4ae',
-                  borderWidth: 1,
-                  pointRadius: 0,
-                  tension: 0.15,
-                  fill: false,
-                  borderDash: [6, 4],
-                },
-                {
-                  label: 'Bollinger Upper',
-                  data: [],
-                  borderColor: '#ff9800',
-                  borderWidth: 1.2,
-                  pointRadius: 0,
-                  tension: 0.15,
-                  fill: false,
-                },
-                {
-                  label: 'Bollinger Lower',
-                  data: [],
-                  borderColor: '#ff9800',
-                  borderWidth: 1.2,
-                  pointRadius: 0,
-                  tension: 0.15,
-                  fill: '-1',
-                  backgroundColor: 'rgba(255, 152, 0, 0.08)',
                 },
               ],
             },
@@ -2849,6 +2618,24 @@
       }
 
       let NEWS_SHOW_FULL = false;
+      // Affiliate widget visibility controls
+      const RF_TOP_KEY = 'rfTopQuotesHidden';
+      const RF_BOT_KEY = 'rfBottomBannerHidden';
+      const RF_BR_KEY = 'rfRightForecastsHidden';
+      const setRfHidden = (id, key) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('rf-hidden');
+        try { localStorage.setItem(key, '1'); } catch {}
+      };
+      const initRfWidget = (id, key, btnId) => {
+        const el = document.getElementById(id);
+        const btn = document.getElementById(btnId);
+        try { if (localStorage.getItem(key) === '1' && el) el.classList.add('rf-hidden'); } catch {}
+        if (btn) btn.addEventListener('click', () => setRfHidden(id, key));
+      };
+      initRfWidget('rfTopQuotes', RF_TOP_KEY, 'rfTopQuotesClose');
+      initRfWidget('rfBottomBanner', RF_BOT_KEY, 'rfBottomBannerClose');
+      initRfWidget('rfRightForecasts', RF_BR_KEY, 'rfRightForecastsClose');
       // Modal helpers for full news text
       const modalEl = document.getElementById('newsModal');
       const modalTitleEl = document.getElementById('newsModalTitle');
@@ -2991,3 +2778,31 @@
 
 
 
+
+<!-- Affiliate widgets (floating) -->
+<div id="rfTopQuotes" class="rf-floating rf-top" style="width:600px; height:40px;">
+  <div class="rf-head">
+    <button class="rf-btn" id="rfTopQuotesClose" title="Hide">×</button>
+  </div>
+  <iframe width="600" height="40" frameborder="0" class="efx" loading="lazy"
+    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape">
+  </iframe>
+</div>
+
+<div id="rfBottomBanner" class="rf-floating rf-bottom" style="width:728px; height:90px;">
+  <div class="rf-head">
+    <button class="rf-btn" id="rfBottomBannerClose" title="Hide">×</button>
+  </div>
+  <a href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
+    <img loading="lazy" src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg" alt="RoboForex" width="728" height="90" />
+  </a>
+</div>
+
+<div id="rfRightForecasts" class="rf-floating rf-br" style="width:304px; height:282px;">
+  <div class="rf-head">
+    <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
+  </div>
+  <iframe width="304" height="282" frameborder="0" class="efx" loading="lazy"
+    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
+  </iframe>
+</div>
