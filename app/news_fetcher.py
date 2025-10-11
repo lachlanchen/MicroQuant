@@ -225,6 +225,54 @@ def fetch_news_for_symbol(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
     return out
 
 
+def fetch_fmp_forex_latest(
+    *,
+    since: Optional[str] = None,
+    to: Optional[str] = None,
+    page: int = 0,
+    limit: int = 100,
+    timeout: float = 6.0,
+) -> List[Dict[str, Any]]:
+    """Fetch the FMP forex-latest feed page with optional date filtering.
+
+    Dates should be ISO-like 'YYYY-MM-DD' strings according to FMP docs.
+    """
+    key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')
+    if not key:
+        return []
+    base = 'https://financialmodelingprep.com/stable/news/forex-latest'
+    params = [f"page={int(page)}", f"limit={int(limit)}", f"apikey={key}"]
+    if since:
+        params.append(f"from={since}")
+    if to:
+        params.append(f"to={to}")
+    url = base + '?' + '&'.join(params)
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        data = r.json() or []
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    for it in data:
+        # FMP returns 'symbol', 'publishedDate', 'publisher', 'title', 'image', 'site', 'text', 'url'
+        out.append(
+            _normalize_item(
+                title=(it.get('title') or ''),
+                url=(it.get('url') or ''),
+                source=(it.get('publisher') or ''),
+                published=(it.get('publishedDate') or ''),
+                summary=(it.get('text') or '')[:280] + ('…' if len(it.get('text') or '') > 280 else ''),
+                body=(it.get('text') or ''),
+            ) | {
+                'symbol': (it.get('symbol') or '').upper(),
+                'image': it.get('image') or '',
+                'site': it.get('site') or '',
+            }
+        )
+    return out
+
+
 def fetch_fmp_snapshot(symbol: str, timeout: float = 5.0) -> Dict[str, Any]:
     """Return a small fundamentals/quote snapshot for the selected symbol using FMP endpoints."""
     key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')

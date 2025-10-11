@@ -373,6 +373,81 @@ async def fetch_stl_run_data(pool: asyncpg.pool.Pool, run_id: int) -> dict | Non
 
 
 
+async def upsert_news_articles(pool: asyncpg.pool.Pool, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    q = (
+        """
+        INSERT INTO news_articles (symbol, url, title, source, site, image, published_at, summary, body)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (symbol, url) DO UPDATE SET
+            title = EXCLUDED.title,
+            source = EXCLUDED.source,
+            site = EXCLUDED.site,
+            image = EXCLUDED.image,
+            published_at = COALESCE(EXCLUDED.published_at, news_articles.published_at),
+            summary = EXCLUDED.summary,
+            body = EXCLUDED.body
+        """
+    )
+    args = []
+    for r in rows:
+        pub = r.get("published_at") or r.get("published") or r.get("publishedAt")
+        if isinstance(pub, str):
+            try:
+                pub_dt = datetime.fromisoformat(pub)
+            except Exception:
+                pub_dt = None
+        else:
+            pub_dt = pub
+        if pub_dt is not None and pub_dt.tzinfo is None:
+            pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+        args.append(
+            (
+                r.get("symbol"),
+                r.get("url"),
+                r.get("title"),
+                r.get("source") or r.get("publisher"),
+                r.get("site"),
+                r.get("image"),
+                pub_dt,
+                r.get("summary"),
+                r.get("body") or r.get("text") or "",
+            )
+        )
+    async with pool.acquire() as conn:
+        await conn.executemany(q, args)
+    return len(rows)
+
+
+async def fetch_news_db(
+    pool: asyncpg.pool.Pool,
+    symbol: str,
+    *,
+    since: datetime | None = None,
+    limit: int = 25,
+) -> list[dict]:
+    q = (
+        """
+        SELECT symbol, url, title, source, site, image, published_at, summary, body
+        FROM news_articles
+        WHERE symbol = $1
+          AND ($2::timestamptz IS NULL OR published_at >= $2)
+        ORDER BY published_at DESC NULLS LAST, id DESC
+        LIMIT $3
+        """
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, symbol, since, limit)
+    out: list[dict] = []
+    for r in rows:
+        item = dict(r)
+        pub = item.get("published_at")
+        if pub and hasattr(pub, "isoformat"):
+            item["publishedAt"] = pub.isoformat()
+        out.append(item)
+    return out
+
 async def insert_health_run(
     pool: asyncpg.pool.Pool,
     *,

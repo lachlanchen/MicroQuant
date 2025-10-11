@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import logging
 import asyncio
@@ -35,11 +35,9 @@ from app.db import (
     fetch_stl_run_data,
     insert_health_run,
     list_health_runs,
-)
-from app.mt5_client import client as mt5_client
+    upsert_news_articles,\r\n    fetch_news_db,\r\n)\r\nfrom app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
-from app.news_fetcher import fetch_symbol_digest
-from app.news_fetcher import fetch_news_for_symbol
+from app.news_fetcher import fetch_symbol_digest\r\nfrom app.news_fetcher import fetch_fmp_forex_latest\r\nfrom app.news_fetcher import fetch_news_for_symbol
 
 try:
     from llm_model.echomind.mixed_ai_request import MixedAIRequestJSONBase  # type: ignore
@@ -1284,13 +1282,14 @@ async def make_app():
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
-            (r"/api/news", NewsHandler),
+            (r"/api/news", NewsHandler, dict(pool=pool)),
             (r"/api/news/analyze", NewsAnalysisHandler, dict(ai_client=AI_CLIENT, questions=NEWS_MICRO_QUESTIONS)),
             (r"/api/health/runs", HealthRunsHandler, dict(pool=pool)),
             (r"/api/health/run", HealthRunHandler, dict(pool=pool)),
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
+            (r"/api/news/backfill_forex", NewsBackfillHandler, dict(pool=pool)),
         ],
         **settings,
     )
@@ -1814,30 +1813,39 @@ class ConfigHandler(tornado.web.RequestHandler):
 
 
 class NewsHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
     async def get(self):
         symbol = self.get_argument("symbol", default=default_symbol())
         loop = tornado.ioloop.IOLoop.current()
+        one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
         try:
-            digest = await loop.run_in_executor(EXECUTOR, lambda: fetch_symbol_digest(symbol, limit=25))
-            self.set_header("Content-Type", "application/json")
-            self.set_header("Cache-Control", "no-store")
-            self.finish(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "symbol": symbol,
-                        "news": digest.get("news", []),
-                        "snapshot": digest.get("snapshot", {}),
-                    }
-                )
-            )
-        except Exception as e:
-            self.set_status(500)
-            self.set_header("Content-Type", "application/json")
-            self.set_header("Cache-Control", "no-store")
-            self.finish(json.dumps({"ok": False, "error": str(e), "news": [], "snapshot": {}}))
-
-
+            rows = await fetch_news_db(self.pool, symbol.upper(), since=one_week_ago, limit=30)
+        except Exception:
+            rows = []
+        snapshot = {}
+        if not rows:
+            try:
+                digest = await loop.run_in_executor(EXECUTOR, lambda: fetch_symbol_digest(symbol, limit=25))
+                snapshot = digest.get("snapshot", {})
+                live = digest.get("news", [])
+                for it in live:
+                    it["symbol"] = symbol.upper()
+                try:
+                    await upsert_news_articles(self.pool, live)
+                except Exception:
+                    pass
+                rows = live
+            except Exception as e:
+                self.set_status(500)
+                self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
+                self.finish(json.dumps({"ok": False, "error": str(e), "news": [], "snapshot": {}}))
+                return
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "symbol": symbol, "news": rows, "snapshot": snapshot}))
 class NewsAnalysisHandler(tornado.web.RequestHandler):
     def initialize(self, ai_client, questions: list[dict[str, str]]):
         self.ai_client = ai_client
@@ -2261,6 +2269,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
 
 
 

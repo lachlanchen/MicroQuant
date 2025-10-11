@@ -50,6 +50,25 @@ CREATE TABLE IF NOT EXISTS stl_run_components (
 CREATE INDEX IF NOT EXISTS idx_stl_run_components_run_ts
     ON stl_run_components(run_id, ts DESC);
 
+
+-- News articles storage
+CREATE TABLE IF NOT EXISTS news_articles (
+    id            BIGSERIAL PRIMARY KEY,
+    symbol        TEXT        NOT NULL,
+    url           TEXT        NOT NULL,
+    title         TEXT,
+    source        TEXT,
+    site          TEXT,
+    image         TEXT,
+    published_at  TIMESTAMPTZ,
+    summary       TEXT,
+    body          TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(symbol, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_symbol_published
+    ON news_articles(symbol, published_at DESC);
 -- Health check runs (LLM-based question answering over news)
 CREATE TABLE IF NOT EXISTS health_runs (
     id           BIGSERIAL PRIMARY KEY,
