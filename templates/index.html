@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -177,7 +177,10 @@
         <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px; max-height:320px; overflow:auto;">
           <div class="row" style="justify-content:space-between;">
             <strong style="color:var(--accent)">News &amp; Intel</strong>
-            <button class="btn secondary" id="btnNews" style="padding:6px 10px">Refresh News</button>
+            <div class="row" style="gap:6px;">
+              <button class="btn secondary" id="btnNews" style="padding:6px 10px">Refresh News</button>
+              <button class="btn secondary" id="btnNewsFull" style="padding:6px 10px">Full Text</button>
+            </div>
           </div>
           <div id="symbolInfoBox" style="font-size:13px; line-height:1.45; color:var(--muted); margin-bottom:8px;">
             <em>Snapshot will appear here…</em>
@@ -2600,7 +2603,7 @@
             card.appendChild(metaEl);
           }
 
-          const summaryText = item.summary || item.description || item.snippet || '';
+          const summaryText = NEWS_SHOW_FULL ? (item.body || item.summary || item.description || item.snippet || '') : (item.summary || item.description || item.snippet || '');
           if (summaryText) {
             const summaryEl = document.createElement('div');
             summaryEl.className = 'news-summary';
@@ -2732,6 +2735,8 @@
         }
       }
 
+      let NEWS_SHOW_FULL = false;
+
       async function refreshNews() {
         const symbol = currentSymbol();
         try {
@@ -2753,6 +2758,14 @@
       }
       const btnNews = document.getElementById('btnNews');
       if (btnNews) btnNews.addEventListener('click', refreshNews);
+      const btnNewsFull = document.getElementById('btnNewsFull');
+      if (btnNewsFull) btnNewsFull.addEventListener('click', () => {
+        NEWS_SHOW_FULL = !NEWS_SHOW_FULL;
+        btnNewsFull.textContent = NEWS_SHOW_FULL ? 'Summaries' : 'Full Text';
+        // Re-render using cached last news list by refetching from DOM cache if available
+        // Simpler: just call refreshNews to rebuild with full text toggle
+        refreshNews();
+      });
 
       // Trading controls
       const btnBuyEl = document.getElementById('btnBuy');
@@ -2809,6 +2822,7 @@
     </script>
   </body>
   </html>
+
 
 
 

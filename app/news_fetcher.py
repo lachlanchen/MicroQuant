@@ -69,6 +69,47 @@ def _is_fx_pair(symbol: str) -> bool:
     return bool(re.fullmatch(r'[A-Z]{3}[A-Z]{3}', sym)) or sym.startswith(('XAU', 'XAG', 'XPT', 'XPD'))
 
 
+def _fx_synonyms(ccy: str) -> list[str]:
+    c = (ccy or '').upper()
+    mapping = {
+        'USD': ['usd', 'u.s. dollar', 'us dollar', 'dollar', 'greenback'],
+        'EUR': ['eur', 'euro'],
+        'GBP': ['gbp', 'pound', 'sterling', 'british pound'],
+        'JPY': ['jpy', 'yen', 'japanese yen'],
+        'CHF': ['chf', 'franc', 'swiss franc'],
+        'AUD': ['aud', 'australian dollar', 'aussie'],
+        'NZD': ['nzd', 'new zealand dollar', 'kiwi'],
+        'CAD': ['cad', 'canadian dollar', 'loonie'],
+        'XAU': ['xau', 'gold', 'bullion'],
+        'XAG': ['xag', 'silver'],
+        'XPT': ['xpt', 'platinum'],
+        'XPD': ['xpd', 'palladium'],
+    }
+    return mapping.get(c, [c.lower()])
+
+
+def _fx_is_relevant(title: str, body: str, base: str, quote: str) -> bool:
+    text = f"{title}\n{body}".lower()
+    b = (base or '').upper()
+    q = (quote or '').upper()
+    if not b or not q:
+        return False
+    # explicit pair patterns
+    pairs = [f"{b}{q}", f"{b}/{q}", f"{q}{b}", f"{q}/{b}"]
+    if any(p.lower() in text for p in pairs):
+        return True
+    # both currency names present
+    base_terms = _fx_synonyms(b)
+    quote_terms = _fx_synonyms(q)
+    if any(t in text for t in base_terms) and any(t in text for t in quote_terms):
+        return True
+    # generic fx context + at least one side
+    has_fx_ctx = any(w in text for w in ['forex', 'fx ', 'currency', 'currencies', 'foreign exchange'])
+    if has_fx_ctx and (any(t in text for t in base_terms + [b.lower()]) or any(t in text for t in quote_terms + [q.lower()])):
+        return True
+    return False
+
+
 def fetch_fmp_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[Dict[str, Any]]:
     key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')
     if not key:
@@ -159,7 +200,28 @@ def fetch_news_for_symbol(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
             seen.add(key)
             out.append(it)
             if len(out) >= limit:
-                return out
+                break
+    # Extra filtering for FX pairs to reduce equity/ETF noise
+    sym = (symbol or '').upper()
+    if _is_fx_pair(sym):
+        base = sym[:3]
+        quote = sym[3:6]
+        filtered: List[Dict[str, Any]] = []
+        for it in out:
+            title = it.get('title') or ''
+            body = it.get('body') or it.get('summary') or ''
+            # exclude pure ETF/fund chatter unless FX context clearly present
+            low = (f"{title}\n{body}").lower()
+            is_etfish = any(w in low for w in [' etf', 'etfs', 'fund', 'proshares', 'leveraged'])
+            fx_ctx = any(w in low for w in ['forex', 'currency', 'currencies', 'fx '])
+            if is_etfish and not fx_ctx:
+                continue
+            if _fx_is_relevant(title, body, base, quote):
+                filtered.append(it)
+        out = filtered
+    # cap result size
+    if len(out) > limit:
+        out = out[:limit]
     return out
 
 
