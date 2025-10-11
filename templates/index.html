@@ -2357,6 +2357,7 @@
 
       // Ticker poll (bid/ask + update button labels)
       let tickTimer = null;
+      let autoStratTimer = null;
       async function pollTick() {
         const symbol = currentSymbol();
         try {
