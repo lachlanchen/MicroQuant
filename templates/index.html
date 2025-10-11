@@ -339,6 +339,7 @@
 
       let lwSyncing = false;
       let lwRangeTimer = null;
+      let lwSubscriptionsEnabled = false;
       let lwVolSubscribed = false, lwRsiSubscribed = false, lwMacdSubscribed = false; // sync disabled
       let lwVolHasData = false, lwRsiHasData = false, lwMacdHasData = false;
 
@@ -678,8 +679,12 @@
             color: 'rgba(120, 144, 156, 0.4)',
           });
         }
-        // Range sync disabled: do not subscribe LW volume pane to propagate
-        lwVolSubscribed = false;
+        if (!lwVolSubscribed && lwVolChart) {
+          lwVolChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            handleChartRangeChange(lwVolChart);
+          });
+          lwVolSubscribed = true;
+        }
       };
 
       const ensureLwRsi = () => {
@@ -696,8 +701,12 @@
         if (!lwRsiSeries && lwRsiChart) {
           lwRsiSeries = lwRsiChart.addLineSeries({ color: '#8e24aa', lineWidth: 2 });
         }
-        // Range sync disabled
-        lwRsiSubscribed = false;
+        if (!lwRsiSubscribed && lwRsiChart) {
+          lwRsiChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            handleChartRangeChange(lwRsiChart);
+          });
+          lwRsiSubscribed = true;
+        }
       };
 
       const ensureLwMacd = () => {
@@ -720,8 +729,12 @@
         if (lwMacdChart && !lwMacdSignal) {
           lwMacdSignal = lwMacdChart.addLineSeries({ color: '#ef6c00', lineWidth: 2 });
         }
-        // Range sync disabled
-        lwMacdSubscribed = false;
+        if (!lwMacdSubscribed && lwMacdChart) {
+          lwMacdChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            handleChartRangeChange(lwMacdChart);
+          });
+          lwMacdSubscribed = true;
+        }
       };
 
       const rangeAlmostEqual = (x, y) => Math.abs((x || 0) - (y || 0)) < 1e-4;
@@ -756,7 +769,7 @@
         }
       };
       const syncAllChartsToRange = (sourceChart, range, logicalRange) => {
-        if (!range || range.from == null || range.to == null) return;
+        if (!logicalRange || logicalRange.from == null || logicalRange.to == null) return;
         lwSyncing = true;
         try {
           if (lwChart && sourceChart !== lwChart) {
@@ -776,24 +789,28 @@
         }
       };
       const handleChartRangeChange = (chartInstance) => {
-        if (!chartInstance || lwSyncing) return;
+        if (!chartInstance || lwSyncing || !lwSubscriptionsEnabled) return;
         if (lwRangeTimer) cancelAnimationFrame(lwRangeTimer);
         lwRangeTimer = requestAnimationFrame(() => {
           const range = chartInstance.timeScale().getVisibleRange();
           const logicalRange = chartInstance.timeScale().getVisibleLogicalRange();
           const effectiveLogical = logicalRange || currentLogicalRange || null;
-          if (range && range.from != null && range.to != null) {
-            if (rangesEqual(currentTimeRange, range) && logicalRangesEqual(currentLogicalRange, effectiveLogical)) {
+          if (effectiveLogical && effectiveLogical.from != null && effectiveLogical.to != null) {
+            if (logicalRangesEqual(currentLogicalRange, effectiveLogical)) {
               return;
             }
-            currentTimeRange = range;
             currentLogicalRange = effectiveLogical;
-            syncAllChartsToRange(chartInstance, range, effectiveLogical);
-            applyIndicatorViewport(range, effectiveLogical);
+            syncAllChartsToRange(chartInstance, null, effectiveLogical);
+            // Only apply Chart.js viewport when in line chart mode
+            if (curType === 'line') {
+              applyIndicatorViewport(range, effectiveLogical);
+            }
           } else {
             currentTimeRange = null;
             currentLogicalRange = null;
-            applyIndicatorViewport(null, null);
+            if (curType === 'line') {
+              applyIndicatorViewport(null, null);
+            }
           }
         });
       };
@@ -1312,8 +1329,12 @@
             width: rectInit.width || lwContainer.clientWidth || 800,
             height: rectInit.height || lwContainer.clientHeight || 400
           });
-          // Range sync disabled: do not subscribe main chart to propagate
-          lwTimeRangeSubscribed = false;
+          if (!lwTimeRangeSubscribed) {
+            lwChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+              handleChartRangeChange(lwChart);
+            });
+            lwTimeRangeSubscribed = true;
+          }
         }
         if (stlLastRows.length && stlLastMeta) {
           applyStlData(stlLastRows.slice(), stlLastMeta);
@@ -1801,10 +1822,12 @@
               lwChart.timeScale().fitContent();
               lwSyncing = false;
               lwInitialFitted = true;
+              lwSubscriptionsEnabled = true;
             } else {
               // Preserve user view; do not auto-fit on refresh
               const visibleLogical = lwChart.timeScale().getVisibleLogicalRange();
               currentLogicalRange = visibleLogical || currentLogicalRange || null;
+              lwSubscriptionsEnabled = true;
             }
           }
           updateIndicatorCharts(rows);
@@ -2050,8 +2073,12 @@
       if (slowInput) slowInput.addEventListener('change', () => queuePrefUpdate('last_slow', slowInput.value));
       document.querySelectorAll('input[name="ctype"]').forEach(r => r.addEventListener('change', (e) => {
         queuePrefUpdate('chart_type', e.target.value);
-        makeChart(e.target.value);
+        const nextType = e.target.value;
+        // Disable LW subscriptions while switching chart type to avoid spurious sync
+        lwSubscriptionsEnabled = false;
+        makeChart(nextType);
         refreshChart();
+        // Re-enable only for candlestick once data is applied in refreshChart
       }));
 
       let autoTimer = null;
