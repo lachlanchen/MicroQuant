@@ -343,7 +343,7 @@
 
       let lwMacdChart = null, lwMacdHist = null, lwMacdLine = null, lwMacdSignal = null;
 
-      let lwSyncing = false;
+      let lwSyncing = false;\n      let lwVolSubscribed = false, lwRsiSubscribed = false, lwMacdSubscribed = false;
 
       const PREF_ENDPOINT = '/api/preferences';
       let prefQueue = {};
@@ -672,7 +672,8 @@
           timeScale: { rightOffset: 10, fixRightEdge: false },
           grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
         });
-        lwVolSeries = lwVolChart.addHistogramSeries({ color: 'rgba(25,118,210,0.5)', priceFormat: { type: 'volume' } });
+        
+        if (!lwVolSubscribed) { lwVolChart.timeScale().subscribeVisibleTimeRangeChange((range)=>{ broadcastVisibleRange(lwVolChart, range); }); lwVolSubscribed = true; }
       };
 
       const ensureLwRsi = () => {
@@ -685,7 +686,8 @@
           timeScale: { rightOffset: 10, fixRightEdge: false },
           grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
         });
-        lwRsiSeries = lwRsiChart.addLineSeries({ color: '#8e24aa', lineWidth: 2 });
+        
+        if (!lwRsiSubscribed) { lwRsiChart.timeScale().subscribeVisibleTimeRangeChange((range)=>{ broadcastVisibleRange(lwRsiChart, range); }); lwRsiSubscribed = true; }
       };
 
       const ensureLwMacd = () => {
@@ -700,7 +702,8 @@
         });
         lwMacdHist = lwMacdChart.addHistogramSeries({ base: 0 });
         lwMacdLine = lwMacdChart.addLineSeries({ color: '#1b9aaa', lineWidth: 2 });
-        lwMacdSignal = lwMacdChart.addLineSeries({ color: '#ef6c00', lineWidth: 2 });
+        
+        if (!lwMacdSubscribed) { lwMacdChart.timeScale().subscribeVisibleTimeRangeChange((range)=>{ broadcastVisibleRange(lwMacdChart, range); }); lwMacdSubscribed = true; }
       };
 
       const syncIndicatorsVisibleRange = (range) => {
@@ -711,6 +714,27 @@
           if (lwVolChart) lwVolChart.timeScale().setVisibleRange(range);
           if (lwRsiChart) lwRsiChart.timeScale().setVisibleRange(range);
           if (lwMacdChart) lwMacdChart.timeScale().setVisibleRange(range);
+        } finally {
+          lwSyncing = false;
+        }
+      };
+      const rangesEqual = (a, b) => a && b && a.from === b.from && a.to === b.to;
+      const setRangeIfNeeded = (chart, range) => {
+        if (!chart || !range || range.from == null || range.to == null) return;
+        const cur = chart.timeScale().getVisibleRange();
+        if (!rangesEqual(cur, range)) chart.timeScale().setVisibleRange(range);
+      };
+      const broadcastVisibleRange = (sourceChart, range) => {
+        if (!range || range.from == null || range.to == null) return;
+        if (lwSyncing) return;
+        lwSyncing = true;
+        try {
+          if (lwChart && sourceChart !== lwChart) setRangeIfNeeded(lwChart, range);
+          if (lwVolChart && sourceChart !== lwVolChart) setRangeIfNeeded(lwVolChart, range);
+          if (lwRsiChart && sourceChart !== lwRsiChart) setRangeIfNeeded(lwRsiChart, range);
+          if (lwMacdChart && sourceChart !== lwMacdChart) setRangeIfNeeded(lwMacdChart, range);
+          currentTimeRange = range;
+          applyIndicatorViewport(range);
         } finally {
           lwSyncing = false;
         }
@@ -1203,9 +1227,7 @@
                 applyIndicatorViewport(null);
                 return;
               }
-              currentTimeRange = range;
-              applyIndicatorViewport(range);
-              syncIndicatorsVisibleRange(range);
+              currentTimeRange = range;\n              broadcastVisibleRange(lwChart, range);
             });
             lwTimeRangeSubscribed = true;
           }
@@ -2417,6 +2439,7 @@
     </script>
   </body>
   </html>
+
 
 
 
