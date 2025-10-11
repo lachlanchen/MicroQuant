@@ -11,6 +11,16 @@
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
   <!-- Config via data attributes (avoids HTML entity issues) -->
   <div id="app-cfg" data-symbols="{{ symbols_csv }}" data-default="{{ default_symbol_plain }}" data-ai="{{ 1 if news_ai_available else 0 }}" style="display:none"></div>
+  <!-- Minimal modal container for full news text -->
+  <div id="newsModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3 id="newsModalTitle">Full Article</h3>
+        <button id="newsModalClose" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div id="newsModalBody" class="modal-body"></div>
+    </div>
+  </div>
   <style>
     :root {
       --gold: #d4a017;
@@ -56,6 +66,13 @@
     .news-answer.no { border-color:#e74c3c; color:#b71c1c; background:rgba(231, 76, 60, 0.12); }
     .news-answer.unknown { border-color:#b0bec5; color:#546e7a; background:rgba(84, 110, 122, 0.12); }
     .news-answer span { font-weight:500; }
+    /* Simple modal for full news text */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 9999; }
+    .modal-box { background:#fff; max-width: 920px; width: min(92vw, 920px); max-height: 82vh; overflow:auto; border-radius:10px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .modal-head { display:flex; justify-content: space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); }
+    .modal-head h3 { margin:0; font-size:16px; }
+    .modal-body { padding: 14px 16px; line-height:1.5; white-space: pre-wrap; }
+    .modal-close { background: transparent; border: 0; font-size: 20px; cursor: pointer; color: #444; }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
@@ -175,7 +192,7 @@
       <div>
         <!-- News panel -->
         <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px; max-height:320px; overflow:auto;">
-          <div class="row" style="justify-content:space-between;">
+          <div class="row" id="newsHeader" style="justify-content:space-between; position:sticky; top:0; background:var(--panel); z-index:10; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line);">
             <strong style="color:var(--accent)">News &amp; Intel</strong>
             <div class="row" style="gap:6px;">
               <button class="btn secondary" id="btnNews" style="padding:6px 10px">Refresh News</button>
@@ -327,6 +344,11 @@
       let curType = (DEFAULT_CHART_TYPE === 'line') ? 'line' : 'candlestick';
       let chart = null;
       let lwChart = null;
+      let lwLastTimes = [];
+      let periodBoundaryTimes = [];
+      let periodAnchorTime = null;
+      let usePeriodGrid = false; // disable vertical grid; use markers instead
+      let lwOverlayDpr = (window.devicePixelRatio || 1);
       let lwSeries = null;
       let lwBollingerUpper = null;
       let lwBollingerLower = null;
@@ -800,10 +822,24 @@
       const resizeLwOverlay = () => {
         if (!lwOverlay || !lwContainer) return;
         const rect = lwContainer.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width || lwContainer.clientWidth || 0));
-        const height = Math.max(1, Math.floor(rect.height || lwContainer.clientHeight || 0));
-        if (lwOverlay.width !== width) lwOverlay.width = width;
-        if (lwOverlay.height !== height) lwOverlay.height = height;
+        const cssW = Math.max(1, Math.floor(rect.width || lwContainer.clientWidth || 0));
+        const cssH = Math.max(1, Math.floor(rect.height || lwContainer.clientHeight || 0));
+        const dpr = (window.devicePixelRatio || 1);
+        lwOverlayDpr = dpr;
+        // Size internal buffer by DPR for crisp alignment
+        const bufW = Math.max(1, Math.floor(cssW * dpr));
+        const bufH = Math.max(1, Math.floor(cssH * dpr));
+        if (lwOverlay.width !== bufW) lwOverlay.width = bufW;
+        if (lwOverlay.height !== bufH) lwOverlay.height = bufH;
+        // Ensure CSS size matches container
+        lwOverlay.style.width = cssW + 'px';
+        lwOverlay.style.height = cssH + 'px';
+        if (lwOverlayCtx) {
+          // Reset and scale to CSS pixel space
+          lwOverlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+          lwOverlayCtx.clearRect(0, 0, bufW, bufH);
+          lwOverlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
         redrawPeriodLines();
       };
 
@@ -813,7 +849,7 @@
       };
 
       const drawLwPeriodLines = (period) => {
-        if (!showPeriodLines || !lwChart || !lwOverlayCtx || !lastPriceRows.length || !period || period < 1) {
+        if (!showPeriodLines || !usePeriodGrid || !lwChart || !lwOverlayCtx || !lastPriceRows.length || !period || period < 1) {
           clearLwOverlay();
           return;
         }
@@ -824,30 +860,67 @@
         }
         const fromSec = vis.from;
         const toSec = vis.to;
-        const h = lwOverlay.height;
+        const cssH = Math.max(1, Math.floor(lwContainer.clientHeight || lwOverlay.clientHeight || 0));
         const ctx = lwOverlayCtx;
-        ctx.clearRect(0, 0, lwOverlay.width, h);
+        // Clear in CSS pixel space
+        ctx.save();
+        ctx.setTransform(lwOverlayDpr, 0, 0, lwOverlayDpr, 0, 0);
+        ctx.clearRect(0, 0, lwOverlay.width / lwOverlayDpr, lwOverlay.height / lwOverlayDpr);
         ctx.save();
         ctx.strokeStyle = 'rgba(216, 67, 21, 0.6)';
         ctx.setLineDash([6, 5]);
         ctx.lineWidth = 1;
-        for (let i = 0; i < lastPriceRows.length; i += period) {
-          const tSec = Math.floor(new Date(lastPriceRows[i].ts).getTime() / 1000);
-          if (tSec < fromSec - period * 60) continue; // skip far left
-          if (tSec > toSec + period * 60) break;      // stop once beyond right
+        // Use precomputed boundary times anchored to a specific bar time
+        const times = Array.isArray(periodBoundaryTimes) ? periodBoundaryTimes : [];
+        for (const tSec of times) {
+          if (tSec < fromSec - period * 60 || tSec > toSec + period * 60) continue;
           const x = lwChart.timeScale().timeToCoordinate(tSec);
           if (x == null || !Number.isFinite(x)) continue;
           ctx.beginPath();
           ctx.moveTo(x, 0);
-          ctx.lineTo(x, h);
+          ctx.lineTo(x, cssH);
           ctx.stroke();
         }
+        ctx.restore();
         ctx.restore();
       };
 
       const redrawPeriodLines = () => {
         const p = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
         drawLwPeriodLines(Number.isFinite(p) ? p : null);
+      };
+
+      const computePeriodBoundaryTimes = (period) => {
+        periodBoundaryTimes = [];
+        periodAnchorTime = null;
+        if (!lwChart || !lwLastTimes.length || !period || period < 1) return;
+        // Determine anchor time: selected run start_ts mapped to nearest bar time, otherwise first bar
+        let anchorIdx = 0;
+        if (stlLastMeta && stlLastMeta.start_ts) {
+          const anchorSecRaw = Math.floor(new Date(stlLastMeta.start_ts).getTime() / 1000);
+          // find first index whose time >= anchorSecRaw
+          for (let i = 0; i < lwLastTimes.length; i++) {
+            if (lwLastTimes[i] >= anchorSecRaw) { anchorIdx = i; break; }
+          }
+        }
+        periodAnchorTime = lwLastTimes[anchorIdx] || lwLastTimes[0];
+        // Walk left and right from anchor by multiples of period (bar count)
+        const times = [];
+        for (let idx = anchorIdx; idx >= 0; idx -= period) {
+          times.push(lwLastTimes[idx]);
+        }
+        for (let idx = anchorIdx + period; idx < lwLastTimes.length; idx += period) {
+          times.push(lwLastTimes[idx]);
+        }
+        // Sort ascending and unique
+        times.sort((a, b) => a - b);
+        const uniq = [];
+        let prev = null;
+        for (const t of times) {
+          if (prev === null || t !== prev) uniq.push(t);
+          prev = t;
+        }
+        periodBoundaryTimes = uniq;
       };
 
       const rangeAlmostEqual = (x, y) => Math.abs((x || 0) - (y || 0)) < 1e-4;
@@ -1278,12 +1351,22 @@
       };
 
       const applyLightweightPeriodOverlay = (rows, period) => {
-        // Clear any old markers; we now draw dashed period lines via overlay canvas.
-        if (lwSeries && typeof lwSeries.setMarkers === 'function') {
-          lwSeries.setMarkers([]);
+        // Replace vertical grid with series markers anchored to bars
+        if (!lwSeries || typeof lwSeries.setMarkers !== 'function' || !period || period < 1 || !Array.isArray(periodBoundaryTimes)) {
+          if (lwSeries && typeof lwSeries.setMarkers === 'function') lwSeries.setMarkers([]);
+          clearLwOverlay();
+          return;
         }
-        // Actual vertical dashed lines drawn by drawLwPeriodLines().
-        redrawPeriodLines();
+        const markers = periodBoundaryTimes.map((t) => ({
+          time: t,
+          position: 'belowBar',
+          shape: 'arrowUp',
+          color: '#d84315',
+          text: 'P',
+        }));
+        lwSeries.setMarkers(showPeriodLines ? markers : []);
+        // Do not draw vertical overlay lines
+        clearLwOverlay();
       };
 
       const applyChartPeriodOverlay = (rows, period) => {
@@ -1313,18 +1396,23 @@
           if (currentTimeRange) {
             applyIndicatorViewport(currentTimeRange, currentLogicalRange);
           } else {
-            applyIndicatorViewport(null, null); if (curType === 'candlestick') { redrawPeriodLines(); }
+            applyIndicatorViewport(null, null);
           }
+          periodBoundaryTimes = [];
+          if (curType === 'candlestick') { redrawPeriodLines(); }
           return;
         }
+        // Precompute boundary times anchored to specific bar indices
+        const eff = Math.max(1, Math.floor(period));
+        computePeriodBoundaryTimes(eff);
         // Respect toggle: draw in Chart.js when enabled, clear when disabled
         if (showPeriodLines) {
-          applyChartPeriodOverlay(lastPriceRows, period);
+          applyChartPeriodOverlay(lastPriceRows, eff);
         } else {
           chartPeriodWindows = [];
           if (chart && curType === 'line') chart.update('none');
         }
-        applyLightweightPeriodOverlay(lastPriceRows, period);
+        applyLightweightPeriodOverlay(lastPriceRows, eff);
         if (curType === 'candlestick') {
           redrawPeriodLines();
         }
@@ -2031,6 +2119,8 @@
               close: Number(r.close)
             }));
             lwSeries.setData(data);
+            // Cache bar times for precise anchoring
+            lwLastTimes = data.map(d => d.time);
             const toLwPoints = (values) =>
               rows
                 .map((row, idx) => {
@@ -2042,6 +2132,14 @@
             if (lwBollingerUpper) lwBollingerUpper.setData(toLwPoints(boll.upper));
             if (lwBollingerLower) lwBollingerLower.setData(toLwPoints(boll.lower));
             if (lwBollingerMid) lwBollingerMid.setData(toLwPoints(boll.middle));
+            // Recompute boundary times using current period
+            const overlayPeriod = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
+            if (Number.isFinite(overlayPeriod)) {
+              computePeriodBoundaryTimes(Math.max(1, Math.floor(overlayPeriod)));
+            } else {
+              periodBoundaryTimes = [];
+            }
+            redrawPeriodLines();
             const visibleRange = lwChart.timeScale().getVisibleRange();
             const hasRange = visibleRange && visibleRange.from != null && visibleRange.to != null;
             if (!lwInitialFitted || !hasRange) {
@@ -2204,7 +2302,9 @@
       if (stlPeriodLinesToggle) stlPeriodLinesToggle.addEventListener('change', () => {
         showPeriodLines = !!stlPeriodLinesToggle.checked;
         const overlayPeriod = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
-        updatePeriodOverlays(overlayPeriod && Number.isFinite(overlayPeriod) ? overlayPeriod : null);
+        const effPeriod = overlayPeriod && Number.isFinite(overlayPeriod) ? Math.max(1, Math.floor(overlayPeriod)) : null;
+        if (effPeriod) computePeriodBoundaryTimes(effPeriod);
+        updatePeriodOverlays(effPeriod);
         redrawPeriodLines();
       });
       const btnStlSymbolAll = el('btnStlSymbolAll');
@@ -2231,7 +2331,9 @@
         }
         updateStlInputsFromState();
         const overlayPeriod = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
-        updatePeriodOverlays(overlayPeriod && Number.isFinite(overlayPeriod) ? overlayPeriod : null);
+        const effPeriod2 = overlayPeriod && Number.isFinite(overlayPeriod) ? Math.max(1, Math.floor(overlayPeriod)) : null;
+        if (effPeriod2) computePeriodBoundaryTimes(effPeriod2);
+        updatePeriodOverlays(effPeriod2);
       });
       if (stlPeriodInput) stlPeriodInput.addEventListener('change', () => {
         const val = Number(stlPeriodInput.value);
@@ -2615,11 +2717,22 @@
 
           const actionsEl = document.createElement('div');
           actionsEl.className = 'news-actions';
+          // Read button to open full text in modal
+          const readBtn = document.createElement('button');
+          readBtn.type = 'button';
+          readBtn.className = 'btn secondary';
+          readBtn.textContent = 'Read';
+          readBtn.addEventListener('click', () => {
+            const fullBody = (item.body || item.text || item.summary || item.description || item.snippet || '').toString();
+            openNewsModal(titleText, fullBody);
+          });
+
           const aiBtn = document.createElement('button');
           aiBtn.type = 'button';
           aiBtn.className = 'btn secondary news-ai-btn';
           aiBtn.textContent = NEWS_AI_AVAILABLE ? 'Ask AI (30 checks)' : 'AI unavailable';
           aiBtn.disabled = !NEWS_AI_AVAILABLE;
+          actionsEl.appendChild(readBtn);
           actionsEl.appendChild(aiBtn);
           card.appendChild(actionsEl);
 
@@ -2736,6 +2849,29 @@
       }
 
       let NEWS_SHOW_FULL = false;
+      // Modal helpers for full news text
+      const modalEl = document.getElementById('newsModal');
+      const modalTitleEl = document.getElementById('newsModalTitle');
+      const modalBodyEl = document.getElementById('newsModalBody');
+      const modalCloseEl = document.getElementById('newsModalClose');
+      const openNewsModal = (title, body) => {
+        if (modalTitleEl) modalTitleEl.textContent = title || 'Full Article';
+        if (modalBodyEl) modalBodyEl.textContent = (body || '').toString();
+        if (modalEl) {
+          modalEl.style.display = 'flex';
+          modalEl.setAttribute('aria-hidden', 'false');
+        }
+      };
+      const closeNewsModal = () => {
+        if (modalEl) {
+          modalEl.style.display = 'none';
+          modalEl.setAttribute('aria-hidden', 'true');
+        }
+        if (modalTitleEl) modalTitleEl.textContent = '';
+        if (modalBodyEl) modalBodyEl.textContent = '';
+      };
+      if (modalCloseEl) modalCloseEl.addEventListener('click', closeNewsModal);
+      if (modalEl) modalEl.addEventListener('click', (e) => { if (e.target === modalEl) closeNewsModal(); });
 
       async function refreshNews() {
         const symbol = currentSymbol();
@@ -2744,9 +2880,11 @@
           const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
           const js = await r.json();
           if (js && js.ok) {
+            console.log(`[App] News result ok=true count=${(js.news||[]).length} snapshot=${!!js.snapshot}`);
             renderSymbolInfo(js.snapshot || {});
             renderNews(js.news || []);
           } else {
+            console.log(`[App] News result ok=false for ${symbol}`, js);
             renderSymbolInfo({});
             renderNews([]);
           }

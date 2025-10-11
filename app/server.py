@@ -332,6 +332,7 @@ async def run_news_backfill(days: int = 7) -> dict:
     total = 0
     stored = 0
     page = 0
+    logger.info("[news] backfill start days=%d since=%s to=%s", days, since, to)
     while page < 5:
         try:
             items = await tornado.ioloop.IOLoop.current().run_in_executor(
@@ -343,9 +344,11 @@ async def run_news_backfill(days: int = 7) -> dict:
             break
         total += len(items)
         try:
-            stored += await upsert_news_articles(GLOBAL_POOL, items)
+            inserted = await upsert_news_articles(GLOBAL_POOL, items)
+            stored += inserted
+            logger.info("[news] forex-latest page=%d fetched=%d inserted=%d", page, len(items), inserted)
         except Exception:
-            pass
+            logger.exception("[news] forex-latest upsert failed (page=%d)", page)
         page += 1
         await asyncio.sleep(0.05)
     from app.news_fetcher import fetch_fmp_news as _fetch_fmp_news
@@ -373,10 +376,13 @@ async def run_news_backfill(days: int = 7) -> dict:
             filt.append(it)
         if filt:
             try:
-                stored += await upsert_news_articles(GLOBAL_POOL, filt)
+                inserted = await upsert_news_articles(GLOBAL_POOL, filt)
+                stored += inserted
+                logger.info("[news] equities %s fetched=%d within_%dd=%d inserted=%d", sym, len(items), days, len(filt), inserted)
             except Exception:
-                pass
+                logger.exception("[news] equities upsert failed for %s", sym)
         await asyncio.sleep(0.05)
+    logger.info("[news] backfill complete fetched=%d inserted=%d days=%d", total, stored, days)
     return {"ok": True, "fetched": total, "inserted": stored, "days": days}
 
 
@@ -1347,6 +1353,7 @@ async def make_app():
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler, dict(pool=pool)),
+            # Backfill latest forex + equities news into DB
             (r"/api/news/backfill_forex", NewsBackfillHandler, dict(pool=pool)),
             (r"/api/news/analyze", NewsAnalysisHandler, dict(ai_client=AI_CLIENT, questions=NEWS_MICRO_QUESTIONS)),
             (r"/api/health/runs", HealthRunsHandler, dict(pool=pool)),
@@ -1354,7 +1361,7 @@ async def make_app():
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
-            (r"/api/news/backfill_forex", NewsBackfillHandler, dict(pool=pool)),
+            # Duplicate route removed (was registered twice)
         ],
         **settings,
     )
@@ -1905,12 +1912,15 @@ class NewsHandler(tornado.web.RequestHandler):
         symbol = self.get_argument("symbol", default=default_symbol())
         loop = tornado.ioloop.IOLoop.current()
         one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        logger.info("/api/news symbol=%s (since %s)", symbol, one_week_ago.date().isoformat())
         try:
             rows = await fetch_news_db(self.pool, symbol.upper(), since=one_week_ago, limit=30)
         except Exception:
             rows = []
+        logger.info("[news] DB rows=%d for %s", len(rows), symbol)
         snapshot = {}
         if not rows:
+            logger.info("[news] DB empty for %s, fetching live digest", symbol)
             try:
                 digest = await loop.run_in_executor(EXECUTOR, lambda: fetch_symbol_digest(symbol, limit=25))
                 snapshot = digest.get("snapshot", {})
@@ -1918,11 +1928,13 @@ class NewsHandler(tornado.web.RequestHandler):
                 for it in live:
                     it["symbol"] = symbol.upper()
                 try:
-                    await upsert_news_articles(self.pool, live)
+                    inserted = await upsert_news_articles(self.pool, live)
+                    logger.info("[news] live fetched=%d inserted=%d for %s", len(live), inserted, symbol)
                 except Exception:
-                    pass
+                    logger.exception("[news] upsert live failed for %s", symbol)
                 rows = live
             except Exception as e:
+                logger.exception("[news] live fetch failed for %s: %s", symbol, e)
                 self.set_status(500)
                 self.set_header("Content-Type", "application/json")
                 self.set_header("Cache-Control", "no-store")
@@ -1930,7 +1942,51 @@ class NewsHandler(tornado.web.RequestHandler):
                 return
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
+        logger.info("[news] respond symbol=%s count=%d snapshot=%s", symbol, len(rows), bool(snapshot))
         self.finish(json.dumps({"ok": True, "symbol": symbol, "news": rows, "snapshot": snapshot}))
+
+
+class NewsBackfillHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def _run(self):
+        try:
+            # Allow days to be provided via JSON body or query arg; default 7
+            days = 7
+            try:
+                # Query param has priority for quick manual triggering
+                if self.get_argument("days", None) is not None:
+                    days = int(self.get_argument("days"))
+            except Exception:
+                pass
+            try:
+                if self.request.body:
+                    payload = json.loads(self.request.body or "{}")
+                    d = payload.get("days")
+                    if d is not None:
+                        days = int(d)
+            except Exception:
+                # Ignore malformed bodies; keep default
+                pass
+
+            logger.info("/api/news/backfill_forex requested days=%d", days)
+            result = await run_news_backfill(days=days)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps(result))
+        except Exception as e:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": str(e)}))
+
+    async def post(self):
+        await self._run()
+
+    async def get(self):
+        # Convenience: allow GET to trigger backfill for manual testing
+        await self._run()
 class NewsAnalysisHandler(tornado.web.RequestHandler):
     def initialize(self, ai_client, questions: list[dict[str, str]]):
         self.ai_client = ai_client

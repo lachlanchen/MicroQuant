@@ -1,8 +1,11 @@
 import os
 import re
+import logging
 from typing import List, Dict, Any, Optional
 
 import requests
+
+logger = logging.getLogger("mt5app")
 
 
 def _terms_for_symbol(symbol: str) -> List[str]:
@@ -113,6 +116,7 @@ def _fx_is_relevant(title: str, body: str, base: str, quote: str) -> bool:
 def fetch_fmp_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[Dict[str, Any]]:
     key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')
     if not key:
+        logger.info("[news] FMP key missing; skip fetch_fmp_news(%s)", symbol)
         return []
     sym = (symbol or '').upper()
     if _is_fx_pair(sym):
@@ -123,7 +127,8 @@ def fetch_fmp_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[D
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
         data = r.json() or []
-    except Exception:
+    except Exception as e:
+        logger.info("[news] FMP request failed for %s: %s", symbol, e)
         return []
     terms = _terms_for_symbol(symbol)
     items: List[Dict[str, Any]] = []
@@ -144,12 +149,14 @@ def fetch_fmp_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[D
             )
             if len(items) >= limit:
                 break
+    logger.info("[news] fmp_news symbol=%s fetched=%d filtered=%d", symbol, len(data), len(items))
     return items
 
 
 def fetch_alpha_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[Dict[str, Any]]:
     key = os.getenv('ALPHAVANTAGE_API_KEY') or os.getenv('ALPHAVANTAGE_KEY') or os.getenv('ALPHA_VANTAGE_KEY')
     if not key:
+        logger.info("[news] AlphaVantage key missing; skip fetch_alpha_news(%s)", symbol)
         return []
     # Use broad FOREX topic and filter client-side
     sym = (symbol or '').upper()
@@ -161,7 +168,8 @@ def fetch_alpha_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
         data = r.json() or {}
-    except Exception:
+    except Exception as e:
+        logger.info("[news] AlphaVantage request failed for %s: %s", symbol, e)
         return []
     feed = data.get('feed') or []
     terms = _terms_for_symbol(symbol)
@@ -182,6 +190,7 @@ def fetch_alpha_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List
             )
             if len(items) >= limit:
                 break
+    logger.info("[news] alpha_news symbol=%s filtered=%d", symbol, len(items))
     return items
 
 
@@ -222,6 +231,7 @@ def fetch_news_for_symbol(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
     # cap result size
     if len(out) > limit:
         out = out[:limit]
+    logger.info("[news] aggregated symbol=%s items=%d", symbol, len(out))
     return out
 
 
@@ -239,6 +249,7 @@ def fetch_fmp_forex_latest(
     """
     key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')
     if not key:
+        logger.info("[news] FMP key missing; skip forex-latest page=%d", page)
         return []
     base = 'https://financialmodelingprep.com/stable/news/forex-latest'
     params = [f"page={int(page)}", f"limit={int(limit)}", f"apikey={key}"]
@@ -251,7 +262,8 @@ def fetch_fmp_forex_latest(
         r = requests.get(url, timeout=timeout)
         r.raise_for_status()
         data = r.json() or []
-    except Exception:
+    except Exception as e:
+        logger.info("[news] FMP request failed for %s: %s", symbol, e)
         return []
     out: List[Dict[str, Any]] = []
     for it in data:
@@ -277,6 +289,7 @@ def fetch_fmp_snapshot(symbol: str, timeout: float = 5.0) -> Dict[str, Any]:
     """Return a small fundamentals/quote snapshot for the selected symbol using FMP endpoints."""
     key = os.getenv('FMP_API_KEY') or os.getenv('FMP_KEY')
     if not key:
+        logger.info("[news] FMP key missing; skip snapshot(%s)", symbol)
         return {}
     sym = (symbol or '').upper()
     try:
@@ -341,17 +354,41 @@ def fetch_fmp_snapshot(symbol: str, timeout: float = 5.0) -> Dict[str, Any]:
                 snapshot['ceo'] = profile.get('ceo')
                 snapshot['website'] = profile.get('website')
             return snapshot
-    except Exception:
+    except Exception as e:
+        logger.info("[news] snapshot request failed for %s: %s", symbol, e)
         return {}
     return {}
 
 
 def fetch_symbol_digest(symbol: str, limit: int = 20) -> Dict[str, Any]:
     """Return both news items and auxiliary snapshot information for a symbol."""
-    news = fetch_news_for_symbol(symbol, limit=limit)
+    symu = (symbol or '').upper()
+    news: List[Dict[str, Any]] = []
+    # Prefer FMP forex-latest feed for FX symbols (provides symbol-tagged articles)
+    if _is_fx_pair(symu):
+        try:
+            # Pull a couple pages to gather enough recent items for the symbol
+            for pg in (0, 1):
+                batch = fetch_fmp_forex_latest(page=pg, limit=200)
+                if not batch:
+                    break
+                for it in batch:
+                    if (it.get('symbol') or '').upper() == symu:
+                        news.append(it)
+                        if len(news) >= limit:
+                            break
+                if len(news) >= limit:
+                    break
+        except Exception:
+            news = []
+        # Fallback to general providers if forex-latest yielded nothing
+        if not news:
+            news = fetch_news_for_symbol(symu, limit=limit)
+    else:
+        news = fetch_news_for_symbol(symu, limit=limit)
     snapshot = fetch_fmp_snapshot(symbol)
     return {
-        'symbol': (symbol or '').upper(),
+        'symbol': symu,
         'news': news,
         'snapshot': snapshot,
     }

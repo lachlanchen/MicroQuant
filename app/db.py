@@ -444,7 +444,10 @@ async def fetch_news_db(
         item = dict(r)
         pub = item.get("published_at")
         if pub and hasattr(pub, "isoformat"):
-            item["publishedAt"] = pub.isoformat()
+            iso = pub.isoformat()
+            item["publishedAt"] = iso
+            # Ensure JSON serializable: convert published_at to string
+            item["published_at"] = iso
         out.append(item)
     return out
 
