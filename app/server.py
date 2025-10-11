@@ -33,10 +33,13 @@ from app.db import (
     get_stl_run,
     delete_stl_run,
     fetch_stl_run_data,
+    insert_health_run,
+    list_health_runs,
 )
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
 from app.news_fetcher import fetch_symbol_digest
+from app.news_fetcher import fetch_news_for_symbol
 
 try:
     from llm_model.echomind.mixed_ai_request import MixedAIRequestJSONBase  # type: ignore
@@ -257,6 +260,89 @@ def _compose_article_payload(article: dict[str, Any]) -> tuple[str, str]:
         or f"{hash(title + summary) & 0xFFFFFFFF:X}"
     )
     return article_id, article_text
+
+
+# --- Health-check helpers (LLM per-question boolean answers) ---
+
+def _load_strategy_json(filename: str) -> dict[str, Any]:
+    root = Path(__file__).resolve().parents[1]
+    path = root / "strategies" / "llm" / filename
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("failed to load strategy json %s: %s", filename, exc)
+        return {}
+
+
+HEALTH_BOOL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "answer": {"type": "boolean"},
+        "explanation": {"type": "string"},
+    },
+    "required": ["answer", "explanation"],
+    "additionalProperties": False,
+}
+
+
+def _articles_to_text(items: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for i, it in enumerate(items, 1):
+        title = str(it.get("title") or it.get("headline") or "").strip()
+        # Prefer full body when available (FMP 'text' is passed as 'body')
+        summary = str(
+            it.get("body")
+            or it.get("summary")
+            or it.get("description")
+            or it.get("text")
+            or ""
+        ).strip()
+        url = str(it.get("url") or "")
+        blk = []
+        if title:
+            blk.append(f"Title: {title}")
+        if summary and summary.lower() != title.lower():
+            blk.append(f"Body: {summary}")
+        if url:
+            blk.append(f"URL: {url}")
+        if blk:
+            parts.append(f"[{i}]\n" + "\n".join(blk))
+    return "\n\n".join(parts)
+
+
+def _is_fx_symbol(sym: str | None) -> bool:
+    if not sym:
+        return False
+    s = str(sym).upper().strip()
+    if len(s) in (6, 7) and s[:3].isalpha() and s[3:6].isalpha():
+        return True
+    return s.startswith(("XAU", "XAG", "XPT", "XPD"))
+
+
+def _build_pair_prompt_one(question_text: str, base_ccy: str, quote_ccy: str, base_items: list[dict], quote_items: list[dict], timeframe: str | None) -> str:
+    base_blk = _articles_to_text(base_items)
+    quote_blk = _articles_to_text(quote_items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are an FX analyst. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
+        "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
+        f"Pair: {base_ccy}/{quote_ccy}\n{tf_line}\n\n"
+        f"Question: {question_text}\n\n"
+        f"BASE ({base_ccy}) articles:\n---\n{base_blk}\n---\n\n"
+        f"QUOTE ({quote_ccy}) articles:\n---\n{quote_blk}\n---\n"
+    )
+
+
+def _build_stock_prompt_one(question_text: str, ticker: str, items: list[dict], timeframe: str | None) -> str:
+    blk = _articles_to_text(items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are an equity analyst. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
+        "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
+        f"Ticker: {ticker}\n{tf_line}\n\n"
+        f"Question: {question_text}\n\n"
+        f"Articles:\n---\n{blk}\n---\n"
+    )
 
 
 def _build_news_prompt(article_text: str) -> str:
@@ -1200,6 +1286,8 @@ async def make_app():
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler),
             (r"/api/news/analyze", NewsAnalysisHandler, dict(ai_client=AI_CLIENT, questions=NEWS_MICRO_QUESTIONS)),
+            (r"/api/health/runs", HealthRunsHandler, dict(pool=pool)),
+            (r"/api/health/run", HealthRunHandler, dict(pool=pool)),
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
@@ -1814,6 +1902,287 @@ class NewsAnalysisHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "article_id": article_id, "answers": structured}))
+
+
+class HealthRunsHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        raw_kind = self.get_argument("kind", default="").lower()
+        symbol = self.get_argument("symbol", default=None)
+        base = self.get_argument("base", default=None)
+        quote = self.get_argument("quote", default=None)
+        limit = int(self.get_argument("limit", default="5"))
+        offset = int(self.get_argument("offset", default="0"))
+
+        # Auto-detect kind if not explicitly provided
+        kind = raw_kind
+        if not kind:
+            if base and quote:
+                kind = "forex_pair"
+            elif _is_fx_symbol(symbol):
+                kind = "forex_pair"
+            else:
+                kind = "stock"
+
+        if kind == "forex_pair":
+            if (not base or not quote) and symbol:
+                sym = str(symbol).upper()
+                if len(sym) >= 6:
+                    base = sym[:3]
+                    quote = sym[3:6]
+            if not base or not quote:
+                self.set_status(400)
+                self.set_header("Content-Type", "application/json")
+                self.finish(json.dumps({"ok": False, "error": "base/quote required for forex_pair"}))
+                return
+            runs = await list_health_runs(self.pool, kind="forex_pair", base_ccy=base.upper(), quote_ccy=quote.upper(), limit=limit, offset=offset)
+        else:
+            if not symbol:
+                symbol = default_symbol()
+            runs = await list_health_runs(self.pool, kind="stock", symbol=str(symbol).upper(), limit=limit, offset=offset)
+
+        def _ser(run: dict) -> dict:
+            created_at = run.get("created_at")
+            if created_at and hasattr(created_at, "isoformat"):
+                created_at = created_at.isoformat()
+            return {
+                "id": run.get("id"),
+                "kind": run.get("kind"),
+                "symbol": run.get("symbol"),
+                "base_ccy": run.get("base_ccy"),
+                "quote_ccy": run.get("quote_ccy"),
+                "news_count": run.get("news_count"),
+                "news_ids": run.get("news_ids") or [],
+                "answers": run.get("answers_json") or {},
+                "created_at": created_at,
+            }
+
+        payload = {"ok": True, "runs": [_ser(r) for r in runs]}
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps(payload))
+
+
+class HealthRunHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        global AI_CLIENT
+        if AI_CLIENT is None:
+            self.set_status(503)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "LLM unavailable"}))
+            return
+        try:
+            payload = json.loads(self.request.body or "{}")
+        except Exception:
+            payload = {}
+
+        kind = str(payload.get("kind") or "").lower()
+        timeframe = str(payload.get("timeframe") or "30d")
+        news_count = int(payload.get("news_count") or 3)
+
+        loop = tornado.ioloop.IOLoop.current()
+
+        # Auto-detect kind when omitted
+        symbol_raw = str(payload.get("symbol") or payload.get("ticker") or "").upper()
+        if not kind:
+            if payload.get("base_currency") and payload.get("quote_currency"):
+                kind = "forex_pair"
+            elif _is_fx_symbol(symbol_raw):
+                kind = "forex_pair"
+            else:
+                kind = "stock"
+
+        if kind == "forex_pair":
+            base = str(payload.get("base_currency") or payload.get("base") or "").upper()
+            quote = str(payload.get("quote_currency") or payload.get("quote") or "").upper()
+            sym = str(payload.get("symbol") or symbol_raw or "")
+            if (not base or not quote) and sym:
+                s = sym.upper()
+                if len(s) >= 6:
+                    base, quote = s[:3], s[3:6]
+            if not base or not quote:
+                self.set_status(400)
+                self.set_header("Content-Type", "application/json")
+                self.finish(json.dumps({"ok": False, "error": "base_currency/quote_currency required"}))
+                return
+
+            # Fetch news for each side
+            base_items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(base, limit=news_count))
+            quote_items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(quote, limit=news_count))
+            base_items = base_items[:news_count]
+            quote_items = quote_items[:news_count]
+
+            strat = _load_strategy_json("forex_pair_30q_yes_no.json")
+            questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
+
+            def _call_one(qobj: dict) -> tuple[str, bool, str]:
+                qid = str(qobj.get("id") or "")
+                qtext = str(qobj.get("text") or "")
+                prompt = _build_pair_prompt_one(qtext, base, quote, base_items, quote_items, timeframe)
+                out = AI_CLIENT.send_request_with_json_schema(
+                    prompt,
+                    HEALTH_BOOL_SCHEMA,
+                    system_content="You are a precise analyst. Reply only with JSON that matches the schema.",
+                    schema_name="bool_answer",
+                )
+                ans = bool((out or {}).get("answer") is True)
+                expl = str((out or {}).get("explanation") or "").strip()
+                return (qid, ans, expl)
+
+            # Parallel execution with a local executor
+            from concurrent.futures import ThreadPoolExecutor as _TPE
+            local_workers = min(8, max(1, len(questions)))
+            answers: list[tuple[str, bool, str]] = []
+            if questions:
+                with _TPE(max_workers=local_workers) as ex:
+                    futs = [loop.run_in_executor(ex, _call_one, q) for q in questions]
+                    answers = await asyncio.gather(*futs, return_exceptions=False)
+
+            # Preserve order
+            a_map: dict[str, tuple[bool, str]] = {qid: (val, expl) for qid, val, expl in answers}
+            ans_struct = [{"id": q["id"], "answer": bool((a_map.get(q["id"]) or (False, ""))[0]), "explanation": str((a_map.get(q["id"]) or (False, ""))[1])} for q in questions]
+            score = sum(1 for a in ans_struct if a["answer"])
+            # Determine signal
+            signal = "NEUTRAL"
+            thresholds = strat.get("scoring", {}).get("thresholds", [])
+            for th in thresholds:
+                try:
+                    if int(th.get("min")) <= score <= int(th.get("max")):
+                        signal = str(th.get("signal") or signal)
+                        break
+                except Exception:
+                    continue
+
+            news_ids = []
+            for it in base_items:
+                if it.get("url"):
+                    news_ids.append(f"{base}:{it['url']}")
+            for it in quote_items:
+                if it.get("url"):
+                    news_ids.append(f"{quote}:{it['url']}")
+
+            answers_json = {
+                "questions": ans_struct,
+                "score": score,
+                "signal": signal,
+                "strategy": strat.get("name") or "forex_pair_30q_yes_no",
+                "meta": {"timeframe": timeframe, "base": base, "quote": quote, "news_count": news_count},
+            }
+
+            ins = await insert_health_run(
+                self.pool,
+                kind="forex_pair",
+                symbol=f"{base}{quote}",
+                base_ccy=base,
+                quote_ccy=quote,
+                news_count=news_count,
+                news_ids=news_ids,
+                answers_json=answers_json,
+            )
+
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "kind": "forex_pair",
+                        "symbol": f"{base}{quote}",
+                        "base": base,
+                        "quote": quote,
+                        "used_news": {"base": base_items, "quote": quote_items},
+                        "answers": ans_struct,
+                        "score": score,
+                        "signal": signal,
+                        "run_id": ins.get("id"),
+                        "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
+                    }
+                )
+            )
+            return
+
+        # stock
+        symbol = str(payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
+        items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(symbol, limit=news_count))
+        items = items[:news_count]
+        strat = _load_strategy_json("stocks_30q_health_yes_no.json")
+        questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
+
+        def _call_one_stock(qobj: dict) -> tuple[str, bool, str]:
+            qid = str(qobj.get("id") or "")
+            qtext = str(qobj.get("text") or "")
+            prompt = _build_stock_prompt_one(qtext, symbol, items, timeframe)
+            out = AI_CLIENT.send_request_with_json_schema(
+                prompt,
+                HEALTH_BOOL_SCHEMA,
+                system_content="You are a precise analyst. Reply only with JSON that matches the schema.",
+                schema_name="bool_answer",
+            )
+            ans = bool((out or {}).get("answer") is True)
+            expl = str((out or {}).get("explanation") or "").strip()
+            return (qid, ans, expl)
+
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        local_workers = min(8, max(1, len(questions)))
+        answers: list[tuple[str, bool, str]] = []
+        if questions:
+            with _TPE(max_workers=local_workers) as ex:
+                futs = [loop.run_in_executor(ex, _call_one_stock, q) for q in questions]
+                answers = await asyncio.gather(*futs, return_exceptions=False)
+
+        a_map: dict[str, tuple[bool, str]] = {qid: (val, expl) for qid, val, expl in answers}
+        ans_struct = [{"id": q["id"], "answer": bool((a_map.get(q["id"]) or (False, ""))[0]), "explanation": str((a_map.get(q["id"]) or (False, ""))[1])} for q in questions]
+        score = sum(1 for a in ans_struct if a["answer"])
+        signal = "HOLD"
+        thresholds = strat.get("scoring", {}).get("thresholds", [])
+        for th in thresholds:
+            try:
+                if int(th.get("min")) <= score <= int(th.get("max")):
+                    signal = str(th.get("signal") or signal)
+                    break
+            except Exception:
+                continue
+        news_ids = [it.get("url") for it in items if it.get("url")]
+        answers_json = {
+            "questions": ans_struct,
+            "score": score,
+            "signal": signal,
+            "strategy": strat.get("name") or "stocks_30q_health_yes_no",
+            "meta": {"timeframe": timeframe, "symbol": symbol, "news_count": news_count},
+        }
+        ins = await insert_health_run(
+            self.pool,
+            kind="stock",
+            symbol=symbol,
+            base_ccy=None,
+            quote_ccy=None,
+            news_count=news_count,
+            news_ids=news_ids,
+            answers_json=answers_json,
+        )
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            json.dumps(
+                {
+                    "ok": True,
+                    "kind": "stock",
+                    "symbol": symbol,
+                    "used_news": items,
+                    "answers": ans_struct,
+                    "score": score,
+                    "signal": signal,
+                    "run_id": ins.get("id"),
+                    "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
+                }
+            )
+        )
 
 
 def main():

@@ -45,13 +45,22 @@ def _match_any(text: str, terms: List[str]) -> bool:
     return any(term.lower() in low for term in terms)
 
 
-def _normalize_item(title: str, url: str, source: str = '', published: str = '', summary: str = '') -> Dict[str, Any]:
+def _normalize_item(
+    title: str,
+    url: str,
+    source: str = '',
+    published: str = '',
+    summary: str = '',
+    body: str | None = None,
+) -> Dict[str, Any]:
     return {
         'title': title or '',
         'url': url or '',
         'source': source or '',
         'publishedAt': published or '',
         'summary': summary or '',
+        # Include full-text body when available (e.g., FMP 'text')
+        'body': (body or ''),
     }
 
 
@@ -81,13 +90,15 @@ def fetch_fmp_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[D
         title = it.get('title') or ''
         text = it.get('text') or ''
         if _match_any(title, terms) or _match_any(text, terms):
+            full_text = text or ''
             items.append(
                 _normalize_item(
                     title=title,
                     url=it.get('url') or '',
                     source=it.get('site') or '',
                     published=it.get('publishedDate') or '',
-                    summary=text[:280] + ('…' if len(text) > 280 else ''),
+                    summary=(full_text[:280] + ('…' if len(full_text) > 280 else '')),
+                    body=full_text,
                 )
             )
             if len(items) >= limit:
@@ -125,6 +136,7 @@ def fetch_alpha_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List
                     source=(it.get('source') or ''),
                     published=(it.get('time_published') or ''),
                     summary=summary[:280] + ('…' if len(summary) > 280 else ''),
+                    body=summary or '',  # no separate body from AlphaVantage feed
                 )
             )
             if len(items) >= limit:

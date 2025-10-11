@@ -49,3 +49,19 @@ CREATE TABLE IF NOT EXISTS stl_run_components (
 
 CREATE INDEX IF NOT EXISTS idx_stl_run_components_run_ts
     ON stl_run_components(run_id, ts DESC);
+
+-- Health check runs (LLM-based question answering over news)
+CREATE TABLE IF NOT EXISTS health_runs (
+    id           BIGSERIAL PRIMARY KEY,
+    kind         TEXT        NOT NULL,      -- 'forex_pair' | 'stock'
+    symbol       TEXT,                      -- ticker or pair symbol (e.g., EURUSD) when applicable
+    base_ccy     TEXT,                      -- for forex_pair
+    quote_ccy    TEXT,                      -- for forex_pair
+    news_count   INTEGER     NOT NULL,
+    news_ids     TEXT[]      NOT NULL,      -- list of identifiers/URLs used
+    answers_json JSONB       NOT NULL,      -- {questions:[{id,answer}], score, signal, meta}
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_health_runs_kind_symbol_created
+    ON health_runs(kind, COALESCE(symbol, base_ccy || quote_ccy), created_at DESC);

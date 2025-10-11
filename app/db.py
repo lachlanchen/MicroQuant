@@ -371,3 +371,99 @@ async def fetch_stl_run_data(pool: asyncpg.pool.Pool, run_id: int) -> dict | Non
         data.append(row)
     return {"run": run, "rows": data}
 
+
+
+async def insert_health_run(
+    pool: asyncpg.pool.Pool,
+    *,
+    kind: str,
+    symbol: str | None,
+    base_ccy: str | None,
+    quote_ccy: str | None,
+    news_count: int,
+    news_ids: list[str],
+    answers_json: dict,
+) -> dict:
+    q = (
+        """
+        INSERT INTO health_runs (kind, symbol, base_ccy, quote_ccy, news_count, news_ids, answers_json)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+        RETURNING id, created_at
+        """
+    )
+    # Ensure JSONB receives a serialized string for compatibility
+    import json as _json
+    answers_str = _json.dumps(answers_json, ensure_ascii=False)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(q, kind, symbol, base_ccy, quote_ccy, int(news_count), news_ids, answers_str)
+    created_at = row["created_at"]
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return {"id": row["id"], "created_at": created_at}
+
+
+async def list_health_runs(
+    pool: asyncpg.pool.Pool,
+    *,
+    kind: str,
+    symbol: str | None = None,
+    base_ccy: str | None = None,
+    quote_ccy: str | None = None,
+    limit: int = 5,
+    offset: int = 0,
+) -> list[dict]:
+    if limit <= 0:
+        limit = 5
+    if offset < 0:
+        offset = 0
+    if (kind or "").lower() == "stock":
+        q = (
+            """
+            SELECT id, kind, symbol, base_ccy, quote_ccy, news_count, news_ids, answers_json, created_at
+            FROM health_runs
+            WHERE kind=$1 AND symbol=$2
+            ORDER BY created_at DESC
+            LIMIT $3 OFFSET $4
+            """
+        )
+        args = (kind, symbol, limit, offset)
+    else:
+        q = (
+            """
+            SELECT id, kind, symbol, base_ccy, quote_ccy, news_count, news_ids, answers_json, created_at
+            FROM health_runs
+            WHERE kind=$1 AND base_ccy=$2 AND quote_ccy=$3
+            ORDER BY created_at DESC
+            LIMIT $4 OFFSET $5
+            """
+        )
+        args = (kind, base_ccy, quote_ccy, limit, offset)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, *args)
+    result: list[dict] = []
+    for rec in rows:
+        created_at = rec["created_at"]
+        if created_at and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        # Normalize JSON field to dict
+        ans = rec["answers_json"]
+        try:
+            if isinstance(ans, str):
+                import json as _json
+                ans = _json.loads(ans)
+        except Exception:
+            pass
+        result.append(
+            {
+                "id": rec["id"],
+                "kind": rec["kind"],
+                "symbol": rec["symbol"],
+                "base_ccy": rec["base_ccy"],
+                "quote_ccy": rec["quote_ccy"],
+                "news_count": rec["news_count"],
+                "news_ids": list(rec["news_ids"] or []),
+                "answers_json": ans,
+                "created_at": created_at,
+            }
+        )
+    return result

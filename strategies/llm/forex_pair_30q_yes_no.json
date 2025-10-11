@@ -1,0 +1,93 @@
+{
+  "name": "forex_pair_30q_yes_no",
+  "title": "30 Yes/No Forex Pair Comparison (News/Text Analysis)",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-11T00:00:00Z",
+  "description": "Direct BASE vs QUOTE comparison. YES = BASE stronger, NO = QUOTE stronger. Total YES mapped to BUY/NEUTRAL/SELL for BASE.",
+  "input": {
+    "variables": [
+      { "name": "base_currency",  "type": "string", "example": "EUR" },
+      { "name": "quote_currency", "type": "string", "example": "USD" },
+      { "name": "base_texts",     "type": "array<string>", "description": "Recent articles/notes relevant to BASE currency/region" },
+      { "name": "quote_texts",    "type": "array<string>", "description": "Recent articles/notes relevant to QUOTE currency/region" },
+      { "name": "timeframe",      "type": "string", "example": "30d" }
+    ]
+  },
+  "categories": [
+    { "id": "cb",  "label": "Central Bank & Monetary Policy Comparison" },
+    { "id": "ed",  "label": "Economic Data & Growth Comparison" },
+    { "id": "inf", "label": "Inflation & Price Dynamics Comparison" },
+    { "id": "geo", "label": "Political & Risk Comparison" },
+    { "id": "mf",  "label": "Market Sentiment & Capital Flow Comparison" }
+  ],
+  "questions": [
+    { "id": "cb_1", "category": "cb", "weight": 1, "text": "Is the BASE currency's central bank more hawkish than the QUOTE currency's central bank in recent statements?" },
+    { "id": "cb_2", "category": "cb", "weight": 1, "text": "Are interest rate expectations rising faster for BASE currency vs QUOTE currency?" },
+    { "id": "cb_3", "category": "cb", "weight": 1, "text": "Did the BASE currency's central bank express more confidence than the QUOTE currency's central bank?" },
+    { "id": "cb_4", "category": "cb", "weight": 1, "text": "Is the BASE currency's central bank closer to achieving its inflation target than the QUOTE currency's?" },
+    { "id": "cb_5", "category": "cb", "weight": 1, "text": "Are policy tightening signals stronger for BASE currency vs QUOTE currency?" },
+    { "id": "cb_6", "category": "cb", "weight": 1, "text": "Did the BASE currency's central bank raise/hold rates while the QUOTE currency's cut/signaled cuts?" },
+    { "id": "cb_7", "category": "cb", "weight": 1, "text": "Is the BASE currency's monetary policy described as more supportive of currency strength?" },
+    { "id": "cb_8", "category": "cb", "weight": 1, "text": "Are BASE currency central bank minutes more optimistic than QUOTE currency's?" },
+
+    { "id": "ed_9",  "category": "ed", "weight": 1, "text": "Did the BASE currency's GDP growth exceed the QUOTE currency's GDP growth?" },
+    { "id": "ed_10", "category": "ed", "weight": 1, "text": "Are the BASE currency's employment figures stronger than the QUOTE currency's?" },
+    { "id": "ed_11", "category": "ed", "weight": 1, "text": "Is the BASE currency's manufacturing PMI higher than the QUOTE currency's?" },
+    { "id": "ed_12", "category": "ed", "weight": 1, "text": "Is the BASE currency's services PMI higher than the QUOTE currency's?" },
+    { "id": "ed_13", "category": "ed", "weight": 1, "text": "Is consumer spending growth stronger in BASE currency region vs QUOTE currency region?" },
+    { "id": "ed_14", "category": "ed", "weight": 1, "text": "Is the BASE currency's trade balance better than the QUOTE currency's?" },
+    { "id": "ed_15", "category": "ed", "weight": 1, "text": "Is business confidence higher in BASE currency region vs QUOTE currency region?" },
+
+    { "id": "inf_16", "category": "inf", "weight": 1, "text": "Is the BASE currency's inflation closer to target than the QUOTE currency's?" },
+    { "id": "inf_17", "category": "inf", "weight": 1, "text": "Are wage pressures more favorable (moderate) in BASE vs QUOTE currency region?" },
+    { "id": "inf_18", "category": "inf", "weight": 1, "text": "Do commodity price changes favor the BASE currency more than QUOTE currency?" },
+    { "id": "inf_19", "category": "inf", "weight": 1, "text": "Is producer price inflation more controlled in BASE vs QUOTE currency region?" },
+    { "id": "inf_20", "category": "inf", "weight": 1, "text": "Is core inflation trending better in BASE currency region vs QUOTE currency region?" },
+
+    { "id": "geo_21", "category": "geo", "weight": 1, "text": "Is political stability higher in BASE currency country vs QUOTE currency country?" },
+    { "id": "geo_22", "category": "geo", "weight": 1, "text": "Are government/fiscal policies more market-friendly in BASE vs QUOTE region?" },
+    { "id": "geo_23", "category": "geo", "weight": 1, "text": "Are election risks lower or outcomes more favorable for BASE vs QUOTE currency?" },
+    { "id": "geo_24", "category": "geo", "weight": 1, "text": "Are geopolitical risks lower for BASE currency country vs QUOTE currency country?" },
+    { "id": "geo_25", "category": "geo", "weight": 1, "text": "Is the BASE currency country's credit rating stronger or improving relative to QUOTE's?" },
+
+    { "id": "mf_26", "category": "mf", "weight": 1, "text": "Are foreign capital inflows stronger into BASE currency vs QUOTE currency?" },
+    { "id": "mf_27", "category": "mf", "weight": 1, "text": "Is the BASE currency gaining safe-haven status relative to QUOTE currency?" },
+    { "id": "mf_28", "category": "mf", "weight": 1, "text": "Is demand for BASE currency assets stronger than demand for QUOTE currency assets?" },
+    { "id": "mf_29", "category": "mf", "weight": 1, "text": "Are analysts more bullish on BASE currency vs QUOTE currency?" },
+    { "id": "mf_30", "category": "mf", "weight": 1, "text": "Is investor sentiment more positive toward BASE currency region vs QUOTE currency region?" }
+  ],
+  "answer_options": ["YES", "NO"],
+  "scoring": {
+    "per_question": { "YES": 1, "NO": 0 },
+    "total_range": { "min": 0, "max": 30 },
+    "thresholds": [
+      { "min": 25, "max": 30, "signal": "BUY_BASE",  "label": "Very Strong BUY (base much stronger)" },
+      { "min": 20, "max": 24, "signal": "BUY_BASE",  "label": "Strong BUY" },
+      { "min": 16, "max": 19, "signal": "BUY_BASE",  "label": "Moderate BUY" },
+      { "min": 14, "max": 15, "signal": "BUY_BASE",  "label": "Weak BUY" },
+      { "min": 11, "max": 13, "signal": "NEUTRAL",   "label": "NEUTRAL - No clear edge" },
+      { "min": 7,  "max": 10, "signal": "SELL_BASE", "label": "Weak SELL" },
+      { "min": 4,  "max": 6,  "signal": "SELL_BASE", "label": "Moderate SELL" },
+      { "min": 0,  "max": 3,  "signal": "SELL_BASE", "label": "Strong SELL (quote much stronger)" }
+    ]
+  },
+  "prompt": {
+    "system": "You are a precise FX analyst. Answer strictly with JSON.",
+    "instructions": "Compare BASE vs QUOTE using the provided texts for each side. For every question, answer YES if evidence indicates BASE is stronger than QUOTE on that dimension; otherwise answer NO. Be decisive and avoid hedging. Use only the provided timeframe and texts.",
+    "notes": [
+      "Review base_texts against quote_texts for each question.",
+      "YES always means BASE stronger; NO means QUOTE stronger.",
+      "Provide a brief one-sentence explanation for your choice."
+    ]
+  },
+  "response_template": {
+    "base_currency": "${base_currency}",
+    "quote_currency": "${quote_currency}",
+    "answers": [ { "id": "cb_1", "answer": "YES_OR_NO" } ],
+    "score": 0,
+    "signal": "NEUTRAL",
+    "rationale": "Optional short summary of key drivers."
+  }
+}

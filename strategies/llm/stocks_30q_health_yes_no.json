@@ -1,0 +1,87 @@
+{
+  "name": "stocks_30q_health_yes_no",
+  "title": "30 Yes/No Stock Health Questions (News/Text Analysis)",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-11T00:00:00Z",
+  "description": "Binary stock health questionnaire from news; YES=1, NO=0; total maps to BUY/HOLD/SELL.",
+  "input": {
+    "variables": [
+      { "name": "ticker", "type": "string", "example": "NVDA" },
+      { "name": "texts", "type": "array<string>", "description": "Recent headlines/summaries/bodies about the company and sector." },
+      { "name": "timeframe", "type": "string", "example": "24h" }
+    ]
+  },
+  "categories": [
+    { "id": "sent", "label": "Sentiment & Tone" },
+    { "id": "perf", "label": "Company Performance & Announcements" },
+    { "id": "econ", "label": "Economic & Policy Environment" },
+    { "id": "ind",  "label": "Industry & Competitive Position" },
+    { "id": "risk", "label": "Risk & Concerns" }
+  ],
+  "questions": [
+    { "id": "sent_1", "category": "sent", "weight": 1, "text": "Is the overall tone of recent news about this stock positive?" },
+    { "id": "sent_2", "category": "sent", "weight": 1, "text": "Do recent headlines use more positive words than negative words?" },
+    { "id": "sent_3", "category": "sent", "weight": 1, "text": "Are analyst reports mentioning growth opportunities?" },
+    { "id": "sent_4", "category": "sent", "weight": 1, "text": "Is the company being compared favorably to competitors in articles?" },
+    { "id": "sent_5", "category": "sent", "weight": 1, "text": "Are there more upgrade mentions than downgrade mentions in recent news?" },
+    { "id": "sent_6", "category": "sent", "weight": 1, "text": "Is media coverage increasing in frequency over the past week?" },
+
+    { "id": "perf_7",  "category": "perf", "weight": 1, "text": "Did the company report revenue growth in the latest earnings announcement?" },
+    { "id": "perf_8",  "category": "perf", "weight": 1, "text": "Did the company beat analyst expectations in the latest report?" },
+    { "id": "perf_9",  "category": "perf", "weight": 1, "text": "Did the company announce any new product launches recently?" },
+    { "id": "perf_10", "category": "perf", "weight": 1, "text": "Did the company report expanding profit margins in recent statements?" },
+    { "id": "perf_11", "category": "perf", "weight": 1, "text": "Is the company mentioned as gaining market share in news articles?" },
+    { "id": "perf_12", "category": "perf", "weight": 1, "text": "Did the company announce any strategic partnerships or acquisitions?" },
+    { "id": "perf_13", "category": "perf", "weight": 1, "text": "Are customer reviews or satisfaction metrics mentioned positively?" },
+    { "id": "perf_14", "category": "perf", "weight": 1, "text": "Did management express confidence in future outlook in recent statements?" },
+
+    { "id": "econ_15", "category": "econ", "weight": 1, "text": "Do economic reports indicate GDP growth in relevant markets?" },
+    { "id": "econ_16", "category": "econ", "weight": 1, "text": "Are interest rate decisions favorable for this sector (mentioned in news)?" },
+    { "id": "econ_17", "category": "econ", "weight": 1, "text": "Is inflation trending in a direction that benefits this industry?" },
+    { "id": "econ_18", "category": "econ", "weight": 1, "text": "Are there mentions of supportive government policies for this sector?" },
+    { "id": "econ_19", "category": "econ", "weight": 1, "text": "Do trade policy updates favor this company's operations?" },
+    { "id": "econ_20", "category": "econ", "weight": 1, "text": "Is consumer confidence reported as rising in relevant markets?" },
+
+    { "id": "ind_21", "category": "ind", "weight": 1, "text": "Is the company's industry described as growing in recent reports?" },
+    { "id": "ind_22", "category": "ind", "weight": 1, "text": "Are barriers to entry in this sector mentioned as high?" },
+    { "id": "ind_23", "category": "ind", "weight": 1, "text": "Is demand for the company's products/services described as increasing?" },
+    { "id": "ind_24", "category": "ind", "weight": 1, "text": "Are supply chain conditions improving according to news?" },
+    { "id": "ind_25", "category": "ind", "weight": 1, "text": "Is the company mentioned as an industry leader or innovator?" },
+
+    { "id": "risk_26", "category": "risk", "weight": 1, "text": "Are regulatory concerns decreasing or absent in recent news?" },
+    { "id": "risk_27", "category": "risk", "weight": 1, "text": "Is litigation or legal risk decreasing or absent in recent news?" },
+    { "id": "risk_28", "category": "risk", "weight": 1, "text": "Are management and governance issues absent from recent articles?" },
+    { "id": "risk_29", "category": "risk", "weight": 1, "text": "Is the company's debt level described as manageable or improving?" },
+    { "id": "risk_30", "category": "risk", "weight": 1, "text": "Are geopolitical risks affecting this stock stable or improving?" }
+  ],
+  "answer_options": ["YES", "NO"],
+  "scoring": {
+    "per_question": { "YES": 1, "NO": 0 },
+    "total_range": { "min": 0, "max": 30 },
+    "thresholds": [
+      { "min": 25, "max": 30, "signal": "STRONG_BUY",  "label": "Strong bullish - Strong BUY" },
+      { "min": 20, "max": 24, "signal": "BUY",         "label": "Moderate bullish - BUY" },
+      { "min": 15, "max": 19, "signal": "HOLD",        "label": "Neutral - HOLD" },
+      { "min": 10, "max": 14, "signal": "SELL",        "label": "Moderate bearish - SELL" },
+      { "min": 0,  "max": 9,  "signal": "STRONG_SELL", "label": "Strong bearish - Strong SELL" }
+    ]
+  },
+  "prompt": {
+    "system": "You are a precise equity analyst. Answer strictly with JSON.",
+    "instructions": "Evaluate provided news texts for the single ticker. For each question, answer YES if the texts support a bullish/positive interpretation for the stock; otherwise answer NO. Be decisive and avoid hedging. Do not use outside knowledge beyond the timeframe.",
+    "notes": [
+      "Run all 30 questions for the stock.",
+      "Provide a brief one-sentence explanation for your choice.",
+      "Only use provided texts."
+    ]
+  },
+  "response_template": {
+    "ticker": "${ticker}",
+    "answers": [ { "id": "sent_1", "answer": "YES_OR_NO" } ],
+    "score": 0,
+    "signal": "HOLD",
+    "rationale": "Optional short summary of key drivers."
+  }
+}
