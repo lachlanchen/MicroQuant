@@ -48,7 +48,7 @@ except Exception:  # pragma: no cover - optional dependency
 EXECUTOR = ThreadPoolExecutor(max_workers=2)
 logger = logging.getLogger("mt5app")
 
-WS_CLIENTS: set = set()
+WS_CLIENTS: set = set()\nNEWS_BACKFILL_CB = None
 
 
 NEWS_MICRO_QUESTIONS: list[dict[str, str]] = [
@@ -315,6 +315,63 @@ def _is_fx_symbol(sym: str | None) -> bool:
     if len(s) in (6, 7) and s[:3].isalpha() and s[3:6].isalpha():
         return True
     return s.startswith(("XAU", "XAG", "XPT", "XPD"))
+
+
+async def run_news_backfill(days: int = 7) -> dict:
+    if GLOBAL_POOL is None:
+        return {"ok": False, "error": "no_pool"}
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=max(1, days))).date().isoformat()
+    to = now.date().isoformat()
+    total = 0
+    stored = 0
+    page = 0
+    while page < 5:
+        try:
+            items = await tornado.ioloop.IOLoop.current().run_in_executor(
+                EXECUTOR, lambda: fetch_fmp_forex_latest(since=since, to=to, page=page, limit=200)
+            )
+        except Exception:
+            items = []
+        if not items:
+            break
+        total += len(items)
+        try:
+            stored += await upsert_news_articles(GLOBAL_POOL, items)
+        except Exception:
+            pass
+        page += 1
+        await asyncio.sleep(0.05)
+    from app.news_fetcher import fetch_fmp_news as _fetch_fmp_news
+    for sym in SUPPORTED_SYMBOLS:
+        if _is_fx_symbol(sym):
+            continue
+        try:
+            items = await tornado.ioloop.IOLoop.current().run_in_executor(
+                EXECUTOR, lambda: _fetch_fmp_news(sym, limit=50)
+            )
+        except Exception:
+            items = []
+        filt = []
+        for it in items:
+            pub = it.get("published") or it.get("publishedAt") or it.get("publishedDate") or ""
+            try:
+                dt = datetime.fromisoformat(str(pub))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                dt = None
+            if dt is None or (now - dt).days > days:
+                continue
+            it["symbol"] = sym
+            filt.append(it)
+        if filt:
+            try:
+                stored += await upsert_news_articles(GLOBAL_POOL, filt)
+            except Exception:
+                pass
+        await asyncio.sleep(0.05)
+    return {"ok": True, "fetched": total, "inserted": stored, "days": days}
 
 
 def _build_pair_prompt_one(question_text: str, base_ccy: str, quote_ccy: str, base_items: list[dict], quote_items: list[dict], timeframe: str | None) -> str:
@@ -1034,6 +1091,7 @@ class MainHandler(tornado.web.RequestHandler):
         slow_pref = extras.get("last_slow") or "50"
         stl_auto_pref = extras.get("stl_auto_period") or "1"
         stl_manual_pref = extras.get("stl_manual_period") or "30"
+        auto_news_pref = extras.get("auto_news_backfill") or "1"
 
         logger.debug("Render index with symbols=%s default=%s tf=%s", SUPPORTED_SYMBOLS, sym, tf)
         try:
@@ -1061,6 +1119,7 @@ class MainHandler(tornado.web.RequestHandler):
             news_ai_available=bool(AI_CLIENT),
             default_stl_auto_period=stl_auto_pref,
             default_stl_manual_period=stl_manual_pref,
+            default_auto_news=auto_news_pref,
         )
 
 
@@ -1791,6 +1850,26 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     updates[key] = str(value)
         if updates:
             await set_prefs(self.pool, updates)
+            # Handle auto news backfill scheduler toggle dynamically
+            if "auto_news_backfill" in updates:
+                val = str(updates.get("auto_news_backfill") or "1").lower() not in ("0", "false", "no", "off")
+                global NEWS_BACKFILL_CB
+                try:
+                    interval_min = int(os.getenv("NEWS_BACKFILL_MIN", "45"))
+                except Exception:
+                    interval_min = 45
+                interval_ms = max(5, interval_min) * 60 * 1000
+                if val and NEWS_BACKFILL_CB is None:
+                    def _schedule_backfill():
+                        tornado.ioloop.IOLoop.current().add_callback(run_news_backfill)
+                    NEWS_BACKFILL_CB = tornado.ioloop.PeriodicCallback(_schedule_backfill, interval_ms)
+                    NEWS_BACKFILL_CB.start()
+                elif not val and NEWS_BACKFILL_CB is not None:
+                    try:
+                        NEWS_BACKFILL_CB.stop()
+                    except Exception:
+                        pass
+                    NEWS_BACKFILL_CB = None
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "updated": sorted(updates.keys())}))
@@ -2265,11 +2344,26 @@ def main():
         cb = tornado.ioloop.PeriodicCallback(_schedule_fetch, interval_ms)
         cb.start()
 
+    # Auto news backfill (default on)
+    try:
+        news_auto_env = os.getenv("AUTO_NEWS_BACKFILL", "1").lower() not in ("0", "false", "no", "off")
+        interval_min = int(os.getenv("NEWS_BACKFILL_MIN", "45"))
+    except Exception:
+        news_auto_env = True
+        interval_min = 45
+    def _schedule_news_backfill():
+        tornado.ioloop.IOLoop.current().add_callback(run_news_backfill)
+    global NEWS_BACKFILL_CB
+    if news_auto_env and NEWS_BACKFILL_CB is None:
+        NEWS_BACKFILL_CB = tornado.ioloop.PeriodicCallback(_schedule_news_backfill, max(5, interval_min) * 60 * 1000)
+        NEWS_BACKFILL_CB.start()
+
     loop.start()
 
 
 if __name__ == "__main__":
     main()
+
 
 
 
