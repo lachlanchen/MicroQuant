@@ -338,7 +338,8 @@
       let lwMacdChart = null, lwMacdHist = null, lwMacdLine = null, lwMacdSignal = null;
 
       let lwSyncing = false;
-      let lwVolSubscribed = false, lwRsiSubscribed = false, lwMacdSubscribed = false;
+      let lwRangeTimer = null;
+      let lwVolSubscribed = false, lwRsiSubscribed = false, lwMacdSubscribed = false; // sync disabled
       let lwVolHasData = false, lwRsiHasData = false, lwMacdHasData = false;
 
       const PREF_ENDPOINT = '/api/preferences';
@@ -677,12 +678,8 @@
             color: 'rgba(120, 144, 156, 0.4)',
           });
         }
-        if (!lwVolSubscribed && lwVolChart) {
-          lwVolChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-            handleChartRangeChange(lwVolChart);
-          });
-          lwVolSubscribed = true;
-        }
+        // Range sync disabled: do not subscribe LW volume pane to propagate
+        lwVolSubscribed = false;
       };
 
       const ensureLwRsi = () => {
@@ -699,12 +696,8 @@
         if (!lwRsiSeries && lwRsiChart) {
           lwRsiSeries = lwRsiChart.addLineSeries({ color: '#8e24aa', lineWidth: 2 });
         }
-        if (!lwRsiSubscribed && lwRsiChart) {
-          lwRsiChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-            handleChartRangeChange(lwRsiChart);
-          });
-          lwRsiSubscribed = true;
-        }
+        // Range sync disabled
+        lwRsiSubscribed = false;
       };
 
       const ensureLwMacd = () => {
@@ -727,12 +720,8 @@
         if (lwMacdChart && !lwMacdSignal) {
           lwMacdSignal = lwMacdChart.addLineSeries({ color: '#ef6c00', lineWidth: 2 });
         }
-        if (!lwMacdSubscribed && lwMacdChart) {
-          lwMacdChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-            handleChartRangeChange(lwMacdChart);
-          });
-          lwMacdSubscribed = true;
-        }
+        // Range sync disabled
+        lwMacdSubscribed = false;
       };
 
       const rangeAlmostEqual = (x, y) => Math.abs((x || 0) - (y || 0)) < 1e-4;
@@ -772,19 +761,15 @@
         try {
           if (lwChart && sourceChart !== lwChart) {
             setLogicalRangeIfNeeded(lwChart, logicalRange);
-            setRangeIfNeeded(lwChart, range);
           }
           if (lwVolChart && lwVolHasData && sourceChart !== lwVolChart) {
             setLogicalRangeIfNeeded(lwVolChart, logicalRange);
-            setRangeIfNeeded(lwVolChart, range);
           }
           if (lwRsiChart && lwRsiHasData && sourceChart !== lwRsiChart) {
             setLogicalRangeIfNeeded(lwRsiChart, logicalRange);
-            setRangeIfNeeded(lwRsiChart, range);
           }
           if (lwMacdChart && lwMacdHasData && sourceChart !== lwMacdChart) {
             setLogicalRangeIfNeeded(lwMacdChart, logicalRange);
-            setRangeIfNeeded(lwMacdChart, range);
           }
         } finally {
           lwSyncing = false;
@@ -792,22 +777,25 @@
       };
       const handleChartRangeChange = (chartInstance) => {
         if (!chartInstance || lwSyncing) return;
-        const range = chartInstance.timeScale().getVisibleRange();
-        const logicalRange = chartInstance.timeScale().getVisibleLogicalRange();
-        const effectiveLogical = logicalRange || currentLogicalRange || null;
-        if (range && range.from != null && range.to != null) {
-          if (rangesEqual(currentTimeRange, range) && logicalRangesEqual(currentLogicalRange, effectiveLogical)) {
-            return;
+        if (lwRangeTimer) cancelAnimationFrame(lwRangeTimer);
+        lwRangeTimer = requestAnimationFrame(() => {
+          const range = chartInstance.timeScale().getVisibleRange();
+          const logicalRange = chartInstance.timeScale().getVisibleLogicalRange();
+          const effectiveLogical = logicalRange || currentLogicalRange || null;
+          if (range && range.from != null && range.to != null) {
+            if (rangesEqual(currentTimeRange, range) && logicalRangesEqual(currentLogicalRange, effectiveLogical)) {
+              return;
+            }
+            currentTimeRange = range;
+            currentLogicalRange = effectiveLogical;
+            syncAllChartsToRange(chartInstance, range, effectiveLogical);
+            applyIndicatorViewport(range, effectiveLogical);
+          } else {
+            currentTimeRange = null;
+            currentLogicalRange = null;
+            applyIndicatorViewport(null, null);
           }
-          currentTimeRange = range;
-          currentLogicalRange = effectiveLogical;
-          syncAllChartsToRange(chartInstance, range, effectiveLogical);
-          applyIndicatorViewport(range, effectiveLogical);
-        } else {
-          currentTimeRange = null;
-          currentLogicalRange = null;
-          applyIndicatorViewport(null, null);
-        }
+        });
       };
 
       const ensureMacdChart = () => {
@@ -1324,12 +1312,8 @@
             width: rectInit.width || lwContainer.clientWidth || 800,
             height: rectInit.height || lwContainer.clientHeight || 400
           });
-          if (!lwTimeRangeSubscribed) {
-            lwChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-              handleChartRangeChange(lwChart);
-            });
-            lwTimeRangeSubscribed = true;
-          }
+          // Range sync disabled: do not subscribe main chart to propagate
+          lwTimeRangeSubscribed = false;
         }
         if (stlLastRows.length && stlLastMeta) {
           applyStlData(stlLastRows.slice(), stlLastMeta);
@@ -1810,14 +1794,18 @@
             if (lwBollingerLower) lwBollingerLower.setData(toLwPoints(boll.lower));
             if (lwBollingerMid) lwBollingerMid.setData(toLwPoints(boll.middle));
             const visibleRange = lwChart.timeScale().getVisibleRange();
-            const visibleLogical = lwChart.timeScale().getVisibleLogicalRange();
-            if (visibleRange && visibleRange.from != null && visibleRange.to != null) {
-              /* init range prior fit removed */
+            const hasRange = visibleRange && visibleRange.from != null && visibleRange.to != null;
+            if (!lwInitialFitted || !hasRange) {
+              // First render: fit once and rely on subscription to broadcast
+              lwSyncing = true;
+              lwChart.timeScale().fitContent();
+              lwSyncing = false;
+              lwInitialFitted = true;
             } else {
-              applyIndicatorViewport(null, null);
+              // Preserve user view; do not auto-fit on refresh
+              const visibleLogical = lwChart.timeScale().getVisibleLogicalRange();
+              currentLogicalRange = visibleLogical || currentLogicalRange || null;
             }
-            lwChart.timeScale().fitContent();
-            handleChartRangeChange(lwChart);
           }
           updateIndicatorCharts(rows);
           const overlayPeriod = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
@@ -2563,6 +2551,7 @@
     </script>
   </body>
   </html>
+
 
 
 
