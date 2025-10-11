@@ -458,6 +458,98 @@
       
       let lwInitialFitted = false;
 
+      const currentSymbol = () => (symbolSelect && symbolSelect.value ? symbolSelect.value.trim().toUpperCase() : APP_DEFAULT_SYMBOL);
+      const currentTf = () => (tfSelect && tfSelect.value ? tfSelect.value.trim().toUpperCase() : DEFAULT_TF);
+      const currentBarsLimit = () => Math.max(10, Number(countInput && countInput.value ? countInput.value : DEFAULT_BARS) || DEFAULT_BARS);
+
+      const isoToLocalInput = (iso) => {
+        if (!iso) return '';
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return '';
+        const pad = (v) => String(v).padStart(2, '0');
+        const year = date.getFullYear();
+        const month = pad(date.getMonth() + 1);
+        const day = pad(date.getDate());
+        const hours = pad(date.getHours());
+        const minutes = pad(date.getMinutes());
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      };
+
+      const localInputToIso = (value) => {
+        if (!value) return null;
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        return date.toISOString();
+      };
+
+      function updateStlInputsFromState() {
+        if (stlAllToggle) stlAllToggle.checked = !!stlAllData;
+        if (stlAutoToggle) stlAutoToggle.checked = !!stlAutoPeriod;
+        if (stlPeriodInput) {
+          stlPeriodInput.disabled = !!stlAutoPeriod;
+          const effective = Number.isFinite(stlManualPeriod) && stlManualPeriod > 0 ? Math.round(stlManualPeriod) : DEFAULT_STL_MANUAL_PERIOD;
+          stlPeriodInput.value = effective;
+        }
+        if (stlPeriodLinesToggle) stlPeriodLinesToggle.checked = !!showPeriodLines;
+        const disableRange = !!stlAllData;
+        if (stlStartInput) {
+          stlStartInput.disabled = disableRange;
+          stlStartInput.value = disableRange ? '' : (stlTargetStart ? isoToLocalInput(stlTargetStart) : stlStartInput.value);
+        }
+        if (stlEndInput) {
+          stlEndInput.disabled = disableRange;
+          stlEndInput.value = disableRange ? '' : (stlTargetEnd ? isoToLocalInput(stlTargetEnd) : stlEndInput.value);
+        }
+        if (stlRunsSelect && stlRunsSelect.options.length === 0) {
+          stlRunsSelect.innerHTML = '<option value=\"\">Latest (auto)</option>';
+        }
+      if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
+      }
+
+      const formatDateShort = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toISOString().slice(0, 10);
+      };
+
+      const formatDateTime = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toISOString().slice(0, 16).replace('T', ' ');
+      };
+
+      function populateStlRuns(runs, selectedId) {
+        if (!stlRunsSelect) return;
+        stlRunsSelect.innerHTML = '';
+        stlRunsSelect.appendChild(new Option('Latest (auto)', ''));
+        if (Array.isArray(runs)) {
+          runs.forEach((run) => {
+            if (!run) return;
+            const label = `${formatDateShort(run.start_ts)} → ${formatDateShort(run.end_ts)} • P${run.period}`;
+            const opt = new Option(label, String(run.id));
+            if (selectedId && String(run.id) === String(selectedId)) opt.selected = true;
+            stlRunsSelect.appendChild(opt);
+          });
+        }
+        if (!selectedId) stlRunsSelect.value = '';
+        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlRunsSelect.value;
+      }
+
+      function updateIndicatorCharts(rows) {
+        if (Array.isArray(rows) && rows.length) {
+          lastPriceRows = rows.slice();
+        } else {
+          lastPriceRows = [];
+        }
+        if (currentTimeRange) {
+          applyIndicatorViewport(currentTimeRange, currentLogicalRange);
+        } else {
+          indicatorRangeMs = null;
+          updateIndicatorDisplay(lastPriceRows);
+        }
+      }
       const flushPrefQueue = async () => {
         if (!Object.keys(prefQueue).length) {
           prefTimer = null;
@@ -1391,7 +1483,47 @@
         lwSyncing = true;
         try {
           if (lwVolChart && lwVolHasData) {
-                },
+            lwVolChart.timeScale().setVisibleRange(range);
+          }
+          if (lwRsiChart && lwRsiHasData) {
+            lwRsiChart.timeScale().setVisibleRange(range);
+          }
+          if (lwMacdChart && lwMacdHasData) {
+            lwMacdChart.timeScale().setVisibleRange(range);
+          }
+          if (logicalRange && logicalRange.from != null && logicalRange.to != null) {
+            currentLogicalRange = logicalRange;
+          }
+        } catch (err) {
+          console.warn('[ChartSync] indicator range error', err);
+        } finally {
+          lwSyncing = false;
+        }
+      };
+
+      function makeChart(type) {
+        curType = type;
+        if (type === 'line') {
+          lwContainer.style.display = 'none';
+          canvas.style.display = 'block';
+          if (lwOverlay && lwOverlayCtx) {
+            lwOverlayCtx.clearRect(0, 0, lwOverlay.width, lwOverlay.height);
+          }
+          if (chart) {
+            chart.destroy();
+            chart = null;
+          }
+          const existing = window.Chart.getChart(canvas);
+          if (existing) existing.destroy();
+          chart = new window.Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: [],
+              datasets: [
+                { label: 'Close', data: [], borderColor: '#1976d2', borderWidth: 1.5, pointRadius: 0, tension: 0.15, fill: false },
+                { label: 'Bollinger Mid', data: [], borderColor: '#607d8b', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, tension: 0.15, fill: false },
+                { label: 'Bollinger Upper', data: [], borderColor: '#ff9800', borderWidth: 1, pointRadius: 0, tension: 0.15, fill: false },
+                { label: 'Bollinger Lower', data: [], borderColor: '#ff9800', borderWidth: 1, pointRadius: 0, tension: 0.15, fill: false },
               ],
             },
             options: {
@@ -1400,25 +1532,18 @@
               plugins: { legend: { display: true, position: 'top' } },
               interaction: { intersect: false, mode: 'index' },
               scales: {
-                x: {
-                  type: 'time',
-                  time: { tooltipFormat: 'MMM d HH:mm' },
-                  ticks: { maxRotation: 0, autoSkip: true },
-                  grid: { display: false },
-                },
-                y: {
-                  beginAtZero: false,
-                  grid: { color: '#e0e6ef' },
-                },
+                x: { type: 'time', time: { tooltipFormat: 'MMM d HH:mm' }, ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
+                y: { beginAtZero: false, grid: { color: '#e0e6ef' } },
               },
             },
           });
           currentTimeRange = null;
           currentLogicalRange = null;
-          applyIndicatorViewport(null, null); if (curType === 'candlestick') { redrawPeriodLines(); }
+          applyIndicatorViewport(null, null);
           clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
           return chart;
         }
+
         canvas.style.display = 'none';
         lwContainer.style.display = 'block';
         if (!lwChart) {
@@ -1427,14 +1552,14 @@
             grid: { vertLines: { color: '#e0e6ef' }, horzLines: { color: '#e0e6ef' } },
             crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
             rightPriceScale: { borderColor: '#e0e6ef' },
-            timeScale: { borderColor: '#e0e6ef' }
+            timeScale: { borderColor: '#e0e6ef' },
           });
           lwSeries = lwChart.addCandlestickSeries({
             upColor: '#2ecc71',
             downColor: '#e74c3c',
             wickUpColor: '#2ecc71',
             wickDownColor: '#e74c3c',
-            borderVisible: false
+            borderVisible: false,
           });
           if (!lwBollingerUpper) {
             lwBollingerUpper = lwChart.addLineSeries({
@@ -1465,14 +1590,14 @@
             const rect = lwContainer.getBoundingClientRect();
             lwChart.applyOptions({
               width: rect.width || lwContainer.clientWidth || 800,
-              height: rect.height || lwContainer.clientHeight || 400
+              height: rect.height || lwContainer.clientHeight || 400,
             });
           });
           lwObserver.observe(lwContainer);
           const rectInit = lwContainer.getBoundingClientRect();
           lwChart.applyOptions({
             width: rectInit.width || lwContainer.clientWidth || 800,
-            height: rectInit.height || lwContainer.clientHeight || 400
+            height: rectInit.height || lwContainer.clientHeight || 400,
           });
           ensureLwOverlay();
           if (!lwTimeRangeSubscribed) {
