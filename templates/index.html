@@ -119,13 +119,14 @@
         <label><input type="radio" name="ctype" value="candlestick"{% if default_chart_type != 'line' %} checked{% end %}> Candlestick</label>
       </span>
     </div>
+    <!-- Chart toolbar: keep data controls right next to the chart -->
+    <div class="row chart-toolbar" style="gap:8px; align-items:center; justify-content:flex-end; margin: 6px 0 8px;">
+      <strong style="color:var(--accent)">Data</strong>
+      <button class="btn" id="btnFetch">Fetch + Save</button>
+      <button class="btn secondary" id="btnRefresh">Refresh</button>
+      <button class="btn secondary" id="btnAuto">Start Auto</button>
+    </div>
     <div class="control-panel">
-      <div class="control-card">
-        <strong style="color:var(--accent)">Data</strong>
-        <button class="btn" id="btnFetch">Fetch + Save</button>
-        <button class="btn secondary" id="btnRefresh">Refresh</button>
-        <button class="btn secondary" id="btnAuto">Start Auto</button>
-      </div>
       <div class="control-card">
         <strong style="color:var(--accent)">Background</strong>
         <button class="btn secondary" id="btnFetchCurrentBg">Current TF</button>
