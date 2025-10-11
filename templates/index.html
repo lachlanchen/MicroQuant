@@ -87,6 +87,10 @@
     .rf-inline button:hover { color:#000; }
     .rf-inline iframe { border:0; }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
+    .stl-overlay-controls { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:200px; max-width:320px; }
+    .stl-overlay-label { font-size:12px; font-weight:600; color:var(--muted); letter-spacing:0.4px; text-transform:uppercase; }
+    .stl-overlay-option { display:flex; align-items:center; gap:4px; font-size:12px; color:var(--text); }
+    .stl-overlay-option input { width:14px; height:14px; margin:0; accent-color: var(--accent); }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
     .btn-buy { background: var(--buy); font-weight:600; }
@@ -180,6 +184,7 @@
         <label style="display:flex; align-items:center; gap:6px;">TP
           <input id="tp" type="number" step="0.01" min="0" placeholder="optional" value="{{ default_tp }}" style="width:120px;" />
         </label>
+        <div id="stlOverlayControls" class="stl-overlay-controls"></div>
         <button class="btn btn-buy" id="btnBuy">Buy</button>
         <button class="btn btn-sell" id="btnSell">Sell</button>
         <button class="btn secondary" id="btnClose">Close All</button>
@@ -409,6 +414,9 @@
       let stlTargetStart = null;
       let stlTargetEnd = null;
       let stlLastPeriod = null;
+      let stlLastTrendPoints = [];
+      let stlLastSeasonPoints = [];
+      let stlLastResidPoints = [];
       const stlAllToggle = el('chkStlAllData');
       const stlAutoToggle = el('chkStlAutoPeriod');
       const stlPeriodInput = el('stlPeriodInput');
@@ -419,6 +427,22 @@
       let stlAutoPeriod = !(DEFAULT_STL_AUTO_PERIOD === '0' || DEFAULT_STL_AUTO_PERIOD === 'false');
       let stlManualPeriod = DEFAULT_STL_MANUAL_PERIOD;
       const stlPeriodLinesToggle = el('chkStlPeriodLines');
+      const STL_OVERLAY_TFS = ALL_TFS.slice();
+      const STL_OVERLAY_COLORS = {
+        M1: '#ef6c00',
+        M5: '#6d4c41',
+        M15: '#00897b',
+        M30: '#7e57c2',
+        H1: '#1e88e5',
+        H4: '#c2185b',
+        D1: '#3949ab',
+        W1: '#00838f',
+        MN1: '#2e7d32',
+      };
+      const stlOverlayInputs = new Map();
+      const stlOverlaySeries = new Map();
+      const stlOverlayCache = new Map();
+      const stlOverlayLoading = new Set();
       let showPeriodLines = false;
 
       const volumeCanvas = document.getElementById('volChart');
@@ -496,16 +520,211 @@
         const disableRange = !!stlAllData;
         if (stlStartInput) {
           stlStartInput.disabled = disableRange;
-          stlStartInput.value = disableRange ? '' : (stlTargetStart ? isoToLocalInput(stlTargetStart) : stlStartInput.value);
+          stlStartInput.value = disableRange ? "" : (stlTargetStart ? isoToLocalInput(stlTargetStart) : stlStartInput.value);
         }
         if (stlEndInput) {
           stlEndInput.disabled = disableRange;
-          stlEndInput.value = disableRange ? '' : (stlTargetEnd ? isoToLocalInput(stlTargetEnd) : stlEndInput.value);
+          stlEndInput.value = disableRange ? "" : (stlTargetEnd ? isoToLocalInput(stlTargetEnd) : stlEndInput.value);
         }
         if (stlRunsSelect && stlRunsSelect.options.length === 0) {
-          stlRunsSelect.innerHTML = '<option value=\"\">Latest (auto)</option>';
+          stlRunsSelect.innerHTML = '<option value="">Latest (auto)</option>';
         }
-      if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
+        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
+      }
+
+      function overlayColorForTf(tf) {
+        return STL_OVERLAY_COLORS[tf] || "#455a64";
+      }
+
+      function overlayCacheKey(symbol, tf) {
+        return `${(symbol || "").toUpperCase()}|${(tf || "").toUpperCase()}`;
+      }
+
+      function initStlOverlayControls() {
+        const wrap = document.getElementById("stlOverlayControls");
+        if (!wrap) return;
+        wrap.innerHTML = "";
+        const label = document.createElement("span");
+        label.className = "stl-overlay-label";
+        label.textContent = "STL overlay";
+        wrap.appendChild(label);
+        STL_OVERLAY_TFS.forEach((tf) => {
+          const option = document.createElement("label");
+          option.className = "stl-overlay-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.dataset.tf = tf;
+          option.appendChild(cb);
+          option.append(tf);
+          wrap.appendChild(option);
+          stlOverlayInputs.set(tf, cb);
+          cb.addEventListener("change", () => handleOverlayToggle(tf, cb.checked));
+        });
+      }
+
+      function isOverlayChecked(tf) {
+        const input = stlOverlayInputs.get(tf);
+        return !!(input && input.checked);
+      }
+
+      function ensureOverlaySeries(tf) {
+        if (!lwChart) return null;
+        if (!stlOverlaySeries.has(tf)) {
+          const color = overlayColorForTf(tf);
+          const dashed = LightweightCharts?.LineStyle?.Dashed;
+          const series = lwChart.addLineSeries({
+            color,
+            lineWidth: 2,
+            lineStyle: dashed !== undefined ? dashed : LightweightCharts?.LineStyle?.Solid ?? 2,
+            priceScaleId: "right",
+            title: `Trend ${tf}`,
+          });
+          stlOverlaySeries.set(tf, series);
+        }
+        return stlOverlaySeries.get(tf) || null;
+      }
+
+      function clearAllStlOverlaySeries({ keepCurrent = false } = {}) {
+        stlOverlaySeries.forEach((series, tf) => {
+          if (keepCurrent && tf === currentTf()) return;
+          try {
+            series.setData([]);
+          } catch (err) {
+            console.warn("[STL overlay] clear failed", err);
+          }
+        });
+      }
+
+      function applyCurrentStlVisibility() {
+        if (!lwChart || curType === "line") return;
+        ensureStlSeries();
+        const enabled = isOverlayChecked(currentTf());
+        if (stlTrendSeries) stlTrendSeries.setData(enabled ? stlLastTrendPoints : []);
+        if (stlSeasonSeries) stlSeasonSeries.setData(enabled ? stlLastSeasonPoints : []);
+        if (stlResidSeries) stlResidSeries.setData(enabled ? stlLastResidPoints : []);
+        lwChart.priceScale("left").applyOptions({
+          visible: enabled && (stlLastSeasonPoints.length > 0 || stlLastResidPoints.length > 0),
+          scaleMargins: { top: 0.8, bottom: 0.05 },
+        });
+      }
+
+      function resetStlOverlayControls() {
+        const current = currentTf();
+        stlOverlayInputs.forEach((input, tf) => {
+          input.checked = tf === current;
+        });
+        stlLastTrendPoints = [];
+        stlLastSeasonPoints = [];
+        stlLastResidPoints = [];
+        clearAllStlOverlaySeries({ keepCurrent: true });
+        applyCurrentStlVisibility();
+      }
+
+      async function loadStlOverlay(tf, { force = false } = {}) {
+        if (!lwChart || curType !== "candlestick") return;
+        const symbol = currentSymbol();
+        const key = overlayCacheKey(symbol, tf);
+        if (!force) {
+          const cached = stlOverlayCache.get(key);
+          if (cached && cached.points) {
+            const series = ensureOverlaySeries(tf);
+            if (series) series.setData(cached.points);
+            return;
+          }
+          if (cached && cached.empty) {
+            return;
+          }
+        }
+        if (stlOverlayLoading.has(key)) return;
+        stlOverlayLoading.add(key);
+        try {
+          status(`[STL overlay] loading ${tf}...`);
+          const params = new URLSearchParams({
+            symbol,
+            tf,
+            include_data: "1",
+            include_runs: "0",
+            all_data: "1",
+            limit: String(Math.max(10, Number(el("count").value) || 500)),
+          });
+          const resp = await fetch(`/api/stl?${params.toString()}`, { cache: "no-store" });
+          const js = await resp.json().catch(() => ({}));
+          if (!resp.ok || !js.ok) {
+            status(`STL overlay fetch failed for ${tf}: ${js.error || resp.statusText}`);
+            stlOverlayCache.set(key, { empty: true });
+            const series = stlOverlaySeries.get(tf);
+            if (series) series.setData([]);
+            return;
+          }
+          if (js.needs_compute) {
+            status(`STL overlay for ${tf} not computed; run STL for ${tf} first.`);
+            stlOverlayCache.set(key, { empty: true, reason: js.reason || "needs_compute" });
+            const series = stlOverlaySeries.get(tf);
+            if (series) series.setData([]);
+            return;
+          }
+          const points = (js.rows || [])
+            .map((row) => {
+              const value = Number(row.trend);
+              if (!Number.isFinite(value)) return null;
+              const t = Math.floor(new Date(row.ts).getTime() / 1000);
+              return { time: t, value };
+            })
+            .filter(Boolean);
+          stlOverlayCache.set(key, { points, meta: js.selected_run || null });
+          const series = ensureOverlaySeries(tf);
+          if (series && isOverlayChecked(tf)) {
+            series.setData(points);
+          }
+          status(`[STL overlay] loaded ${tf} (${points.length} pts).`);
+        } catch (err) {
+          console.warn("[STL overlay] load failed", err);
+          status(`STL overlay fetch failed for ${tf}: ${err.message || err}`);
+        } finally {
+          stlOverlayLoading.delete(key);
+        }
+      }
+
+      function refreshActiveStlOverlays({ force = false } = {}) {
+        if (!lwChart || curType !== "candlestick") return;
+        const symbol = currentSymbol();
+        stlOverlayInputs.forEach((input, tf) => {
+          if (tf === currentTf()) return;
+          const series = stlOverlaySeries.get(tf);
+          if (!input.checked) {
+            if (series) series.setData([]);
+            return;
+          }
+          const key = overlayCacheKey(symbol, tf);
+          const cached = stlOverlayCache.get(key);
+          if (cached && cached.points && !force) {
+            const targetSeries = ensureOverlaySeries(tf);
+            if (targetSeries) targetSeries.setData(cached.points);
+            return;
+          }
+          loadStlOverlay(tf, { force });
+        });
+      }
+
+      function handleOverlayToggle(tf, checked) {
+        if (tf === currentTf()) {
+          applyCurrentStlVisibility();
+          return;
+        }
+        if (!lwChart || curType !== "candlestick") {
+          if (checked) status("Switch to candlestick view to display STL overlays.");
+          return;
+        }
+        const series = ensureOverlaySeries(tf);
+        if (!checked) {
+          if (series) series.setData([]);
+          return;
+        }
+        loadStlOverlay(tf);
+      }
+
+      function invalidateOverlayCache(symbol, tf) {
+        stlOverlayCache.delete(overlayCacheKey(symbol, tf));
       }
 
       const formatDateShort = (iso) => {
@@ -1515,6 +1734,7 @@
             chart.destroy();
             chart = null;
           }
+          clearAllStlOverlaySeries();
           const existing = window.Chart.getChart(canvas);
           if (existing) existing.destroy();
           chart = new window.Chart(ctx, {
@@ -1612,6 +1832,7 @@
         if (stlLastRows.length && stlLastMeta) {
           applyStlData(stlLastRows.slice(), stlLastMeta);
         }
+        refreshActiveStlOverlays({ force: true });
         return lwChart;
       }
       function handleFetchEvent(data) {
@@ -1641,6 +1862,17 @@
         } else if (data.scope === 'all_symbols' && data.symbol === symbol) {
           status(`Bulk fetch updated ${data.symbol} ${data.timeframe}`);
           scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope all_symbols]`);
+        }
+        if (sameSymbol) {
+          invalidateOverlayCache(symbol, data.timeframe);
+          if (data.timeframe === tf) {
+            stlLastTrendPoints = [];
+            stlLastSeasonPoints = [];
+            stlLastResidPoints = [];
+            applyCurrentStlVisibility();
+          } else if (isOverlayChecked(data.timeframe)) {
+            refreshActiveStlOverlays({ force: true });
+          }
         }
       }
 
@@ -1679,6 +1911,12 @@
           refreshStlOverlay({ runId: data.run_id || null, autoCompute: false });
         } else if (!sameSymbol || !sameTf) {
           status(`STL ${data.status} (${desc}${note ? `, ${data.note}` : ''})`);
+        }
+        if (data.symbol === currentSymbol() && data.timeframe !== currentTf()) {
+          invalidateOverlayCache(data.symbol, data.timeframe);
+          if (data.status === 'completed' && isOverlayChecked(data.timeframe)) {
+            refreshActiveStlOverlays({ force: true });
+          }
         }
       }
       function ensureStlSeries() {
@@ -1751,9 +1989,10 @@
         const trendData = toSeriesData('trend');
         const seasonalData = toSeriesData('seasonal');
         const residData = toSeriesData('resid');
-        if (trendData.length && stlTrendSeries) stlTrendSeries.setData(trendData);
-        if (seasonalData.length && stlSeasonSeries) stlSeasonSeries.setData(seasonalData);
-        if (residData.length && stlResidSeries) stlResidSeries.setData(residData);
+        stlLastTrendPoints = trendData;
+        stlLastSeasonPoints = seasonalData;
+        stlLastResidPoints = residData;
+        applyCurrentStlVisibility();
         const overlayPeriod = periodValue && Number.isFinite(periodValue)
           ? periodValue
           : (stlAutoPeriod ? stlLastPeriod : stlManualPeriod);
@@ -1812,6 +2051,9 @@
           stlLastRows = [];
           stlLastMeta = null;
           stlLastPeriod = null;
+          stlLastTrendPoints = [];
+          stlLastSeasonPoints = [];
+          stlLastResidPoints = [];
           updatePeriodOverlays(null);
         } else {
           if (!stlLastMeta) {
@@ -2118,6 +2360,7 @@
           updatePeriodOverlays(overlayPeriod && Number.isFinite(overlayPeriod) ? overlayPeriod : null);
           status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
           await refreshStlOverlay({ autoCompute: true });
+          refreshActiveStlOverlays();
         } catch (err) {
           console.error('Refresh failed', err);
           status('Refresh failed');
@@ -2239,6 +2482,7 @@
       // Auto-fetch when user changes symbol or timeframe
       el('symbol').addEventListener('change', async () => {
         stlSelectedRunId = null;
+        resetStlOverlayControls();
         stlPendingCompute = false;
         stlLastRows = [];
         stlLastMeta = null;
@@ -2258,6 +2502,7 @@
       const tfSel = document.getElementById('tf');
       if (tfSel) tfSel.addEventListener('change', async () => {
         stlSelectedRunId = null;
+        resetStlOverlayControls();
         stlPendingCompute = false;
         stlLastRows = [];
         stlLastMeta = null;
@@ -2961,6 +3206,8 @@
       if (symSel) symSel.addEventListener('change', startTickPoll);
 
       // Initial loads
+      initStlOverlayControls();
+      resetStlOverlayControls();
       updateStlInputsFromState();
       refreshChart();
       refreshNews();
