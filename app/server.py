@@ -870,65 +870,89 @@ async def _perform_fetch(
     persist_selection: bool = False,
     event_scope: str | None = None,
     background: bool = False,
-) -> dict:
+    deferred: bool = False,
+) -> dict[str, object]:
     """Unified fetch routine used by both the interactive handler and bulk/background jobs."""
     loop = tornado.ioloop.IOLoop.current()
-    info: dict[str, object] = {
+    event_background = background or (mode == "full_async") or deferred
+    base_info: dict[str, object] = {
         "ok": False,
         "symbol": symbol,
         "timeframe": timeframe,
         "mode": mode,
     }
 
-    try:
-        bars: list[dict] = []
-        fetch_mode = None
-        if timeframe == "Y1":
-            fetch_mode = "derived_yearly"
-            yearly_count = count if count and count > 0 else None
-            bars = await _compute_yearly_bars(symbol, count=yearly_count)
-            info["source_timeframe"] = "MN1"
-        elif mode == "inc":
-            last = await latest_bar_ts(pool, symbol, timeframe)
-            if last:
-                try:
-                    fetch_mode = "inc"
-                    fetch_fn = partial(mt5_client.fetch_bars_since, symbol, timeframe, last)
-                    bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
-                    info["since"] = last.isoformat()
-                except Exception as exc:
-                    logger.warning("incremental fetch failed for %s %s: %s; retrying with full=%s", symbol, timeframe, exc, count)
+    async def _run_fetch() -> dict[str, object]:
+        info = dict(base_info)
+        try:
+            bars: list[dict] = []
+            fetch_mode: str | None = None
+            if timeframe == "Y1":
+                fetch_mode = "derived_yearly"
+                yearly_count = count if count and count > 0 else None
+                bars = await _compute_yearly_bars(symbol, count=yearly_count)
+                info["source_timeframe"] = "MN1"
+            elif mode == "inc":
+                last = await latest_bar_ts(pool, symbol, timeframe)
+                if last:
+                    try:
+                        fetch_mode = "inc"
+                        fetch_fn = partial(mt5_client.fetch_bars_since, symbol, timeframe, last)
+                        bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+                        info["since"] = last.isoformat()
+                    except Exception as exc:  # pragma: no cover - fallback handled below
+                        logger.warning(
+                            "incremental fetch failed for %s %s: %s; retrying with full=%s",
+                            symbol,
+                            timeframe,
+                            exc,
+                            count,
+                        )
+                        fetch_mode = "full"
+                        fetch_fn = partial(mt5_client.fetch_bars, symbol, timeframe, count)
+                        bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+                else:
                     fetch_mode = "full"
                     fetch_fn = partial(mt5_client.fetch_bars, symbol, timeframe, count)
                     bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
-            else:
-                fetch_mode = "full"
-                fetch_fn = partial(mt5_client.fetch_bars, symbol, timeframe, count)
-                bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
-        elif mode == "full_async":
-            days = _default_backfill_days(timeframe)
+            elif mode == "full_async":
+                days = _default_backfill_days(timeframe)
 
-            async def _bg():
-                since = datetime.now(timezone.utc) - timedelta(days=days)
-                fetch_fn = partial(mt5_client.fetch_bars_since, symbol, timeframe, since)
-                try:
-                    new_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
-                    if new_bars:
-                        await upsert_ohlc_bars(pool, new_bars)
-                        logger.info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
-                        await emit_fetch_event(
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            mode=mode,
-                            fetch_mode="since",
-                            inserted=len(new_bars),
-                            fetched=len(new_bars),
-                            scope=event_scope,
-                            background=True,
-                            status="completed",
-                            note=f"backfill ~{days}d",
-                        )
-                    else:
+                async def _bg() -> None:
+                    since = datetime.now(timezone.utc) - timedelta(days=days)
+                    fetch_fn = partial(mt5_client.fetch_bars_since, symbol, timeframe, since)
+                    try:
+                        new_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+                        if new_bars:
+                            await upsert_ohlc_bars(pool, new_bars)
+                            logger.info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
+                            await emit_fetch_event(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                mode=mode,
+                                fetch_mode="since",
+                                inserted=len(new_bars),
+                                fetched=len(new_bars),
+                                scope=event_scope,
+                                background=True,
+                                status="completed",
+                                note=f"backfill ~{days}d",
+                            )
+                        else:
+                            await emit_fetch_event(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                mode=mode,
+                                fetch_mode="since",
+                                inserted=0,
+                                fetched=0,
+                                scope=event_scope,
+                                background=True,
+                                status="completed",
+                                note=f"backfill ~{days}d (no new bars)",
+                            )
+                    except Exception as exc:  # pragma: no cover - logging only
+                        logger.exception("full_async backfill failed for %s %s: %s", symbol, timeframe, exc)
                         await emit_fetch_event(
                             symbol=symbol,
                             timeframe=timeframe,
@@ -938,108 +962,145 @@ async def _perform_fetch(
                             fetched=0,
                             scope=event_scope,
                             background=True,
-                            status="completed",
-                            note=f"backfill ~{days}d (no new bars)",
+                            status="error",
+                            error=str(exc),
                         )
-                except Exception as exc:  # pragma: no cover - logging only
-                    logger.exception("full_async backfill failed for %s %s: %s", symbol, timeframe, exc)
-                    await emit_fetch_event(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        mode=mode,
-                        fetch_mode="since",
-                        inserted=0,
-                        fetched=0,
-                        scope=event_scope,
-                        background=True,
-                        status="error",
-                        error=str(exc),
-                    )
 
-            loop.add_callback(_bg)
-            info.update({"ok": True, "scheduled": True, "note": f"backfill ~{days}d", "inserted": 0, "fetched": 0})
+                loop.add_callback(_bg)
+                info.update({"ok": True, "scheduled": True, "note": f"backfill ~{days}d", "inserted": 0, "fetched": 0})
+                if persist_selection:
+                    try:
+                        await set_prefs(
+                            pool,
+                            {
+                                "last_symbol": symbol.upper(),
+                                "last_tf": timeframe,
+                                "last_count": str(count),
+                            },
+                        )
+                    except Exception:  # pragma: no cover
+                        logger.debug("failed to persist last selection")
+                await emit_fetch_event(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    mode=mode,
+                    fetch_mode="since",
+                    inserted=0,
+                    fetched=0,
+                    scope=event_scope,
+                    background=True,
+                    status="scheduled",
+                    note=f"backfill ~{days}d",
+                )
+                return info
+            else:
+                fetch_mode = "full"
+                fetch_fn = partial(mt5_client.fetch_bars, symbol, timeframe, count)
+                bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+
+            inserted = 0
+            fetched = len(bars)
+            if bars:
+                inserted = await upsert_ohlc_bars(pool, bars)
             if persist_selection:
                 try:
-                    await set_prefs(pool, {
-                        "last_symbol": symbol.upper(),
-                        "last_tf": timeframe,
-                        "last_count": str(count),
-                    })
+                    await set_prefs(
+                        pool,
+                        {
+                            "last_symbol": symbol.upper(),
+                            "last_tf": timeframe,
+                            "last_count": str(count),
+                        },
+                    )
                 except Exception:  # pragma: no cover
                     logger.debug("failed to persist last selection")
+
+            info.update(
+                {
+                    "ok": True,
+                    "inserted": inserted,
+                    "fetched": fetched,
+                    "fetch_mode": fetch_mode,
+                }
+            )
+
+            if schedule_backfill:
+                schedule_symbol_backfill(pool, symbol)
+
             await emit_fetch_event(
                 symbol=symbol,
                 timeframe=timeframe,
                 mode=mode,
-                fetch_mode="since",
+                fetch_mode=fetch_mode,
+                inserted=inserted,
+                fetched=fetched,
+                scope=event_scope,
+                background=event_background,
+                status="ok",
+                note=info.get("since"),
+            )
+
+            return info
+
+        except Exception as exc:
+            info["error"] = str(exc)
+            logger.exception("fetch error %s %s (%s): %s", symbol, timeframe, mode, exc)
+            await emit_fetch_event(
+                symbol=symbol,
+                timeframe=timeframe,
+                mode=mode,
+                fetch_mode=None,
                 inserted=0,
                 fetched=0,
                 scope=event_scope,
-                background=True,
-                status="scheduled",
-                note=f"backfill ~{days}d",
+                background=event_background,
+                status="error",
+                error=str(exc),
             )
             return info
-        else:
-            fetch_mode = "full"
-            fetch_fn = partial(mt5_client.fetch_bars, symbol, timeframe, count)
-            bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
 
-        inserted = 0
-        fetched = len(bars)
-        if bars:
-            inserted = await upsert_ohlc_bars(pool, bars)
+    if deferred and mode != "full_async":
+        async def _bg_job() -> None:
+            await _run_fetch()
+
+        loop.spawn_callback(_bg_job)
+        scheduled_info = dict(base_info)
+        scheduled_info.update(
+            {
+                "ok": True,
+                "scheduled": True,
+                "inserted": 0,
+                "fetched": 0,
+                "fetch_mode": mode if mode in {"inc", "full"} else None,
+            }
+        )
         if persist_selection:
-                try:
-                    await set_prefs(pool, {
+            try:
+                await set_prefs(
+                    pool,
+                    {
                         "last_symbol": symbol.upper(),
                         "last_tf": timeframe,
                         "last_count": str(count),
-                    })
-                except Exception:  # pragma: no cover
-                    logger.debug("failed to persist last selection")
-
-        info.update({
-            "ok": True,
-            "inserted": inserted,
-            "fetched": fetched,
-            "fetch_mode": fetch_mode,
-        })
-
-        if schedule_backfill:
-            schedule_symbol_backfill(pool, symbol)
-
+                    },
+                )
+            except Exception:  # pragma: no cover
+                logger.debug("failed to persist last selection")
         await emit_fetch_event(
             symbol=symbol,
             timeframe=timeframe,
             mode=mode,
-            fetch_mode=fetch_mode,
-            inserted=inserted,
-            fetched=fetched,
-            scope=event_scope,
-            background=background or (mode == "full_async"),
-            status="ok",
-            note=info.get("since"),
-        )
-
-        return info
-
-    except Exception as exc:
-        info["error"] = str(exc)
-        logger.exception("fetch error %s %s (%s): %s", symbol, timeframe, mode, exc)
-        await emit_fetch_event(
-            symbol=symbol,
-            timeframe=timeframe,
-            mode=mode,
-            fetch_mode=None,
+            fetch_mode=scheduled_info.get("fetch_mode"),
             inserted=0,
             fetched=0,
             scope=event_scope,
-            background=background or (mode == "full_async"),
-            status="error",
-            error=str(exc),
+            background=True,
+            status="scheduled",
+            note="background fetch",
         )
-        return info
+        return scheduled_info
+
+    return await _run_fetch()
 
 
 def _parse_supported_symbols():
@@ -1143,6 +1204,19 @@ class FetchHandler(tornado.web.RequestHandler):
         timeframe = self.get_argument("tf", default="H1").upper()
         count = int(self.get_argument("count", default="500"))
         mode = self.get_argument("mode", default="inc")  # inc | full_async | full
+        background_param = self.get_argument("background", default=None)
+        background_requested: bool | None = None
+        if background_param is not None:
+            flag = str(background_param).strip().lower()
+            if flag in {"1", "true", "yes", "on"}:
+                background_requested = True
+            elif flag in {"0", "false", "no", "off"}:
+                background_requested = False
+        if background_requested is None:
+            background_flag = mode != "inc"
+        else:
+            background_flag = background_requested
+        deferred = bool(background_requested) and mode in {"inc", "full"}
         logger.info("/api/fetch symbol=%s tf=%s count=%s mode=%s", symbol, timeframe, count, mode)
         schedule_backfill = (mode == "inc")
         info = await _perform_fetch(
@@ -1154,7 +1228,8 @@ class FetchHandler(tornado.web.RequestHandler):
             schedule_backfill=schedule_backfill,
             persist_selection=True,
             event_scope="interactive",
-            background=(mode != "inc"),
+            background=background_flag,
+            deferred=deferred,
         )
         if info.get("ok"):
             logger.info(

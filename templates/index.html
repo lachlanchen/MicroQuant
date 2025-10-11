@@ -2136,20 +2136,55 @@
         }
       }
 
-      async function fetchAndSave() {
+      async function fetchAndSave(opts = {}) {
+        const isEvent = opts && typeof opts === 'object' && typeof opts.preventDefault === 'function';
+        if (isEvent) {
+          opts.preventDefault();
+        }
+        const options = isEvent ? {} : (opts || {});
         const symbol = currentSymbol();
         const tf = currentTf();
         const count = el('count').value;
+        const mode = (options.mode || 'inc').toString();
+        const background = options.background !== false;
+        const refreshFirst = options.refreshFirst !== false;
         queuePrefUpdate('last_symbol', symbol);
         queuePrefUpdate('last_tf', tf);
         queuePrefUpdate('last_count', count);
-        status('Fetching from MT5...');
+        if (refreshFirst) {
+          try {
+            status(`Loading cached data (${symbol} ${tf})...`);
+            await refreshChart();
+          } catch (err) {
+            console.warn('[App] Cached refresh failed', err);
+          }
+        }
+        status(background ? `Scheduling background fetch (${symbol} ${tf})...` : `Fetching from MT5 (${symbol} ${tf})...`);
         try {
-          const r = await fetch(`/api/fetch?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&count=${encodeURIComponent(count)}&mode=inc`, { cache: 'no-store' });
+          const params = new URLSearchParams({
+            symbol,
+            tf,
+            count,
+            mode,
+          });
+          if (background) params.set('background', '1');
+          const r = await fetch(`/api/fetch?${params.toString()}`, { cache: 'no-store' });
           const js = await r.json().catch(() => ({}));
           if (r.ok && js.ok) {
-            status(`Inserted/updated ${js.inserted || 0} bars for ${symbol} ${tf}`);
-            await refreshChart();
+            const note = js.note ? ` ${js.note}` : '';
+            if (background) {
+              if (js.scheduled || (!js.inserted && !js.fetched)) {
+                status(`Background fetch scheduled for ${symbol} ${tf}.${note}`);
+              } else if ((js.inserted || 0) > 0) {
+                status(`Background fetch completed immediately (${symbol} ${tf}, +${js.inserted || 0} bars).`);
+                scheduleChartRefresh(`${symbol}/${tf} immediate`);
+              } else {
+                status(`Background fetch acknowledged for ${symbol} ${tf}.${note}`);
+              }
+            } else {
+              status(`Inserted/updated ${js.inserted || 0} bars for ${symbol} ${tf}`);
+              await refreshChart();
+            }
           } else {
             status(`Fetch error: ${js.error || r.statusText}`);
           }
