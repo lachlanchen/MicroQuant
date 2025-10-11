@@ -23,6 +23,11 @@
 - Keep tests targeted to changed behavior; avoid adding slow or flaky tests.
 - Run server locally and verify in browser before pushing.
 
+## STL & Period Lines
+- Period lines render as dashed overlay on the candlestick chart.
+- Toggle via the Period lines switch (default off).
+- Avoid marker squares/text on LW charts; use the overlay only.
+
 ## Commit & Pull Request Guidelines
 - Small, scoped patches; explain motivation and user impact.
 - Include screenshots/GIFs for UI changes; link issues where applicable.
