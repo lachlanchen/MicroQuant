@@ -2345,9 +2345,56 @@
       const btnNews = document.getElementById('btnNews');
       if (btnNews) btnNews.addEventListener('click', refreshNews);
 
+      // Trading controls
+      const btnBuyEl = document.getElementById('btnBuy');
+      const btnSellEl = document.getElementById('btnSell');
+      const btnCloseEl = document.getElementById('btnClose');
+      const btnPosEl = document.getElementById('btnPos');
+      if (btnBuyEl) btnBuyEl.addEventListener('click', () => trade('buy'));
+      if (btnSellEl) btnSellEl.addEventListener('click', () => trade('sell'));
+      if (btnCloseEl) btnCloseEl.addEventListener('click', closeAll);
+      if (btnPosEl) btnPosEl.addEventListener('click', refreshPositions);
+
+      // Ticker poll (bid/ask + update button labels)
+      let tickTimer = null;
+      async function pollTick() {
+        const symbol = currentSymbol();
+        try {
+          const r = await fetch(`/api/tick?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+          const js = await r.json().catch(() => ({}));
+          if (js && js.ok && js.tick) {
+            const { bid, ask } = js.tick;
+            const spr = (Number(ask) - Number(bid));
+            const sprStr = Number.isFinite(spr) ? spr.toFixed(3) : '—';
+            const bidStr = Number.isFinite(Number(bid)) ? Number(bid).toFixed(3) : '—';
+            const askStr = Number.isFinite(Number(ask)) ? Number(ask).toFixed(3) : '—';
+            const tk = document.getElementById('ticker');
+            if (tk) tk.textContent = `${symbol}  Bid ${bidStr}  Ask ${askStr}  Spr ${sprStr}`;
+            const b = document.getElementById('btnBuy');
+            const s = document.getElementById('btnSell');
+            if (b) b.textContent = `Buy @ ${askStr}`;
+            if (s) s.textContent = `Sell @ ${bidStr}`;
+          }
+        } catch (e) {
+          // ignore transient errors
+        }
+      }
+      function startTickPoll() {
+        if (tickTimer) clearInterval(tickTimer);
+        // immediate update then interval
+        pollTick();
+        tickTimer = setInterval(pollTick, 2000);
+      }
+      // restart ticker when symbol changes
+      const symSel = document.getElementById('symbol');
+      if (symSel) symSel.addEventListener('change', startTickPoll);
+
+      // Initial loads
       updateStlInputsFromState();
       refreshChart();
       refreshNews();
+      refreshPositions();
+      startTickPoll();
     </script>
   </body>
   </html>
