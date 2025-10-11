@@ -64,6 +64,9 @@
     .switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; user-select:none; }
     .switch input[type="checkbox"] { width:18px; height:18px; accent-color: var(--accent); cursor:pointer; }
       .lw-pane { width: 100%; height: 190px; }
+      .stl-row { align-items: center; }
+    .stl-field { display:flex; align-items:center; gap:8px; }
+    .stl-field input[type="datetime-local"] { width: 240px; max-width: 100%; height: 32px; padding: 6px 8px; }
   </style>
   <link rel="icon" href="data:," />
   </head>
@@ -188,15 +191,15 @@
               <input type="number" id="stlPeriodInput" min="3" value="{{ default_stl_manual_period }}" disabled />
             </label>
           </div>
-          <div class="row" style="gap:10px; margin-top:8px; flex-wrap:wrap;">
+          <div class="row stl-row" style="gap:10px; margin-top:8px; flex-wrap:wrap; align-items:center;">
             <label class="switch">
               <input type="checkbox" id="chkStlAllData" checked />
               <span>Use all data</span>
             </label>
-            <label>From
+            <label class="stl-field">From
               <input type="datetime-local" id="stlStart" disabled />
             </label>
-            <label>To
+            <label class="stl-field">To
               <input type="datetime-local" id="stlEnd" disabled />
             </label>
           </div>
@@ -2399,6 +2402,7 @@
     </script>
   </body>
   </html>
+
 
 
 
