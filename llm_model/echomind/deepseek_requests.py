@@ -4,8 +4,22 @@ import traceback
 import hashlib
 from datetime import datetime
 from pathlib import Path
-import pygame
 import tempfile
+import types
+
+try:
+    import pygame  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    stub = types.SimpleNamespace()
+    music = types.SimpleNamespace(
+        load=lambda *_args, **_kwargs: None,
+        play=lambda *_args, **_kwargs: None,
+        get_busy=lambda: False,
+        stop=lambda: None,
+    )
+    stub.mixer = types.SimpleNamespace(init=lambda *_args, **_kwargs: None, music=music)
+    stub.time = types.SimpleNamespace(wait=lambda *_args, **_kwargs: None)
+    pygame = stub  # type: ignore
 from openai import OpenAI
 
 

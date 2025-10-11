@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -36,7 +36,7 @@
     #chart-wrap { width: 100%; max-width: 100%; background: var(--panel); padding: 12px; border:1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
     #lwChart { width: 100%; min-height: 520px; height: clamp(520px, 72vh, 920px); }
     #chart { width: 100% !important; height: clamp(420px, 68vh, 840px); }
-    #indicator-wrap { margin-top: 12px; display: grid; gap: 12px; }
+    #indicator-wrap { margin-top: 12px; display: grid; gap: 12px; width: 100%; }
     .indicator-panel { background: var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
     .indicator-panel h4 { margin:0 0 6px; font-size:13px; color:var(--muted); font-weight:600; letter-spacing:0.4px; text-transform:uppercase; }
     #indicator-wrap canvas { width: 100% !important; height: 190px !important; }
@@ -63,6 +63,7 @@
     pre { margin:0; }
     .switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; user-select:none; }
     .switch input[type="checkbox"] { width:18px; height:18px; accent-color: var(--accent); cursor:pointer; }
+      .lw-pane { width: 100%; height: 190px; }
   </style>
   <link rel="icon" href="data:," />
   </head>
@@ -143,15 +144,15 @@
         <div id="indicator-wrap">
           <div class="indicator-panel">
             <h4>RSI (14)</h4>
-            <canvas id="rsiChart"></canvas>
+            <div id="lwRsi" class="lw-pane"></div>
           </div>
           <div class="indicator-panel">
             <h4>MACD (12, 26, 9)</h4>
-            <canvas id="macdChart"></canvas>
+            <div id="lwMacd" class="lw-pane"></div>
           </div>
           <div class="indicator-panel">
             <h4>Volume</h4>
-            <canvas id="volChart"></canvas>
+            <div id="lwVol" class="lw-pane"></div>
           </div>
         </div>
       </div>
@@ -235,6 +236,19 @@
         el('status').textContent = msg || '';
         if (msg) console.log('[App]', msg);
       };
+      // Update top signal UI (dot color and Trade button)
+      let lastSignal = 'hold';
+      function updateSignalUI(sig, reason) {
+        lastSignal = sig || 'hold';
+        const dot = document.getElementById('signalDot');
+        const btn = document.getElementById('btnTradeSignalTop');
+        let color = '#999';
+        if (lastSignal === 'buy') color = getComputedStyle(document.documentElement).getPropertyValue('--buy').trim() || '#2ecc71';
+        if (lastSignal === 'sell') color = getComputedStyle(document.documentElement).getPropertyValue('--sell').trim() || '#e74c3c';
+        if (dot) dot.style.background = color;
+        if (btn) btn.disabled = !(lastSignal === 'buy' || lastSignal === 'sell');
+        if (reason) console.log('[Strategy]', lastSignal, reason);
+      }
 
       // Read config from data-attributes (CSV → array)
       const cfgNode = document.getElementById('app-cfg');
@@ -298,7 +312,20 @@
       let volumeChart = null;
       let rsiChart = null;
       let macdChart = null;
+
       let lastPriceRows = [];
+
+      let indicatorRangeMs = null;
+
+      // Lightweight Charts indicator panes
+
+      let lwVolChart = null, lwVolSeries = null;
+
+      let lwRsiChart = null, lwRsiSeries = null;
+
+      let lwMacdChart = null, lwMacdHist = null, lwMacdLine = null, lwMacdSignal = null;
+
+      let lwSyncing = false;
 
       const PREF_ENDPOINT = '/api/preferences';
       let prefQueue = {};
@@ -556,10 +583,13 @@
               x: {
                 type: 'time',
                 time: { tooltipFormat: 'MMM d HH:mm' },
+                bounds: 'ticks',
+                offset: false,
                 ticks: { maxRotation: 0, autoSkip: true },
                 grid: { display: false },
               },
               y: {
+                position: 'right',
                 beginAtZero: true,
                 title: { display: false },
                 grid: { color: '#e0e6ef' },
@@ -597,10 +627,13 @@
               x: {
                 type: 'time',
                 time: { tooltipFormat: 'MMM d HH:mm' },
+                bounds: 'ticks',
+                offset: false,
                 ticks: { maxRotation: 0, autoSkip: true },
                 grid: { display: false },
               },
               y: {
+                position: 'right',
                 min: 0,
                 max: 100,
                 ticks: { stepSize: 20 },
@@ -611,7 +644,59 @@
         });
       };
 
-      const ensureMacdChart = () => {
+            const ensureLwVol = () => {
+        if (lwVolChart) return;
+        const elVol = document.getElementById('lwVol');
+        if (!elVol) return;
+        lwVolChart = LightweightCharts.createChart(elVol, {
+          rightPriceScale: { visible: true },
+          leftPriceScale: { visible: false },
+          timeScale: { rightOffset: 10, fixRightEdge: false },
+          grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+        });
+        lwVolSeries = lwVolChart.addHistogramSeries({ color: 'rgba(25,118,210,0.5)', priceFormat: { type: 'volume' } });
+      };
+
+      const ensureLwRsi = () => {
+        if (lwRsiChart) return;
+        const elRsi = document.getElementById('lwRsi');
+        if (!elRsi) return;
+        lwRsiChart = LightweightCharts.createChart(elRsi, {
+          rightPriceScale: { visible: true },
+          leftPriceScale: { visible: false },
+          timeScale: { rightOffset: 10, fixRightEdge: false },
+          grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+        });
+        lwRsiSeries = lwRsiChart.addLineSeries({ color: '#8e24aa', lineWidth: 2 });
+      };
+
+      const ensureLwMacd = () => {
+        if (lwMacdChart) return;
+        const elMacd = document.getElementById('lwMacd');
+        if (!elMacd) return;
+        lwMacdChart = LightweightCharts.createChart(elMacd, {
+          rightPriceScale: { visible: true },
+          leftPriceScale: { visible: false },
+          timeScale: { rightOffset: 10, fixRightEdge: false },
+          grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+        });
+        lwMacdHist = lwMacdChart.addHistogramSeries({ base: 0 });
+        lwMacdLine = lwMacdChart.addLineSeries({ color: '#1b9aaa', lineWidth: 2 });
+        lwMacdSignal = lwMacdChart.addLineSeries({ color: '#ef6c00', lineWidth: 2 });
+      };
+
+      const syncIndicatorsVisibleRange = (range) => {
+        if (!range || range.from == null || range.to == null) return;
+        if (lwSyncing) return;
+        lwSyncing = true;
+        try {
+          if (lwVolChart) lwVolChart.timeScale().setVisibleRange(range);
+          if (lwRsiChart) lwRsiChart.timeScale().setVisibleRange(range);
+          if (lwMacdChart) lwMacdChart.timeScale().setVisibleRange(range);
+        } finally {
+          lwSyncing = false;
+        }
+      };const ensureMacdChart = () => {
         if (macdChart || !macdCtx) return;
         macdChart = new window.Chart(macdCtx, {
           type: 'bar',
@@ -664,10 +749,13 @@
               x: {
                 type: 'time',
                 time: { tooltipFormat: 'MMM d HH:mm' },
+                bounds: 'ticks',
+                offset: false,
                 ticks: { maxRotation: 0, autoSkip: true },
                 grid: { display: false },
               },
               y: {
+                position: 'right',
                 grid: { color: '#e0e6ef' },
               },
             },
@@ -675,25 +763,26 @@
         });
       };
 
+      const applyScaleBounds = (chartInstance) => {
+        if (!chartInstance || !chartInstance.options || !chartInstance.options.scales || !chartInstance.options.scales.x) return;
+        const scale = chartInstance.options.scales.x;
+        if (indicatorRangeMs && Number.isFinite(indicatorRangeMs.min) && Number.isFinite(indicatorRangeMs.max)) {
+          scale.min = indicatorRangeMs.min;
+          scale.max = indicatorRangeMs.max;
+        } else {
+          scale.min = undefined;
+          scale.max = undefined;
+        }
+      };
+
       const updateIndicatorDisplay = (rows) => {
+        // When no data, clear indicator panes
         if (!rows || !rows.length) {
-          if (volumeChart) {
-            volumeChart.data.labels = [];
-            volumeChart.data.datasets[0].data = [];
-            volumeChart.update('none');
-          }
-          if (rsiChart) {
-            rsiChart.data.labels = [];
-            rsiChart.data.datasets[0].data = [];
-            rsiChart.update('none');
-          }
-          if (macdChart) {
-            macdChart.data.labels = [];
-            macdChart.data.datasets[0].data = [];
-            macdChart.data.datasets[1].data = [];
-            macdChart.data.datasets[2].data = [];
-            macdChart.update('none');
-          }
+          if (lwVolSeries) lwVolSeries.setData([]);
+          if (lwRsiSeries) lwRsiSeries.setData([]);
+          if (lwMacdHist) lwMacdHist.setData([]);
+          if (lwMacdLine) lwMacdLine.setData([]);
+          if (lwMacdSignal) lwMacdSignal.setData([]);
           if (chart && curType === 'line') {
             chart.data.labels = [];
             chart.data.datasets.forEach((ds) => { ds.data = []; });
@@ -701,57 +790,66 @@
           }
           return;
         }
-        const labels = rows.map((r) => r.ts);
-        const closes = rows.map((r) => {
-          const val = Number(r.close);
-          return Number.isFinite(val) ? val : 0;
-        });
+        // Compute inputs
+        const closes = rows.map((r) => Number.isFinite(Number(r.close)) ? Number(r.close) : 0);
         const volumes = rows.map((r) => {
-          const raw = r.real_volume ?? r.tick_volume ?? r.volume ?? 0;
-          const num = Number(raw);
-          return Number.isFinite(num) ? num : 0;
+          const cand = [r.real_volume, r.tick_volume, r.volume]
+            .map((v) => Number(v))
+            .filter((v) => Number.isFinite(v) && v > 0);
+          return cand.length ? cand[0] : 0;
         });
-        ensureVolumeChart();
-        ensureRsiChart();
-        ensureMacdChart();
-        const toPoints = (values) =>
-          rows.map((row, idx) => {
-            const val = values[idx];
-            if (val == null || !Number.isFinite(val)) {
-              return { x: row.ts, y: null };
-            }
-            return { x: row.ts, y: Number(val) };
+        // Ensure LWC panes
+        ensureLwVol();
+        ensureLwRsi();
+        ensureLwMacd();
+        // Volume histogram
+        if (lwVolSeries) {
+          const volPoints = rows.map((row, idx) => {
+            const t = Math.floor(new Date(row.ts).getTime() / 1000);
+            const y = volumes[idx];
+            const up = Number(row.close) >= Number(row.open);
+            const color = up ? 'rgba(76,175,80,0.5)' : 'rgba(244,67,54,0.5)';
+            return { time: t, value: y, color };
           });
-        if (volumeChart) {
-          volumeChart.data.labels = labels;
-          volumeChart.data.datasets[0].data = rows.map((row, idx) => ({
-            x: row.ts,
-            y: volumes[idx],
-          }));
-          volumeChart.update('none');
+          lwVolSeries.setData(volPoints);
         }
-        const rsiValues = computeRSI(closes);
-        if (rsiChart) {
-          rsiChart.data.labels = labels;
-          rsiChart.data.datasets[0].data = toPoints(rsiValues);
-          rsiChart.update('none');
+        // RSI line
+        if (lwRsiSeries) {
+          const rsiValues = computeRSI(closes);
+          const rsiPoints = rows.map((row, i) => {
+            const t = Math.floor(new Date(row.ts).getTime() / 1000);
+            const v = rsiValues[i];
+            return (v != null && Number.isFinite(v)) ? { time: t, value: v } : null;
+          }).filter(Boolean);
+          lwRsiSeries.setData(rsiPoints);
         }
-        const macdObj = computeMACD(closes);
-        if (macdChart) {
-          macdChart.data.labels = labels;
-          macdChart.data.datasets[0].data = rows.map((row, idx) => ({
-            x: row.ts,
-            y: macdObj.histogram[idx] != null && Number.isFinite(macdObj.histogram[idx])
-              ? macdObj.histogram[idx]
-              : null,
-          }));
-          macdChart.data.datasets[1].data = toPoints(macdObj.macd);
-          macdChart.data.datasets[2].data = toPoints(macdObj.signal);
-          macdChart.update('none');
+        // MACD histogram + lines
+        if (lwMacdHist && lwMacdLine && lwMacdSignal) {
+          const macdObj = computeMACD(closes);
+          const hist = rows.map((row, i) => {
+            const t = Math.floor(new Date(row.ts).getTime() / 1000);
+            const v = macdObj.histogram[i];
+            const color = v >= 0 ? 'rgba(76,175,80,0.5)' : 'rgba(244,67,54,0.5)';
+            return (v != null && Number.isFinite(v)) ? { time: t, value: v, color } : null;
+          }).filter(Boolean);
+          const macdLine = rows.map((row, i) => {
+            const t = Math.floor(new Date(row.ts).getTime() / 1000);
+            const v = macdObj.macd[i];
+            return (v != null && Number.isFinite(v)) ? { time: t, value: v } : null;
+          }).filter(Boolean);
+          const signal = rows.map((row, i) => {
+            const t = Math.floor(new Date(row.ts).getTime() / 1000);
+            const v = macdObj.signal[i];
+            return (v != null && Number.isFinite(v)) ? { time: t, value: v } : null;
+          }).filter(Boolean);
+          lwMacdHist.setData(hist);
+          lwMacdLine.setData(macdLine);
+          lwMacdSignal.setData(signal);
         }
+        // Line chart overlay retains previous behavior if active
         if (chart && curType === 'line') {
           const boll = computeBollingerBands(closes);
-          chart.data.labels = labels;
+          chart.data.labels = rows.map((r) => r.ts);
           if (chart.data.datasets[0]) chart.data.datasets[0].data = closes;
           if (chart.data.datasets[1]) chart.data.datasets[1].data = boll.middle;
           if (chart.data.datasets[2]) chart.data.datasets[2].data = boll.upper;
@@ -762,27 +860,25 @@
 
       const applyIndicatorViewport = (range) => {
         if (!lastPriceRows.length) {
+          indicatorRangeMs = null;
           currentTimeRange = null;
           updateIndicatorDisplay([]);
           return;
         }
         if (!range || range.from == null || range.to == null) {
+          indicatorRangeMs = null;
           currentTimeRange = null;
           updateIndicatorDisplay(lastPriceRows);
           return;
         }
         const fromMs = range.from * 1000;
         const toMs = range.to * 1000;
-        const filtered = lastPriceRows.filter((row) => {
-          const ts = new Date(row.ts).getTime();
-          return Number.isFinite(ts) && ts >= fromMs && ts <= toMs;
-        });
+        indicatorRangeMs = {
+          min: fromMs,
+          max: toMs,
+        };
         currentTimeRange = range;
-        if (filtered.length) {
-          updateIndicatorDisplay(filtered);
-        } else {
-          updateIndicatorDisplay(lastPriceRows.slice(-1));
-        }
+        updateIndicatorDisplay(lastPriceRows);
       };
 
       const updateIndicatorCharts = (rows) => {
@@ -794,6 +890,7 @@
         if (currentTimeRange) {
           applyIndicatorViewport(currentTimeRange);
         } else {
+          indicatorRangeMs = null;
           updateIndicatorDisplay(lastPriceRows);
         }
       };
@@ -1090,6 +1187,7 @@
               }
               currentTimeRange = range;
               applyIndicatorViewport(range);
+              syncIndicatorsVisibleRange(range);
             });
             lwTimeRangeSubscribed = true;
           }
@@ -1891,48 +1989,6 @@
           el('positionsBox').textContent = `Positions error: ${js.error || r.statusText}`;
         }
       }
-
-      el('btnBuy').addEventListener('click', () => trade('buy'));
-      el('btnSell').addEventListener('click', () => trade('sell'));
-      el('btnClose').addEventListener('click', closeAll);
-      el('btnPos').addEventListener('click', refreshPositions);
-
-      // Initial positions load
-      refreshPositions();
-      // Poll ticker
-      async function pollTick() {
-        const symbol = currentSymbol();
-        try {
-          const r = await fetch(`/api/tick?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
-          const js = await r.json();
-          if (js && js.ok && js.tick) {
-            const { bid, ask } = js.tick;
-            const spr = (ask - bid).toFixed(3);
-            document.getElementById('ticker').textContent = `${symbol}  Bid ${bid.toFixed(3)}  Ask ${ask.toFixed(3)}  Spr ${spr}`;
-            // Update button labels for clarity
-            const b = document.getElementById('btnBuy');
-            const s = document.getElementById('btnSell');
-            if (b) b.textContent = `Buy @ ${ask.toFixed(3)}`;
-            if (s) s.textContent = `Sell @ ${bid.toFixed(3)}`;
-          }
-        } catch {}
-      }
-      pollTick();
-      setInterval(pollTick, 2000);
-      // Top strategy monitor
-      let lastSignal = 'hold';
-      let autoStratTimer = null;
-      function updateSignalUI(sig, reason) {
-        const dot = document.getElementById('signalDot');
-        const txt = document.getElementById('signalText');
-        const btn = document.getElementById('btnTradeSignalTop');
-        let color = '#999';
-        if (sig === 'buy') color = '#2ecc71';
-        else if (sig === 'sell') color = '#e74c3c';
-        dot.style.background = color;
-        txt.textContent = `Signal: ${sig ? sig.toUpperCase() : '—'}${reason? ' ('+reason+')':''}`;
-        btn.disabled = !(sig === 'buy' || sig === 'sell');
-      }
       async function runStrategyTop() {
         const symbol = currentSymbol();
         const tf = currentTf();
@@ -2295,6 +2351,15 @@
     </script>
   </body>
   </html>
+
+
+
+
+
+
+
+
+
 
 
 

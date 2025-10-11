@@ -6,12 +6,18 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional
 
-from echomind.openai_request import OpenAIRequestJSONBase
+try:  # Prefer relative import when used as a package
+    from .openai_request import OpenAIRequestJSONBase  # type: ignore
+except ImportError:  # Fallback for legacy sys.path setups
+    from echomind.openai_request import OpenAIRequestJSONBase  # type: ignore
 
 try:
-    from echomind.deepseek_requests import DeepSeekRequestJSONBase  # type: ignore
+    from .deepseek_requests import DeepSeekRequestJSONBase  # type: ignore
 except Exception:  # pragma: no cover - DeepSeek optional
-    DeepSeekRequestJSONBase = None  # type: ignore
+    try:
+        from echomind.deepseek_requests import DeepSeekRequestJSONBase  # type: ignore
+    except Exception:
+        DeepSeekRequestJSONBase = None  # type: ignore
 
 LOGGER = logging.getLogger(__name__)
 
