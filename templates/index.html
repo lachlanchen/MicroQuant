@@ -131,10 +131,25 @@
       <button class="btn btn-sell" id="btnSell">Sell</button>
       <button class="btn secondary" id="btnClose">Close All</button>
     </div>
-    <div class="row">
-      <button class="btn secondary" id="btnFetchCurrentBg">Background Fetch (Current TF)</button>
-      <button class="btn secondary" id="btnFetchSymbolAll">Background Fetch (Symbol × TFs)</button>
-      <button class="btn secondary" id="btnFetchAll">Background Fetch (All Symbols)</button>
+    <div class="control-panel" style="margin:12px 0; padding:10px; background:var(--panel); border:1px solid var(--line); border-radius:8px;">
+      <div class="row" style="gap:8px; flex-wrap:wrap; align-items:center;">
+        <strong style="color:var(--accent)">Data</strong>
+        <button class="btn" id="btnFetch">Fetch + Save</button>
+        <button class="btn secondary" id="btnRefresh">Refresh</button>
+        <button class="btn secondary" id="btnAuto">Start Auto</button>
+      </div>
+      <div class="row" style="gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center;">
+        <strong style="color:var(--accent)">Background</strong>
+        <button class="btn secondary" id="btnFetchCurrentBg">Current TF</button>
+        <button class="btn secondary" id="btnFetchSymbolAll">Symbol × TFs</button>
+        <button class="btn secondary" id="btnFetchAll">All Symbols</button>
+      </div>
+      <div class="row" style="gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center;">
+        <strong style="color:var(--accent)">Trading</strong>
+        <button class="btn btn-buy" id="btnBuy">Buy</button>
+        <button class="btn btn-sell" id="btnSell">Sell</button>
+        <button class="btn secondary" id="btnClose">Close All</button>
+      </div>
     </div>
     <div id="status"></div>
 
