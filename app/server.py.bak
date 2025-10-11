@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import logging
 import asyncio
@@ -35,14 +35,9 @@ from app.db import (
     fetch_stl_run_data,
     insert_health_run,
     list_health_runs,
-    upsert_news_articles,
-    fetch_news_db,
-)
-from app.mt5_client import client as mt5_client
+    upsert_news_articles,\r\n    fetch_news_db,\r\n)\r\nfrom app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
-from app.news_fetcher import fetch_symbol_digest
-from app.news_fetcher import fetch_fmp_forex_latest
-from app.news_fetcher import fetch_news_for_symbol
+from app.news_fetcher import fetch_symbol_digest\r\nfrom app.news_fetcher import fetch_fmp_forex_latest\r\nfrom app.news_fetcher import fetch_news_for_symbol
 
 try:
     from llm_model.echomind.mixed_ai_request import MixedAIRequestJSONBase  # type: ignore
@@ -53,8 +48,7 @@ except Exception:  # pragma: no cover - optional dependency
 EXECUTOR = ThreadPoolExecutor(max_workers=2)
 logger = logging.getLogger("mt5app")
 
-WS_CLIENTS: set = set()
-NEWS_BACKFILL_CB = None
+WS_CLIENTS: set = set()\nNEWS_BACKFILL_CB = None
 
 
 NEWS_MICRO_QUESTIONS: list[dict[str, str]] = [
@@ -392,6 +386,7 @@ def _build_pair_prompt_one(question_text: str, base_ccy: str, quote_ccy: str, ba
         f"BASE ({base_ccy}) articles:\n---\n{base_blk}\n---\n\n"
         f"QUOTE ({quote_ccy}) articles:\n---\n{quote_blk}\n---\n"
     )
+
 
 def _build_stock_prompt_one(question_text: str, ticker: str, items: list[dict], timeframe: str | None) -> str:
     blk = _articles_to_text(items)
@@ -2368,8 +2363,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
