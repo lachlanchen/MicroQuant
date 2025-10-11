@@ -82,6 +82,10 @@
     .rf-btn { border:0; background:rgba(0,0,0,0.5); color:#fff; width:18px; height:18px; line-height:18px; border-radius:3px; font-size:12px; cursor:pointer; }
     .rf-btn:hover { background:rgba(0,0,0,0.7); }
     .rf-hidden { display:none !important; }
+    .rf-inline { display:flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:4px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.08); margin-left:16px; }
+    .rf-inline button { border:0; background:transparent; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; padding:0 4px; }
+    .rf-inline button:hover { color:#000; }
+    .rf-inline iframe { border:0; }
     .pill { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background:#fff; }
     .btn { padding: 10px 14px; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
     .btn.secondary { background: #607d8b; }
@@ -106,6 +110,12 @@
   <body>
     <header>
       <h2>Micro Quant</h2>
+      <div id="rfTopQuotes" class="rf-inline">
+        <iframe width="450" height="40" frameborder="0" class="efx" loading="lazy"
+          src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=450&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape">
+        </iframe>
+        <button id="rfTopQuotesClose" title="Hide">×</button>
+      </div>
       <div style="display:flex; gap:16px; align-items:center;">
         <div id="signalBar" style="display:flex; gap:8px; align-items:center;">
           <span id="signalDot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#999;"></span>
@@ -130,34 +140,6 @@
         <label>Timeframe
           <select id="tf">
             <option value="M1"{% if default_tf == 'M1' %} selected{% end %}>M1</option>
-<div id="rfTopQuotes" class="rf-floating rf-top" style="width:600px; height:40px;">
-  <div class="rf-head">
-    <button class="rf-btn" id="rfTopQuotesClose" title="Hide">×</button>
-  </div>
-  <iframe width="600" height="40" frameborder="0" class="efx" loading="lazy"
-    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape">
-  </iframe>
-</div>
-
-<!-- Affiliate: Bottom Banner (minimizable) -->
-<div id="rfBottomBanner" class="rf-floating rf-bottom" style="width:728px; height:90px;">
-  <div class="rf-head">
-    <button class="rf-btn" id="rfBottomBannerClose" title="Hide">×</button>
-  </div>
-  <a href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
-    <img loading="lazy" src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg" alt="RoboForex" width="728" height="90" />
-  </a>
-</div>
-
-<!-- Affiliate: Bottom-right Forecasts widget (minimizable) -->
-<div id="rfRightForecasts" class="rf-floating rf-br" style="width:304px; height:282px;">
-  <div class="rf-head">
-    <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
-  </div>
-  <iframe width="304" height="282" frameborder="0" class="efx" loading="lazy"
-    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
-  </iframe>
-</div>
             <option value="M5"{% if default_tf == 'M5' %} selected{% end %}>M5</option>
             <option value="M15"{% if default_tf == 'M15' %} selected{% end %}>M15</option>
             <option value="M30"{% if default_tf == 'M30' %} selected{% end %}>M30</option>
@@ -336,6 +318,25 @@
     </div>
     </div>
 
+    <!-- Affiliate floating widgets -->
+    <div id="rfBottomBanner" class="rf-floating rf-bottom" style="width:728px; height:90px;">
+      <div class="rf-head">
+        <button class="rf-btn" id="rfBottomBannerClose" title="Hide">×</button>
+      </div>
+      <a href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
+        <img loading="lazy" src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg" alt="RoboForex" width="728" height="90" />
+      </a>
+    </div>
+
+    <div id="rfRightForecasts" class="rf-floating rf-br" style="width:304px; height:282px;">
+      <div class="rf-head">
+        <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
+      </div>
+      <iframe width="304" height="282" frameborder="0" class="efx" loading="lazy"
+        src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
+      </iframe>
+    </div>
+
     <script>
       const el = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -442,6 +443,7 @@
 
       // Overlay canvas for dashed period lines on the candlestick chart
       let lwOverlay = null, lwOverlayCtx = null;
+      let chartPeriodWindows = [];
 
       let lwSyncing = false;
       let lwRangeTimer = null;
@@ -958,6 +960,65 @@
           prev = t;
         }
         periodBoundaryTimes = uniq;
+      };
+
+      const applyLightweightPeriodOverlay = (rows, period) => {
+        if (!lwSeries || typeof lwSeries.setMarkers !== 'function') {
+          clearLwOverlay();
+          return;
+        }
+        if (!showPeriodLines || !period || period < 1 || !Array.isArray(periodBoundaryTimes)) {
+          lwSeries.setMarkers([]);
+          clearLwOverlay();
+          return;
+        }
+        const markers = periodBoundaryTimes.map((t) => ({
+          time: t,
+          position: 'belowBar',
+          shape: 'arrowUp',
+          color: '#d84315',
+          text: 'P',
+        }));
+        lwSeries.setMarkers(markers);
+        clearLwOverlay();
+      };
+
+      const applyChartPeriodOverlay = (rows, period) => {
+        if (!Array.isArray(rows) || !rows.length || !period || period < 1 || !showPeriodLines) {
+          chartPeriodWindows = [];
+          if (chart && curType === 'line') chart.update('none');
+          return;
+        }
+        const eff = Math.max(1, Math.floor(period));
+        const windows = [];
+        for (let start = 0; start < rows.length; start += eff) {
+          const endIndex = Math.min(rows.length - 1, start + eff);
+          const startDate = new Date(rows[start].ts);
+          const endDate = new Date(rows[endIndex].ts);
+          if (!Number.isFinite(startDate.valueOf()) || !Number.isFinite(endDate.valueOf())) continue;
+          windows.push({ start: startDate, end: endDate });
+        }
+        chartPeriodWindows = windows;
+        if (chart && curType === 'line') chart.update('none');
+      };
+
+      const updatePeriodOverlays = (period) => {
+        if (!period || period < 1 || !lastPriceRows.length) {
+          chartPeriodWindows = [];
+          if (lwSeries && typeof lwSeries.setMarkers === 'function') lwSeries.setMarkers([]);
+          clearLwOverlay();
+          if (chart && curType === 'line') chart.update('none');
+          return;
+        }
+        const eff = Math.max(1, Math.floor(period));
+        if (showPeriodLines) {
+          applyChartPeriodOverlay(lastPriceRows, eff);
+        } else {
+          chartPeriodWindows = [];
+          if (chart && curType === 'line') chart.update('none');
+        }
+        computePeriodBoundaryTimes(eff);
+        applyLightweightPeriodOverlay(lastPriceRows, eff);
       };
 
       const rangeAlmostEqual = (x, y) => Math.abs((x || 0) - (y || 0)) < 1e-4;
@@ -2765,44 +2826,3 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<!-- Affiliate widgets (floating) -->
-<div id="rfTopQuotes" class="rf-floating rf-top" style="width:600px; height:40px;">
-  <div class="rf-head">
-    <button class="rf-btn" id="rfTopQuotesClose" title="Hide">×</button>
-  </div>
-  <iframe width="600" height="40" frameborder="0" class="efx" loading="lazy"
-    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape">
-  </iframe>
-</div>
-
-<div id="rfBottomBanner" class="rf-floating rf-bottom" style="width:728px; height:90px;">
-  <div class="rf-head">
-    <button class="rf-btn" id="rfBottomBannerClose" title="Hide">×</button>
-  </div>
-  <a href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
-    <img loading="lazy" src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg" alt="RoboForex" width="728" height="90" />
-  </a>
-</div>
-
-<div id="rfRightForecasts" class="rf-floating rf-br" style="width:304px; height:282px;">
-  <div class="rf-head">
-    <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
-  </div>
-  <iframe width="304" height="282" frameborder="0" class="efx" loading="lazy"
-    src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
-  </iframe>
-</div>
