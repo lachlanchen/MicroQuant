@@ -659,48 +659,80 @@
         });
       };
 
-            const ensureLwVol = () => {
-        if (lwVolChart) return;
-        const elVol = document.getElementById('lwVol');
-        if (!elVol) return;
-        lwVolChart = LightweightCharts.createChart(elVol, {
-          rightPriceScale: { visible: true },
-          leftPriceScale: { visible: false },
-          timeScale: { rightOffset: 10, fixRightEdge: false },
-          grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
-        });
-        
-        if (!lwVolSubscribed) { lwVolChart.timeScale().subscribeVisibleTimeRangeChange((range)=>{ broadcastVisibleRange(lwVolChart, range); }); lwVolSubscribed = true; }
+      const ensureLwVol = () => {
+        if (!lwVolChart) {
+          const elVol = document.getElementById('lwVol');
+          if (!elVol) return;
+          lwVolChart = LightweightCharts.createChart(elVol, {
+            rightPriceScale: { visible: true },
+            leftPriceScale: { visible: false },
+            timeScale: { rightOffset: 10, fixRightEdge: false },
+            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+          });
+        }
+        if (!lwVolSeries && lwVolChart) {
+          lwVolSeries = lwVolChart.addHistogramSeries({
+            base: 0,
+            priceFormat: { type: 'volume' },
+            color: 'rgba(120, 144, 156, 0.4)',
+          });
+        }
+        if (!lwVolSubscribed && lwVolChart) {
+          lwVolChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+            broadcastVisibleRange(lwVolChart, range);
+          });
+          lwVolSubscribed = true;
+        }
       };
 
       const ensureLwRsi = () => {
-        if (lwRsiChart) return;
-        const elRsi = document.getElementById('lwRsi');
-        if (!elRsi) return;
-        lwRsiChart = LightweightCharts.createChart(elRsi, {
-          rightPriceScale: { visible: true },
-          leftPriceScale: { visible: false },
-          timeScale: { rightOffset: 10, fixRightEdge: false },
-          grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
-        });
-        
-        if (!lwRsiSubscribed) { lwRsiChart.timeScale().subscribeVisibleTimeRangeChange((range)=>{ broadcastVisibleRange(lwRsiChart, range); }); lwRsiSubscribed = true; }
+        if (!lwRsiChart) {
+          const elRsi = document.getElementById('lwRsi');
+          if (!elRsi) return;
+          lwRsiChart = LightweightCharts.createChart(elRsi, {
+            rightPriceScale: { visible: true },
+            leftPriceScale: { visible: false },
+            timeScale: { rightOffset: 10, fixRightEdge: false },
+            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+          });
+        }
+        if (!lwRsiSeries && lwRsiChart) {
+          lwRsiSeries = lwRsiChart.addLineSeries({ color: '#8e24aa', lineWidth: 2 });
+        }
+        if (!lwRsiSubscribed && lwRsiChart) {
+          lwRsiChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+            broadcastVisibleRange(lwRsiChart, range);
+          });
+          lwRsiSubscribed = true;
+        }
       };
 
       const ensureLwMacd = () => {
-        if (lwMacdChart) return;
-        const elMacd = document.getElementById('lwMacd');
-        if (!elMacd) return;
-        lwMacdChart = LightweightCharts.createChart(elMacd, {
-          rightPriceScale: { visible: true },
-          leftPriceScale: { visible: false },
-          timeScale: { rightOffset: 10, fixRightEdge: false },
-          grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
-        });
-        lwMacdHist = lwMacdChart.addHistogramSeries({ base: 0 });
-        lwMacdLine = lwMacdChart.addLineSeries({ color: '#1b9aaa', lineWidth: 2 });
-        
-        if (!lwMacdSubscribed) { lwMacdChart.timeScale().subscribeVisibleTimeRangeChange((range)=>{ broadcastVisibleRange(lwMacdChart, range); }); lwMacdSubscribed = true; }
+        if (!lwMacdChart) {
+          const elMacd = document.getElementById('lwMacd');
+          if (!elMacd) return;
+          lwMacdChart = LightweightCharts.createChart(elMacd, {
+            rightPriceScale: { visible: true },
+            leftPriceScale: { visible: false },
+            timeScale: { rightOffset: 10, fixRightEdge: false },
+            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+          });
+        }
+        if (lwMacdChart && !lwMacdHist) {
+          lwMacdHist = lwMacdChart.addHistogramSeries({ base: 0 });
+        }
+        if (lwMacdChart && !lwMacdLine) {
+          lwMacdLine = lwMacdChart.addLineSeries({ color: '#1b9aaa', lineWidth: 2 });
+        }
+        if (lwMacdChart && !lwMacdSignal) {
+          lwMacdSignal = lwMacdChart.addLineSeries({ color: '#ef6c00', lineWidth: 2 });
+        }
+        if (!lwMacdSubscribed && lwMacdChart) {
+          lwMacdChart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+            broadcastVisibleRange(lwMacdChart, range);
+          });
+          lwMacdSubscribed = true;
+        }
       };
 
       const syncIndicatorsVisibleRange = (range) => {
@@ -719,7 +751,13 @@
       const setRangeIfNeeded = (chart, range) => {
         if (!chart || !range || range.from == null || range.to == null) return;
         const cur = chart.timeScale().getVisibleRange();
-        if (!rangesEqual(cur, range)) chart.timeScale().setVisibleRange(range);
+        if (!rangesEqual(cur, range)) {
+          try {
+            chart.timeScale().setVisibleRange(range);
+          } catch (err) {
+            console.warn('[ChartSync] setVisibleRange failed', err);
+          }
+        }
       };
       const broadcastVisibleRange = (sourceChart, range) => {
         if (!range || range.from == null || range.to == null) return;
@@ -1974,7 +2012,11 @@
           status('Auto stopped');
         } else {
           const tf = el('tf').value;
-          const ms = tf.startsWith('M') ? 60_000 : (tf.startsWith('H') ? 60*60_000 : 15*60_000);
+          // Use plain millisecond constants (avoid numeric separators for broader browser support)
+          const minuteMs = 60000;
+          const ms = tf.startsWith('M')
+            ? minuteMs
+            : (tf.startsWith('H') ? 60 * minuteMs : 15 * minuteMs);
           autoTimer = setInterval(fetchAndSave, ms);
           el('btnAuto').textContent = 'Stop Auto';
           status('Auto started');
@@ -2022,8 +2064,7 @@
         const js = await r.json().catch(() => ({}));
         if (js.ok) {
           const list = (js.positions || []).map(p => `#${p.ticket} ${p.type===0?'BUY':'SELL'} vol=${p.volume} @ ${p.price_open} pnl=${p.profit}`);
-          el('positionsBox').textContent = list.length ? list.join('
-') : 'No open positions.';
+          el('positionsBox').textContent = list.length ? list.join('\n') : 'No open positions.';
         } else {
           el('positionsBox').textContent = `Positions error: ${js.error || r.statusText}`;
         }
