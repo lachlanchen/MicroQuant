@@ -64,8 +64,9 @@
     .switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; user-select:none; }
     .switch input[type="checkbox"] { width:18px; height:18px; accent-color: var(--accent); cursor:pointer; }
       .lw-pane { width: 100%; height: 190px; }
-      .stl-row { align-items: center; }
-    .stl-field { display:flex; align-items:center; gap:8px; }
+    .stl-row { align-items: center; }
+    .stl-field { display:grid; grid-template-columns: 64px 240px; align-items:center; column-gap:8px; }
+    .stl-field .stl-lbl { text-align:right; white-space:nowrap; }
     .stl-field input[type="datetime-local"] { width: 240px; max-width: 100%; height: 32px; padding: 6px 8px; }
   </style>
   <link rel="icon" href="data:," />
@@ -211,11 +212,9 @@
               <input type="checkbox" id="chkStlAllData" checked />
               <span>Use all data</span>
             </label>
-            <label class="stl-field">From
-              <input type="datetime-local" id="stlStart" disabled />
+            <label class="stl-field"><span class="stl-lbl">From</span><input type="datetime-local" id="stlStart" disabled />
             </label>
-            <label class="stl-field">To
-              <input type="datetime-local" id="stlEnd" disabled />
+            <label class="stl-field"><span class="stl-lbl">To</span><input type="datetime-local" id="stlEnd" disabled />
             </label>
           </div>
           <div class="row" style="gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center;">
@@ -2439,6 +2438,7 @@
     </script>
   </body>
   </html>
+
 
 
 
