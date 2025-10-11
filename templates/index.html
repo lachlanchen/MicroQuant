@@ -35,6 +35,9 @@
     #status { margin-top: 8px; color: var(--muted); }
     #chart-wrap { width: 100%; max-width: 100%; background: var(--panel); padding: 12px; border:1px solid var(--line); border-radius: 8px; box-sizing: border-box; }
     #lwChart { width: 100%; min-height: 520px; height: clamp(520px, 72vh, 920px); }
+    /* Overlay canvas to draw period lines over Lightweight Charts */
+    #lwChart { position: relative; }
+    .lw-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 10; }
     #chart { width: 100% !important; height: clamp(420px, 68vh, 840px); }
     #indicator-wrap { margin-top: 12px; display: grid; gap: 12px; width: 100%; }
     .indicator-panel { background: var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
@@ -200,6 +203,10 @@
             <label>Period
               <input type="number" id="stlPeriodInput" min="3" value="{{ default_stl_manual_period }}" disabled />
             </label>
+            <label class="switch">
+              <input type="checkbox" id="chkStlPeriodLines" />
+              <span>Period lines</span>
+            </label>
           </div>
           <div class="row stl-row" style="gap:10px; margin-top:8px; flex-wrap:wrap; align-items:center;">
             <label class="switch">
@@ -314,6 +321,8 @@
       const stlDeleteBtn = el('btnStlDelete');
       let stlAutoPeriod = !(DEFAULT_STL_AUTO_PERIOD === '0' || DEFAULT_STL_AUTO_PERIOD === 'false');
       let stlManualPeriod = DEFAULT_STL_MANUAL_PERIOD;
+      const stlPeriodLinesToggle = el('chkStlPeriodLines');
+      let showPeriodLines = false;
 
       const volumeCanvas = document.getElementById('volChart');
       const rsiCanvas = document.getElementById('rsiChart');
@@ -336,6 +345,9 @@
       let lwRsiChart = null, lwRsiSeries = null;
 
       let lwMacdChart = null, lwMacdHist = null, lwMacdLine = null, lwMacdSignal = null;
+
+      // Overlay canvas for dashed period lines on the candlestick chart
+      let lwOverlay = null, lwOverlayCtx = null;
 
       let lwSyncing = false;
       let lwRangeTimer = null;
@@ -737,6 +749,71 @@
         }
       };
 
+      const ensureLwOverlay = () => {
+        if (!lwContainer) return;
+        if (!lwOverlay) {
+          lwOverlay = document.createElement('canvas');
+          lwOverlay.id = 'lwOverlay';
+          lwOverlay.className = 'lw-overlay';
+          lwContainer.appendChild(lwOverlay);
+          lwOverlayCtx = lwOverlay.getContext('2d');
+        }
+        resizeLwOverlay();
+      };
+
+      const resizeLwOverlay = () => {
+        if (!lwOverlay || !lwContainer) return;
+        const rect = lwContainer.getBoundingClientRect();
+        const width = Math.max(1, Math.floor(rect.width || lwContainer.clientWidth || 0));
+        const height = Math.max(1, Math.floor(rect.height || lwContainer.clientHeight || 0));
+        if (lwOverlay.width !== width) lwOverlay.width = width;
+        if (lwOverlay.height !== height) lwOverlay.height = height;
+        redrawPeriodLines();
+      };
+
+      const clearLwOverlay = () => {
+        if (!lwOverlayCtx || !lwOverlay) return;
+        lwOverlayCtx.clearRect(0, 0, lwOverlay.width, lwOverlay.height);
+      };
+
+      const drawLwPeriodLines = (period) => {
+        if (!showPeriodLines || !lwChart || !lwOverlayCtx || !lastPriceRows.length || !period || period < 1) {
+          clearLwOverlay();
+          return;
+        }
+        const vis = lwChart.timeScale().getVisibleRange();
+        if (!vis || vis.from == null || vis.to == null) {
+          clearLwOverlay();
+          return;
+        }
+        const fromSec = vis.from;
+        const toSec = vis.to;
+        const h = lwOverlay.height;
+        const ctx = lwOverlayCtx;
+        ctx.clearRect(0, 0, lwOverlay.width, h);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(216, 67, 21, 0.6)';
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 1;
+        for (let i = 0; i < lastPriceRows.length; i += period) {
+          const tSec = Math.floor(new Date(lastPriceRows[i].ts).getTime() / 1000);
+          if (tSec < fromSec - period * 60) continue; // skip far left
+          if (tSec > toSec + period * 60) break;      // stop once beyond right
+          const x = lwChart.timeScale().timeToCoordinate(tSec);
+          if (x == null || !Number.isFinite(x)) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, h);
+          ctx.stroke();
+        }
+        ctx.restore();
+      };
+
+      const redrawPeriodLines = () => {
+        const p = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
+        drawLwPeriodLines(Number.isFinite(p) ? p : null);
+      };
+
       const rangeAlmostEqual = (x, y) => Math.abs((x || 0) - (y || 0)) < 1e-4;
       const rangesEqual = (a, b) => a && b && rangeAlmostEqual(a.from, b.from) && rangeAlmostEqual(a.to, b.to);
       const setRangeIfNeeded = (chart, range) => {
@@ -801,15 +878,20 @@
             }
             currentLogicalRange = effectiveLogical;
             syncAllChartsToRange(chartInstance, null, effectiveLogical);
-            // Only apply Chart.js viewport when in line chart mode
             if (curType === 'line') {
               applyIndicatorViewport(range, effectiveLogical);
+            }
+            if (curType === 'candlestick') {
+              redrawPeriodLines();
             }
           } else {
             currentTimeRange = null;
             currentLogicalRange = null;
             if (curType === 'line') {
               applyIndicatorViewport(null, null);
+            }
+            if (curType === 'candlestick') {
+              redrawPeriodLines();
             }
           }
         });
@@ -1046,27 +1128,12 @@
       };
 
       const applyLightweightPeriodOverlay = (rows, period) => {
-        if (!lwSeries || typeof lwSeries.setMarkers !== 'function') return;
-        if (!rows || !rows.length || !period || period < 1) {
+        // Clear any old markers; we now draw dashed period lines via overlay canvas.
+        if (lwSeries && typeof lwSeries.setMarkers === 'function') {
           lwSeries.setMarkers([]);
-          return;
         }
-        const markers = [];
-        const shadingColor = 'rgba(216, 67, 21, 0.08)';
-        const boundaryColor = '#d84315';
-        for (let i = 0; i < rows.length; i++) {
-          const tsNum = Number(new Date(rows[i].ts).getTime());
-          if (!Number.isFinite(tsNum)) continue;
-          const time = Math.floor(tsNum / 1000);
-          if (!Number.isFinite(time)) continue;
-          if (Math.floor(i / period) % 2 === 1) {
-            markers.push({ time, color: shadingColor, shape: 'background' });
-          }
-          if (i % period === 0) {
-            markers.push({ time, color: boundaryColor, shape: 'square', position: 'belowBar', text: 'P' });
-          }
-        }
-        lwSeries.setMarkers(markers);
+        // Actual vertical dashed lines drawn by drawLwPeriodLines().
+        redrawPeriodLines();
       };
 
       const applyChartPeriodOverlay = (rows, period) => {
@@ -1096,12 +1163,21 @@
           if (currentTimeRange) {
             applyIndicatorViewport(currentTimeRange, currentLogicalRange);
           } else {
-            applyIndicatorViewport(null, null);
+            applyIndicatorViewport(null, null); if (curType === 'candlestick') { redrawPeriodLines(); }
           }
           return;
         }
-        applyChartPeriodOverlay(lastPriceRows, period);
+        // Respect toggle: draw in Chart.js when enabled, clear when disabled
+        if (showPeriodLines) {
+          applyChartPeriodOverlay(lastPriceRows, period);
+        } else {
+          chartPeriodWindows = [];
+          if (chart && curType === 'line') chart.update('none');
+        }
         applyLightweightPeriodOverlay(lastPriceRows, period);
+        if (curType === 'candlestick') {
+          redrawPeriodLines();
+        }
         if (currentTimeRange) {
           applyIndicatorViewport(currentTimeRange, currentLogicalRange);
         }
@@ -1158,6 +1234,7 @@
       const updateStlInputsFromState = () => {
         if (stlAllToggle) stlAllToggle.checked = stlAllData;
         if (stlAutoToggle) stlAutoToggle.checked = stlAutoPeriod;
+        if (stlPeriodLinesToggle) stlPeriodLinesToggle.checked = !!showPeriodLines;
         if (stlPeriodInput) {
           stlPeriodInput.disabled = !!stlAutoPeriod;
           stlPeriodInput.value = stlManualPeriod || '';
@@ -1270,7 +1347,7 @@
           });
           currentTimeRange = null;
           currentLogicalRange = null;
-          applyIndicatorViewport(null, null);
+          applyIndicatorViewport(null, null); if (curType === 'candlestick') { redrawPeriodLines(); }
           clearStlOverlay('Switch to candlestick view to see STL overlay.', true);
           return chart;
         }
@@ -1329,6 +1406,7 @@
             width: rectInit.width || lwContainer.clientWidth || 800,
             height: rectInit.height || lwContainer.clientHeight || 400
           });
+          ensureLwOverlay();
           if (!lwTimeRangeSubscribed) {
             lwChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
               handleChartRangeChange(lwChart);
@@ -1973,6 +2051,12 @@
       if (btnFetchAll) btnFetchAll.addEventListener('click', () => backgroundFetch('all_symbols', { mode: 'inc' }));
       const btnStlCurrent = el('btnStlCurrent');
       if (btnStlCurrent) btnStlCurrent.addEventListener('click', () => triggerStl('current'));
+      if (stlPeriodLinesToggle) stlPeriodLinesToggle.addEventListener('change', () => {
+        showPeriodLines = !!stlPeriodLinesToggle.checked;
+        const overlayPeriod = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
+        updatePeriodOverlays(overlayPeriod && Number.isFinite(overlayPeriod) ? overlayPeriod : null);
+        redrawPeriodLines();
+      });
       const btnStlSymbolAll = el('btnStlSymbolAll');
       if (btnStlSymbolAll) btnStlSymbolAll.addEventListener('click', () => triggerStl('symbol_all_tf'));
       const btnStlTfAll = el('btnStlTfAll');
