@@ -1224,7 +1224,8 @@
                 applyIndicatorViewport(null);
                 return;
               }
-              currentTimeRange = range;\n              broadcastVisibleRange(lwChart, range);
+              currentTimeRange = range;
+              broadcastVisibleRange(lwChart, range);
             });
             lwTimeRangeSubscribed = true;
           }
@@ -2021,7 +2022,8 @@
         const js = await r.json().catch(() => ({}));
         if (js.ok) {
           const list = (js.positions || []).map(p => `#${p.ticket} ${p.type===0?'BUY':'SELL'} vol=${p.volume} @ ${p.price_open} pnl=${p.profit}`);
-          el('positionsBox').textContent = list.length ? list.join('\n') : 'No open positions.';
+          el('positionsBox').textContent = list.length ? list.join('
+') : 'No open positions.';
         } else {
           el('positionsBox').textContent = `Positions error: ${js.error || r.statusText}`;
         }
@@ -2436,6 +2438,9 @@
     </script>
   </body>
   </html>
+
+
+
 
 
 
