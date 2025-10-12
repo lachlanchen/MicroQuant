@@ -315,6 +315,64 @@ def _articles_to_text(items: list[dict[str, Any]]) -> str:
     return "\n\n".join(parts)
 
 
+DEFAULT_STRATEGIES: dict[str, str] = {
+    "forex_pair": "forex_pair_neutral_30q.json",
+    "stock": "stocks_30q_health_yes_no.json",
+}
+
+ALLOWED_STRATEGIES: dict[str, set[str]] = {
+    "forex_pair": {
+        "forex_pair_neutral_30q.json",
+        "forex_pair_30q_yes_no.json",
+        "forex_30q_yes_no.json",
+    },
+    "stock": {
+        "stocks_30q_health_yes_no.json",
+    },
+}
+
+
+def _strategy_answer_type(strategy: dict[str, Any]) -> str:
+    options = strategy.get("answer_options") or []
+    if not options:
+        return "bool"
+    normalized = {str(opt).strip().upper() for opt in options}
+    if normalized.issubset({"YES", "NO"}):
+        return "bool"
+    lowered = [str(opt).lower() for opt in options]
+    if any("${base_currency" in opt or "${quote_currency" in opt for opt in lowered):
+        return "choice"
+    return "unknown"
+
+
+def _substitute_currency_tokens(text: str, base_ccy: str, quote_ccy: str) -> str:
+    if not text:
+        return ""
+    replacements = {
+        "${base_currency}": base_ccy,
+        "${BASE_CURRENCY}": base_ccy,
+        "${quote_currency}": quote_ccy,
+        "${QUOTE_CURRENCY}": quote_ccy,
+        "${BASE}": base_ccy,
+        "${QUOTE}": quote_ccy,
+    }
+    for token, value in replacements.items():
+        text = text.replace(token, value)
+    return text
+
+
+def _make_choice_schema(options: list[str]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "answer": {"type": "string", "enum": options},
+            "explanation": {"type": "string"},
+        },
+        "required": ["answer", "explanation"],
+        "additionalProperties": False,
+    }
+
+
 def _is_fx_symbol(sym: str | None) -> bool:
     if not sym:
         return False
@@ -420,6 +478,30 @@ def _build_pair_prompt_one(question_text: str, base_ccy: str, quote_ccy: str, ba
         f"BASE ({base_ccy}) articles:\n---\n{base_blk}\n---\n\n"
         f"QUOTE ({quote_ccy}) articles:\n---\n{quote_blk}\n---\n"
     )
+
+
+def _build_pair_prompt_choice(
+    question_text: str,
+    base_ccy: str,
+    quote_ccy: str,
+    base_items: list[dict[str, Any]],
+    quote_items: list[dict[str, Any]],
+    timeframe: str | None,
+    options: list[str],
+) -> str:
+    base_blk = _articles_to_text(base_items)
+    quote_blk = _articles_to_text(quote_items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    allowed = ", ".join(options)
+    return (
+        "You are an FX analyst. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
+        f"Choose exactly one currency code from this list: {allowed}. Be decisive and cite the strongest evidence.\n\n"
+        f"Pair: {base_ccy}/{quote_ccy}\n{tf_line}\n\n"
+        f"Question: {question_text}\n\n"
+        f"{base_ccy} articles:\n---\n{base_blk}\n---\n\n"
+        f"{quote_ccy} articles:\n---\n{quote_blk}\n---\n"
+    )
+
 
 def _build_stock_prompt_one(question_text: str, ticker: str, items: list[dict], timeframe: str | None) -> str:
     blk = _articles_to_text(items)
@@ -2296,48 +2378,105 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 self.finish(json.dumps({"ok": False, "error": "base_currency/quote_currency required"}))
                 return
 
-            # Fetch news for each side
             base_items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(base, limit=news_count))
             quote_items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(quote, limit=news_count))
             base_items = base_items[:news_count]
             quote_items = quote_items[:news_count]
 
-            strat = _load_strategy_json("forex_pair_30q_yes_no.json")
+            allowed = ALLOWED_STRATEGIES.get("forex_pair", set())
+            strategy_name = strategy_override if strategy_override and strategy_override in allowed else DEFAULT_STRATEGIES["forex_pair"]
+            if strategy_override and strategy_override not in allowed:
+                logger.warning("[health] unsupported forex strategy override %s, using default", strategy_override)
+            strat = _load_strategy_json(strategy_name)
+            if not strat:
+                logger.warning("[health] failed to load strategy %s, falling back to default", strategy_name)
+                strategy_name = DEFAULT_STRATEGIES["forex_pair"]
+                strat = _load_strategy_json(strategy_name)
+            answer_type = _strategy_answer_type(strat)
+            if answer_type not in {"bool", "choice"}:
+                answer_type = "bool"
+            choice_template = strat.get("answer_options") if answer_type == "choice" else []
+            logger.info("[health] strategy=%s kind=forex_pair symbol=%s%s news=%d", strategy_name, base, quote, news_count)
+
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
-            def _call_one(qobj: dict) -> tuple[str, bool, str]:
+            def _call_one(qobj: dict) -> tuple[str, Any, str]:
                 qid = str(qobj.get("id") or "")
-                qtext = str(qobj.get("text") or "")
-                prompt = _build_pair_prompt_one(qtext, base, quote, base_items, quote_items, timeframe)
+                raw_text = str(qobj.get("text") or "")
+                question_text = _substitute_currency_tokens(raw_text, base, quote)
+                if answer_type == "choice":
+                    resolved_options = choice_template or [base, quote]
+                    resolved_options = [
+                        _substitute_currency_tokens(opt, base, quote).strip().upper()
+                        for opt in resolved_options
+                        if opt
+                    ]
+                    if not resolved_options:
+                        resolved_options = [base.upper(), quote.upper()]
+                    prompt = _build_pair_prompt_choice(question_text, base, quote, base_items, quote_items, timeframe, resolved_options)
+                    out = AI_CLIENT.send_request_with_json_schema(
+                        prompt,
+                        _make_choice_schema(resolved_options),
+                        system_content="You are a decisive analyst. Reply only with JSON that matches the schema.",
+                        schema_name="fx_choice_answer",
+                    )
+                    ans_raw = str((out or {}).get("answer") or "").strip().upper()
+                    if ans_raw not in resolved_options:
+                        ans_raw = resolved_options[0]
+                    expl = str((out or {}).get("explanation") or "").strip()
+                    return (qid, ans_raw, expl)
+                prompt = _build_pair_prompt_one(question_text, base, quote, base_items, quote_items, timeframe)
                 out = AI_CLIENT.send_request_with_json_schema(
                     prompt,
                     HEALTH_BOOL_SCHEMA,
                     system_content="You are a precise analyst. Reply only with JSON that matches the schema.",
-                    schema_name="bool_answer",
+                    schema_name="fx_bool_answer",
                 )
-                ans = bool((out or {}).get("answer") is True)
+                ans_bool = bool((out or {}).get("answer") is True)
                 expl = str((out or {}).get("explanation") or "").strip()
-                return (qid, ans, expl)
+                return (qid, ans_bool, expl)
 
-            # Parallel execution with a local executor
             from concurrent.futures import ThreadPoolExecutor as _TPE
             local_workers = min(8, max(1, len(questions)))
-            answers: list[tuple[str, bool, str]] = []
+            answers: list[tuple[str, Any, str]] = []
             if questions:
                 with _TPE(max_workers=local_workers) as ex:
                     futs = [loop.run_in_executor(ex, _call_one, q) for q in questions]
                     answers = await asyncio.gather(*futs, return_exceptions=False)
 
-            # Preserve order
-            a_map: dict[str, tuple[bool, str]] = {qid: (val, expl) for qid, val, expl in answers}
-            ans_struct = [{"id": q["id"], "answer": bool((a_map.get(q["id"]) or (False, ""))[0]), "explanation": str((a_map.get(q["id"]) or (False, ""))[1])} for q in questions]
-            score = sum(1 for a in ans_struct if a["answer"])
-            # Determine signal
+            a_map: dict[str, tuple[Any, str]] = {qid: (val, expl) for qid, val, expl in answers}
+            ans_struct: list[dict[str, Any]] = []
+            for q in questions:
+                qid = q.get("id")
+                if answer_type == "choice":
+                    default_val: Any = base.upper()
+                else:
+                    default_val = False
+                val, expl = a_map.get(str(qid), (default_val, ""))
+                if answer_type == "choice" and isinstance(val, str):
+                    val = val.upper()
+                ans_struct.append({
+                    "id": qid,
+                    "answer": val,
+                    "explanation": str(expl),
+                })
+
+            if answer_type == "choice":
+                base_upper = base.upper()
+                quote_upper = quote.upper()
+                base_count = sum(1 for a in ans_struct if isinstance(a["answer"], str) and a["answer"].upper() == base_upper)
+                quote_count = sum(1 for a in ans_struct if isinstance(a["answer"], str) and a["answer"].upper() == quote_upper)
+                score_value = base_count - quote_count
+                scores_payload = {"BASE": base_count, "QUOTE": quote_count, "NET": score_value}
+            else:
+                score_value = sum(1 for a in ans_struct if bool(a["answer"]))
+                scores_payload = None
+
             signal = "NEUTRAL"
             thresholds = strat.get("scoring", {}).get("thresholds", [])
             for th in thresholds:
                 try:
-                    if int(th.get("min")) <= score <= int(th.get("max")):
+                    if int(th.get("min")) <= score_value <= int(th.get("max")):
                         signal = str(th.get("signal") or signal)
                         break
                 except Exception:
@@ -2353,9 +2492,10 @@ class HealthRunHandler(tornado.web.RequestHandler):
 
             answers_json = {
                 "questions": ans_struct,
-                "score": score,
+                "score": score_value,
                 "signal": signal,
-                "strategy": strat.get("name") or "forex_pair_30q_yes_no",
+                "strategy": strategy_name,
+                "scores": scores_payload,
                 "meta": {"timeframe": timeframe, "base": base, "quote": quote, "news_count": news_count},
             }
 
@@ -2382,8 +2522,10 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         "quote": quote,
                         "used_news": {"base": base_items, "quote": quote_items},
                         "answers": ans_struct,
-                        "score": score,
+                        "score": score_value,
+                        "scores": scores_payload,
                         "signal": signal,
+                        "strategy": strategy_name,
                         "run_id": ins.get("id"),
                         "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
                     }
@@ -2395,7 +2537,16 @@ class HealthRunHandler(tornado.web.RequestHandler):
         symbol = str(payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
         items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(symbol, limit=news_count))
         items = items[:news_count]
-        strat = _load_strategy_json("stocks_30q_health_yes_no.json")
+        allowed_stock = ALLOWED_STRATEGIES.get("stock", set())
+        strategy_name = strategy_override if strategy_override and strategy_override in allowed_stock else DEFAULT_STRATEGIES["stock"]
+        if strategy_override and strategy_override not in allowed_stock:
+            logger.warning("[health] unsupported stock strategy override %s, using default", strategy_override)
+        strat = _load_strategy_json(strategy_name)
+        if not strat:
+            logger.warning("[health] failed to load stock strategy %s, using default", strategy_name)
+            strategy_name = DEFAULT_STRATEGIES["stock"]
+            strat = _load_strategy_json(strategy_name)
+        logger.info("[health] strategy=%s kind=stock symbol=%s news=%d", strategy_name, symbol, news_count)
         questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
         def _call_one_stock(qobj: dict) -> tuple[str, bool, str]:
@@ -2437,7 +2588,8 @@ class HealthRunHandler(tornado.web.RequestHandler):
             "questions": ans_struct,
             "score": score,
             "signal": signal,
-            "strategy": strat.get("name") or "stocks_30q_health_yes_no",
+            "strategy": strategy_name,
+            "scores": None,
             "meta": {"timeframe": timeframe, "symbol": symbol, "news_count": news_count},
         }
         ins = await insert_health_run(
@@ -2461,13 +2613,15 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "symbol": symbol,
                     "used_news": items,
                     "answers": ans_struct,
-                    "score": score,
-                    "signal": signal,
-                    "run_id": ins.get("id"),
-                    "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
-                }
+                        "score": score,
+                        "scores": None,
+                        "signal": signal,
+                        "strategy": strategy_name,
+                        "run_id": ins.get("id"),
+                        "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
+                    }
+                )
             )
-        )
 
 
 def main():
@@ -2560,12 +2714,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
 
 
 

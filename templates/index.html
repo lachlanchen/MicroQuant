@@ -240,6 +240,9 @@
               <label style="display:flex; align-items:center; gap:6px;">News to use
                 <input id="healthNewsCount" type="number" min="1" max="20" value="3" style="width:72px;" />
               </label>
+              <label style="display:flex; align-items:center; gap:6px;">Template
+                <select id="healthStrategy" style="min-width:200px; padding:4px 6px;"></select>
+              </label>
               <button class="btn secondary" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
               <label style="display:flex; align-items:center; gap:6px;">Bars
                 <input id="techHealthBars" type="number" min="1" max="500" style="width:72px;" />
@@ -438,7 +441,15 @@
         Y1: 31556952,
       };
       const techHealthBarsInput = el('techHealthBars');
+      const healthStrategySelect = el('healthStrategy');
+      const HEALTH_STRATEGIES = [
+        { value: 'forex_pair_neutral_30q.json', label: 'FX Neutral (30)', kinds: ['forex_pair'] },
+        { value: 'forex_pair_30q_yes_no.json', label: 'FX Pair Yes/No (30)', kinds: ['forex_pair'] },
+        { value: 'forex_30q_yes_no.json', label: 'FX Single Yes/No (30)', kinds: ['forex_pair'] },
+        { value: 'stocks_30q_health_yes_no.json', label: 'Stocks Yes/No (30)', kinds: ['stock'] },
+      ];
       let techHealthUserOverride = false;
+      let healthStrategyUserOverride = false;
       const nextTimeframe = (tf) => {
         const idx = ALL_TFS.indexOf(tf);
         if (idx === -1 || idx >= ALL_TFS.length - 1) return null;
@@ -473,6 +484,25 @@
         }
         applyTechWindowDefault(true);
         return defaultTechWindow(currentTf());
+      };
+      if (healthStrategySelect) {
+        healthStrategySelect.innerHTML = HEALTH_STRATEGIES
+          .map((item) => `<option value="${item.value}">${esc(item.label)}</option>`)
+          .join('');
+      }
+      const findStrategyMeta = (value) => HEALTH_STRATEGIES.find((item) => item.value === value);
+      const defaultStrategyForKind = (kind) => HEALTH_STRATEGIES.find((item) => item.kinds.includes(kind)) || HEALTH_STRATEGIES[0];
+      const ensureStrategyForKind = (kind) => {
+        if (!healthStrategySelect) return;
+        const currentValue = healthStrategySelect.value;
+        const currentMeta = findStrategyMeta(currentValue);
+        if (!healthStrategyUserOverride || !currentMeta || !currentMeta.kinds.includes(kind)) {
+          const def = defaultStrategyForKind(kind);
+          if (def) {
+            healthStrategyUserOverride = false;
+            healthStrategySelect.value = def.value;
+          }
+        }
       };
 
       const DEFAULT_CHART_TYPE = "{{ default_chart_type }}";
@@ -612,6 +642,7 @@
       const currentTf = () => (tfSelect && tfSelect.value ? tfSelect.value.trim().toUpperCase() : DEFAULT_TF);
       const currentBarsLimit = () => Math.max(10, Number(countInput && countInput.value ? countInput.value : DEFAULT_BARS) || DEFAULT_BARS);
       applyTechWindowDefault(true);
+      ensureStrategyForKind(isFxPair(currentSymbol()) ? 'forex_pair' : 'stock');
 
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
@@ -1567,12 +1598,14 @@ const ensureLwMacd = () => {
       function splitPair(sym) { const s=(sym||'').toUpperCase(); return { base: s.slice(0,3), quote: s.slice(3,6) }; }
 
       function openHealth(kind) {
-        healthState.kind = kind;
-        healthState.offset = 0;
-        const modal = el('healthModal');
-        if (!modal) return;
-        modal.style.display = 'flex';
-        const sym = symbolSelect.value.toUpperCase();
+      healthState.kind = kind;
+      healthState.offset = 0;
+      healthState.runs = [];
+      const modal = el('healthModal');
+      if (!modal) return;
+      ensureStrategyForKind(kind);
+      modal.style.display = 'flex';
+      const sym = symbolSelect.value.toUpperCase();
         const info = el('healthInfo');
         if (kind === 'forex_pair') {
           const pq = isFxPair(sym) ? splitPair(sym) : { base: sym.slice(0,3), quote: sym.slice(3,6) };
@@ -1704,6 +1737,69 @@ const ensureLwMacd = () => {
         modal.style.display = 'flex';
       }
 
+      const renderHealthOutcome = (container, payload) => {
+        if (!container) return;
+        const answers = Array.isArray(payload.answers)
+          ? payload.answers
+          : (Array.isArray(payload.questions) ? payload.questions : []);
+        const score = payload.score ?? (payload.scores && payload.scores.NET);
+        const signal = payload.signal ?? 'NEUTRAL';
+        const strategyUsed = payload.strategy || (payload.meta && payload.meta.strategy) || '';
+        const baseCode = payload.base || (payload.meta && payload.meta.base);
+        const quoteCode = payload.quote || (payload.meta && payload.meta.quote);
+        const scoresObj = payload.scores || (payload.meta && payload.meta.scores) || null;
+        const pillHtml = answers.map((ans, idx) => {
+          const val = ans && Object.prototype.hasOwnProperty.call(ans, 'answer') ? ans.answer : null;
+          const explanation = esc((ans && ans.explanation) || '');
+          let label;
+          let bg;
+          let border;
+          let textColor;
+          if (typeof val === 'boolean') {
+            const isTrue = val === true;
+            label = isTrue ? 'YES' : 'NO';
+            bg = isTrue ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
+            border = isTrue ? '#2ecc71' : '#e74c3c';
+            textColor = isTrue ? '#1b5e20' : '#b71c1c';
+          } else if (typeof val === 'string') {
+            label = val.toUpperCase();
+            bg = 'rgba(33,150,243,0.12)';
+            border = '#2196f3';
+            textColor = '#0d47a1';
+          } else {
+            label = val == null ? '—' : String(val);
+            bg = 'rgba(158,158,158,0.12)';
+            border = '#9e9e9e';
+            textColor = '#424242';
+          }
+          return `<div style="display:flex; flex-direction:column; gap:4px;">
+            <div style="display:flex; gap:8px; align-items:center;">
+              <span style="width:28px; color:var(--muted)">${idx + 1}.</span>
+              <span class="pill" style="background:${bg}; border-color:${border}; color:${textColor};">
+                ${esc(label)}
+              </span>
+            </div>
+            <div style="font-size:12px; color:var(--muted); padding-left:28px;">${explanation || '<em>No explanation</em>'}</div>
+          </div>`;
+        }).join('');
+        let scoreLine = `<div class="row" style="justify-content:space-between;"><strong>Score: ${score ?? '—'}</strong><strong>${esc(signal)}</strong></div>`;
+        const strategyLine = `<div style="font-size:12px; color:var(--muted); margin-top:4px;">Strategy: ${esc(strategyUsed || '—')}</div>`;
+        let countsLine = '';
+        if (scoresObj && typeof scoresObj === 'object') {
+          const baseCount = baseCode && Object.prototype.hasOwnProperty.call(scoresObj, 'BASE') ? scoresObj.BASE : null;
+          const quoteCount = quoteCode && Object.prototype.hasOwnProperty.call(scoresObj, 'QUOTE') ? scoresObj.QUOTE : null;
+          const netVal = Object.prototype.hasOwnProperty.call(scoresObj, 'NET') ? scoresObj.NET : null;
+          const segments = [];
+          if (baseCode != null && baseCount != null) segments.push(`${esc(baseCode)}=${baseCount}`);
+          if (quoteCode != null && quoteCount != null) segments.push(`${esc(quoteCode)}=${quoteCount}`);
+          if (netVal != null) segments.push(`NET=${netVal}`);
+          if (segments.length) {
+            countsLine = `<div style="font-size:12px; color:var(--muted); margin-top:2px;">${segments.join(' • ')}</div>`;
+          }
+        }
+        container.innerHTML = `${scoreLine}${strategyLine}${countsLine}<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px;">${pillHtml}</div>`;
+      };
+
       async function loadHealthHistory() {
         const box = el('healthHistoryBox');
         box.innerHTML = '<em style="color:var(--muted)">Loading…</em>';
@@ -1722,16 +1818,24 @@ const ensureLwMacd = () => {
           const runs = (data && data.runs) || [];
           if (!runs.length && (healthState.offset||0) === 0) { box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>'; return; }
           if ((healthState.offset||0) === 0) { box.innerHTML = ''; }
+          if (!Array.isArray(healthState.runs)) healthState.runs = [];
           const startIdx = healthState.runs.length;
           healthState.runs = healthState.runs.concat(runs);
           const html = runs.map((r, i) => {
             const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
-            const sig = (r.answers && r.answers.signal) || (r.answers && r.answers.scores && r.answers.scores.signal) || '';
-            const sc = (r.answers && (r.answers.score ?? r.answers.NET)) ?? '';
+            const ansMeta = r.answers || {};
+            const sig = ansMeta.signal || (ansMeta.scores && ansMeta.scores.signal) || '';
+            const sc = (ansMeta.score ?? ansMeta.NET ?? '') ?? '';
+            const strat = ansMeta.strategy || '';
+            const summaryParts = [];
+            if (sig) summaryParts.push(sig);
+            if (sc !== '') summaryParts.push(sc);
+            if (strat) summaryParts.push(strat);
+            const summary = summaryParts.join(' • ');
             const idx = startIdx + i;
             return `<button class="row" data-run-idx="${idx}" style="justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%; text-align:left; cursor:pointer;">
               <span style="font-size:13px; color:var(--muted);">${t}</span>
-              <span style="font-weight:600;">${sig || ''} ${sc!==''?`• ${sc}`:''}</span>
+              <span style="font-weight:600;">${summary}</span>
             </button>`;
           }).join('');
           box.insertAdjacentHTML('beforeend', html);
@@ -1744,16 +1848,25 @@ const ensureLwMacd = () => {
         const sym = symbolSelect.value.toUpperCase();
         const n = Math.max(1, Math.min(20, Number(el('healthNewsCount').value || 3)));
         const body = { symbol: sym, news_count: n };
+        const strategyName = healthStrategySelect ? healthStrategySelect.value : '';
+        if (strategyName) {
+          body.strategy = strategyName;
+        }
+        console.log('[Health] using strategy', strategyName || '(auto)');
         const outBox = el('healthResultsBox');
         outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
         try {
-          const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+          const res = await fetch('/api/health/run', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+          });
           const data = await res.json();
-          if (!data || data.ok !== true) { outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(data&&data.error)||'unknown'}</em>`; return; }
-          const answers = data.answers || [];
-          const grid = answers.map((a,i)=>`<div style="display:flex; flex-direction:column; gap:4px;"><div style="display:flex; gap:8px; align-items:center;"><span style="width:28px; color:var(--muted)">${i+1}.</span><span class="pill" style="background:${a.answer?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${a.answer?'#2ecc71':'#e74c3c'}; color:${a.answer?'#1b5e20':'#b71c1c'};">${a.answer? 'True':'False'}</span></div><div style="font-size:12px; color:var(--muted); padding-left:28px;">${esc(a.explanation || '')}</div></div>`).join('');
-          outBox.innerHTML = `<div class="row" style="justify-content:space-between;"><strong>Score: ${data.score}</strong><strong>${data.signal}</strong></div><div style="display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:6px; margin-top:8px;">${grid}</div>`;
-          // Refresh history
+          if (!data || data.ok !== true) {
+            outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(data && data.error) || 'unknown'}</em>`;
+            return;
+          }
+          renderHealthOutcome(outBox, data);
           loadHealthHistory();
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e}</em>`;
@@ -1772,6 +1885,9 @@ const ensureLwMacd = () => {
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
       if (btnTechHealth) btnTechHealth.addEventListener('click', openTechHealth);
       if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });
+      if (healthStrategySelect) {
+        healthStrategySelect.addEventListener('change', () => { healthStrategyUserOverride = true; });
+      }
       if (techHealthBarsInput) {
         techHealthBarsInput.addEventListener('input', () => { techHealthUserOverride = true; });
         const validateTechBars = () => {
@@ -1797,12 +1913,17 @@ const ensureLwMacd = () => {
           const run = (healthState.runs || [])[idx];
           if (!run || !run.answers) return;
           const ans = run.answers;
-          const list = ans.questions || [];
+          const payload = {
+            questions: ans.questions || [],
+            score: ans.score ?? ans.NET,
+            signal: ans.signal || (ans.scores && ans.scores.signal) || '',
+            strategy: ans.strategy || '',
+            scores: ans.scores || null,
+            base: run.base_ccy || (ans.meta && ans.meta.base),
+            quote: run.quote_ccy || (ans.meta && ans.meta.quote),
+          };
           const outBox = el('healthResultsBox');
-          const grid = list.map((a,i)=>`<div style=\"display:flex; flex-direction:column; gap:4px;\"><div style=\"display:flex; gap:8px; align-items:center;\"><span style=\"width:28px; color:var(--muted)\">${i+1}.</span><span class=\"pill\" style=\"background:${a.answer?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${a.answer?'#2ecc71':'#e74c3c'}; color:${a.answer?'#1b5e20':'#b71c1c'};\">${a.answer? 'True':'False'}</span></div><div style=\"font-size:12px; color:var(--muted); padding-left:28px;\">${esc(a.explanation || '')}</div></div>`).join('');
-          const score = (ans.score ?? (ans.NET ?? ''));
-          const signal = ans.signal || (ans.scores && ans.scores.signal) || '';
-          outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between;\"><strong>Score: ${score}</strong><strong>${signal}</strong></div><div style=\"display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:6px; margin-top:8px;\">${grid}</div>`;
+          renderHealthOutcome(outBox, payload);
         });
       }
 
@@ -3088,6 +3209,7 @@ const ensureLwMacd = () => {
         clearAllStlOverlaySeries();
         buildStlOverlayControls();
         applyTechWindowDefault(false);
+        ensureStrategyForKind(isFxPair(currentSymbol()) ? 'forex_pair' : 'stock');
         queuePrefUpdate('last_symbol', currentSymbol());
         try {
           debugLog('[App] Auto-fetch on symbol change');
@@ -3112,6 +3234,7 @@ const ensureLwMacd = () => {
         clearAllStlOverlaySeries();
         buildStlOverlayControls();
         applyTechWindowDefault(false);
+        ensureStrategyForKind(isFxPair(currentSymbol()) ? 'forex_pair' : 'stock');
         queuePrefUpdate('last_tf', currentTf());
         try {
           debugLog('[App] Auto-fetch on timeframe change');
