@@ -1,0 +1,45 @@
+{
+  "name": "forex_pair_compact_10q",
+  "title": "10 Comprehensive Forex Pair Questions (Binary Choice)",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-12T00:00:00Z",
+  "description": "Condensed, comprehensive FX pair assessment. Each question forces a binary choice between the two currencies.",
+  "input": {
+    "variables": [
+      { "name": "base_currency", "type": "string", "example": "EUR" },
+      { "name": "quote_currency", "type": "string", "example": "USD" },
+      { "name": "texts", "type": "array<string>", "description": "Recent headlines, summaries, transcripts, and reports relevant to both currencies." },
+      { "name": "timeframe", "type": "string", "example": "72h" }
+    ]
+  },
+  "questions": [
+    { "id": "mp_01", "category": "monetary", "weight": 1, "text": "Considering central bank statements, policy meeting outcomes, and interest rate trajectory - which currency's monetary policy stance is more hawkish/supportive of currency strength?" },
+    { "id": "mp_02", "category": "monetary", "weight": 1, "text": "Looking at interest rate expectations, forward guidance, and market pricing of future rate moves - which currency has a more favorable rate outlook?" },
+    { "id": "mp_03", "category": "monetary", "weight": 1, "text": "Evaluating the gap between current policy rates, real interest rates (adjusted for inflation), and central bank forward guidance - which currency offers better yield positioning?" },
+
+    { "id": "ef_04", "category": "economy", "weight": 1, "text": "Analyzing GDP growth, employment data, manufacturing/services PMI, and consumer spending - which currency's underlying economy shows stronger momentum?" },
+    { "id": "ef_05", "category": "economy", "weight": 1, "text": "Examining inflation trends, wage growth, and proximity to inflation targets - which currency shows better price stability and inflation control?" },
+    { "id": "ef_06", "category": "economy", "weight": 1, "text": "Reviewing trade balance, business confidence, and resilience indicators - which currency's economy demonstrates better fundamental health?" },
+
+    { "id": "rs_07", "category": "risk", "weight": 1, "text": "Assessing political stability, election risks, geopolitical tensions, and credit ratings - which currency operates in a lower-risk environment?" },
+    { "id": "rs_08", "category": "risk", "weight": 1, "text": "Considering banking system health, fiscal sustainability, debt levels, and structural concerns - which currency faces fewer systemic risks?" },
+
+    { "id": "md_09", "category": "market", "weight": 1, "text": "Evaluating foreign capital flows, safe-haven demand, institutional positioning, and ETF/asset flows - which currency is attracting stronger investor demand?" },
+    { "id": "md_10", "category": "market", "weight": 1, "text": "Reviewing analyst forecasts, strategist recommendations, sentiment surveys, and positioning - which currency has more bullish market consensus?" }
+  ],
+  "answer_options": ["${base_currency}", "${quote_currency}"],
+  "scoring": {
+    "thresholds": [
+      { "min": 7,  "max": 10, "signal": "BUY_BASE" },
+      { "min": 5,  "max": 6,  "signal": "BUY_BASE" },
+      { "min": 3,  "max": 4,  "signal": "BUY_BASE" },
+      { "min": -2, "max": 2,  "signal": "NEUTRAL" },
+      { "min": -4, "max": -3, "signal": "SELL_BASE" },
+      { "min": -6, "max": -5, "signal": "SELL_BASE" },
+      { "min": -10,"max": -7, "signal": "SELL_BASE" }
+    ]
+  }
+}
+

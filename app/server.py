@@ -316,12 +316,13 @@ def _articles_to_text(items: list[dict[str, Any]]) -> str:
 
 
 DEFAULT_STRATEGIES: dict[str, str] = {
-    "forex_pair": "forex_pair_neutral_30q.json",
+    "forex_pair": "forex_pair_compact_10q.json",
     "stock": "stocks_30q_health_yes_no.json",
 }
 
 ALLOWED_STRATEGIES: dict[str, set[str]] = {
     "forex_pair": {
+        "forex_pair_compact_10q.json",
         "metal_pair_neutral_30q.json",
         "forex_pair_neutral_30q.json",
         "forex_pair_30q_yes_no.json",

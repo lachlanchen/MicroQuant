@@ -451,6 +451,7 @@
       const techHealthBarsInput = el('techHealthBars');
       const healthStrategySelect = el('healthStrategy');
       const HEALTH_STRATEGIES = [
+        { value: 'forex_pair_compact_10q.json', label: 'FX Comprehensive (10)', kinds: ['forex_pair'] },
         { value: 'metal_pair_neutral_30q.json', label: 'Metals Neutral (30)', kinds: ['forex_pair'] },
         { value: 'forex_pair_neutral_30q.json', label: 'FX Neutral (30)', kinds: ['forex_pair'] },
         { value: 'forex_pair_30q_yes_no.json', label: 'FX Pair Yes/No (30)', kinds: ['forex_pair'] },
@@ -504,8 +505,8 @@
       const findStrategyMeta = (value) => HEALTH_STRATEGIES.find((item) => item.value === value);
       const defaultStrategyForKind = (kind) => {
         if (kind === 'forex_pair') {
-          // For non-metals FX pairs, prefer the general FX neutral template
-          const fxDefault = HEALTH_STRATEGIES.find((item) => item.value === 'forex_pair_neutral_30q.json');
+          // For non-metals FX pairs, prefer the comprehensive 10Q template
+          const fxDefault = HEALTH_STRATEGIES.find((item) => item.value === 'forex_pair_compact_10q.json');
           if (fxDefault) return fxDefault;
         }
         return HEALTH_STRATEGIES.find((item) => item.kinds.includes(kind)) || HEALTH_STRATEGIES[0];
