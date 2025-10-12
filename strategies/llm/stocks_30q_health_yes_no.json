@@ -70,7 +70,7 @@
   },
   "prompt": {
     "system": "You are a precise equity analyst. Answer strictly with JSON.",
-    "instructions": "Evaluate provided news texts for the single ticker. For each question, answer YES if the texts support a bullish/positive interpretation for the stock; otherwise answer NO. Be decisive and avoid hedging. Do not use outside knowledge beyond the timeframe.",
+    "instructions": "Evaluate provided news texts for the single ticker. For each question, answer YES if the texts support a bullish/positive interpretation for the stock; otherwise answer NO. Be decisive and avoid hedging.",
     "notes": [
       "Run all 30 questions for the stock.",
       "Provide a brief one-sentence explanation for your choice.",

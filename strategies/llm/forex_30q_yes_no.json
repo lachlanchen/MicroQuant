@@ -1,99 +1,105 @@
 {
-  "name": "forex_30q_yes_no",
-  "title": "30 Yes/No Forex Questions (News/Text Analysis)",
-  "version": "1.0.0",
+  "name": "forex_neutral",
+  "title": "30 Neutral FX Pair Questions (Binary Choice)",
+  "version": "2.0.0",
   "schema_version": 1,
   "type": "llm_strategy",
-  "created_at": "2025-10-11T00:00:00Z",
-  "description": "Binary macro/news questionnaire scored per currency. YES=1, NO=0 per question; compute base-vs-quote net to derive signal.",
+  "created_at": "2025-10-12T00:00:00Z",
+  "description": "Neutral framing questionnaire for forex health checks. Each item forces a choice between the two currencies using evidence from recent texts.",
   "input": {
     "variables": [
       { "name": "base_currency", "type": "string", "example": "EUR" },
       { "name": "quote_currency", "type": "string", "example": "USD" },
-      { "name": "texts", "type": "array<string>", "description": "Recent news headlines/summaries/bodies for both currencies." },
-      { "name": "timeframe", "type": "string", "example": "24h" }
+      { "name": "texts", "type": "array<string>", "description": "Recent headlines, summaries, transcripts, or reports covering both currencies." },
+      { "name": "timeframe", "type": "string", "example": "72h" }
     ]
   },
   "categories": [
-    { "id": "cb", "label": "Central Bank & Monetary Policy" },
-    { "id": "ed", "label": "Economic Data & Indicators" },
-    { "id": "inf", "label": "Inflation & Price Stability" },
-    { "id": "geo", "label": "Political & Geopolitical Stability" },
-    { "id": "mf", "label": "Market Sentiment & Flow" }
+    { "id": "cb",  "label": "Central Bank & Monetary Policy" },
+    { "id": "ed",  "label": "Economic Data & Growth" },
+    { "id": "inf", "label": "Inflation & Price Dynamics" },
+    { "id": "geo", "label": "Political & Risk Environment" },
+    { "id": "mf",  "label": "Market Sentiment & Capital Flow" }
   ],
   "questions": [
-    { "id": "cb_1", "category": "cb", "weight": 1, "text": "Did the central bank's latest statement suggest a hawkish stance?" },
-    { "id": "cb_2", "category": "cb", "weight": 1, "text": "Are interest rate expectations for this currency trending upward in recent commentary?" },
-    { "id": "cb_3", "category": "cb", "weight": 1, "text": "Did the central bank indicate satisfaction with current inflation levels?" },
-    { "id": "cb_4", "category": "cb", "weight": 1, "text": "Are monetary policy meeting minutes described as supportive of the currency?" },
-    { "id": "cb_5", "category": "cb", "weight": 1, "text": "Is the central bank governor's recent speech tone confident about the economy?" },
-    { "id": "cb_6", "category": "cb", "weight": 1, "text": "Are there mentions of potential policy tightening in the near term?" },
-    { "id": "cb_7", "category": "cb", "weight": 1, "text": "Did the central bank raise or maintain (not cut) rates in the latest decision?" },
-    { "id": "cb_8", "category": "cb", "weight": 1, "text": "Is the central bank's inflation target being met according to recent reports?" },
+    { "id": "cb_01", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's central bank used more hawkish language in recent statements?" },
+    { "id": "cb_02", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency has higher interest rate expectations in current market commentary?" },
+    { "id": "cb_03", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank expressed greater confidence about its economic outlook?" },
+    { "id": "cb_04", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's central bank is closer to achieving its stated inflation target?" },
+    { "id": "cb_05", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank signaled stronger policy tightening pressure?" },
+    { "id": "cb_06", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank raised rates or held them steady most recently?" },
+    { "id": "cb_07", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's monetary policy is described as more supportive of currency strength?" },
+    { "id": "cb_08", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank's meeting minutes showed more optimism?" },
 
-    { "id": "ed_9",  "category": "ed", "weight": 1, "text": "Did the latest GDP report show growth or stability?" },
-    { "id": "ed_10", "category": "ed", "weight": 1, "text": "Are employment/unemployment figures described as improving or strong?" },
-    { "id": "ed_11", "category": "ed", "weight": 1, "text": "Are manufacturing PMI readings reported as above 50 (expansion)?" },
-    { "id": "ed_12", "category": "ed", "weight": 1, "text": "Are services PMI readings reported as above 50 (expansion)?" },
-    { "id": "ed_13", "category": "ed", "weight": 1, "text": "Is consumer spending described as robust or increasing?" },
-    { "id": "ed_14", "category": "ed", "weight": 1, "text": "Are trade balance figures improving or showing surplus?" },
-    { "id": "ed_15", "category": "ed", "weight": 1, "text": "Is business confidence reported as rising or high?" },
+    { "id": "ed_09", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region reported higher GDP growth in the latest release?" },
+    { "id": "ed_10", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has stronger employment data?" },
+    { "id": "ed_11", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has a higher manufacturing PMI reading?" },
+    { "id": "ed_12", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has a higher services PMI reading?" },
+    { "id": "ed_13", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region shows stronger consumer spending growth?" },
+    { "id": "ed_14", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has a better trade balance position?" },
+    { "id": "ed_15", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region reports higher business confidence?" },
 
-    { "id": "inf_16", "category": "inf", "weight": 1, "text": "Is inflation described as stable or declining toward target?" },
-    { "id": "inf_17", "category": "inf", "weight": 1, "text": "Are wage growth figures mentioned as moderate (not too high/low)?" },
-    { "id": "inf_18", "category": "inf", "weight": 1, "text": "Are commodity prices impacting this currency positively?" },
-    { "id": "inf_19", "category": "inf", "weight": 1, "text": "Are producer prices stable or declining according to reports?" },
-    { "id": "inf_20", "category": "inf", "weight": 1, "text": "Is core inflation (excluding food/energy) within acceptable range?" },
+    { "id": "inf_16", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has inflation closer to the central bank target?" },
+    { "id": "inf_17", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region reports more moderate wage growth?" },
+    { "id": "inf_18", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency benefits more from recent commodity price movements?" },
+    { "id": "inf_19", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has more controlled producer price inflation?" },
+    { "id": "inf_20", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region shows better core inflation trends?" },
 
-    { "id": "geo_21", "category": "geo", "weight": 1, "text": "Is the political situation described as stable in recent news?" },
-    { "id": "geo_22", "category": "geo", "weight": 1, "text": "Is the government described as stable without crisis mentions?" },
-    { "id": "geo_23", "category": "geo", "weight": 1, "text": "Are election outcomes (if any) described as market-friendly?" },
-    { "id": "geo_24", "category": "geo", "weight": 1, "text": "Are geopolitical risks involving this country low or decreasing?" },
-    { "id": "geo_25", "category": "geo", "weight": 1, "text": "Is the country's credit rating stable or upgraded in recent news?" },
+    { "id": "geo_21", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's country or region has greater political stability?" },
+    { "id": "geo_22", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's government policies are described as more market-friendly?" },
+    { "id": "geo_23", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency faces lower election-related uncertainty or risks?" },
+    { "id": "geo_24", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's country or region faces lower geopolitical risks?" },
+    { "id": "geo_25", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's country or region has a stronger credit rating or recent upgrade?" },
 
-    { "id": "mf_26", "category": "mf", "weight": 1, "text": "Are foreign investors described as increasing exposure to this currency?" },
-    { "id": "mf_27", "category": "mf", "weight": 1, "text": "Is this currency mentioned as a safe-haven in recent market commentary?" },
-    { "id": "mf_28", "category": "mf", "weight": 1, "text": "Are capital inflows to this country reported as strong or increasing?" },
-    { "id": "mf_29", "category": "mf", "weight": 1, "text": "Is demand for this currency's bonds/assets described as healthy?" },
-    { "id": "mf_30", "category": "mf", "weight": 1, "text": "Are currency strategists/analysts expressing positive views on this currency?" }
+    { "id": "mf_26", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency is attracting stronger foreign capital inflows?" },
+    { "id": "mf_27", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency is mentioned more frequently as a safe-haven asset?" },
+    { "id": "mf_28", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's assets show stronger investor demand?" },
+    { "id": "mf_29", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency do analysts express more bullish views on?" },
+    { "id": "mf_30", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region shows more positive investor sentiment?" }
   ],
-  "answer_options": ["YES", "NO"],
+  "answer_options": ["${base_currency}", "${quote_currency}"],
   "scoring": {
-    "per_question": { "YES": 1, "NO": 0 },
+    "per_question": {
+      "${base_currency}": 1,
+      "${quote_currency}": 0
+    },
     "per_currency_range": { "min": 0, "max": 30 },
     "net_formula": "NET = BASE - QUOTE",
     "thresholds": [
-      { "min": 15,  "max": 30,  "signal": "BUY_BASE",  "label": "Very Strong BUY base currency" },
-      { "min": 8,   "max": 14,  "signal": "BUY_BASE",  "label": "Strong BUY base currency" },
-      { "min": 3,   "max": 7,   "signal": "BUY_BASE",  "label": "Moderate BUY base currency" },
-      { "min": -2,  "max": 2,   "signal": "NEUTRAL",   "label": "NEUTRAL - No trade" },
-      { "min": -7,  "max": -3,  "signal": "SELL_BASE", "label": "Moderate SELL base currency" },
-      { "min": -14, "max": -8,  "signal": "SELL_BASE", "label": "Strong SELL base currency" },
-      { "min": -30, "max": -15, "signal": "SELL_BASE", "label": "Very Strong SELL base currency" }
+      { "min": 15,  "max": 30,  "signal": "BUY_BASE",  "label": "Very strong preference for ${base_currency}" },
+      { "min": 8,   "max": 14,  "signal": "BUY_BASE",  "label": "Strong preference for ${base_currency}" },
+      { "min": 3,   "max": 7,   "signal": "BUY_BASE",  "label": "Moderate preference for ${base_currency}" },
+      { "min": -2,  "max": 2,   "signal": "NEUTRAL",   "label": "Balanced outlook" },
+      { "min": -7,  "max": -3,  "signal": "SELL_BASE", "label": "Moderate preference for ${quote_currency}" },
+      { "min": -14, "max": -8,  "signal": "SELL_BASE", "label": "Strong preference for ${quote_currency}" },
+      { "min": -30, "max": -15, "signal": "SELL_BASE", "label": "Very strong preference for ${quote_currency}" }
     ]
   },
   "prompt": {
-    "system": "You are a precise macro/FX analyst. Answer strictly with JSON.",
-    "instructions": "For each currency independently (BASE then QUOTE), evaluate the provided news texts. For every question, answer YES if the texts support a bullish interpretation for that currency; otherwise answer NO. Be decisive and avoid hedging. Do not use outside knowledge beyond the timeframe.",
+    "system": "You are a decisive FX analyst. Answer strictly with JSON and select only from the supplied currency codes.",
+    "instructions": [
+      "For each question, respond with exactly one currency code: either ${base_currency} or ${quote_currency}. Do not produce any other token.",
+      "Treat every item independently. When evidence is balanced, pick the currency with even minimal support—avoid conservative hedging.",
+      "Support each choice with a brief factual rationale referencing the texts.",
+      "After completing all 30 choices, tally BASE when ${base_currency} is selected and QUOTE when ${quote_currency} is selected."
+    ],
     "notes": [
-      "Run the full 30 questions for BASE, then repeat for QUOTE.",
-      "Provide a brief one-sentence explanation for each answer.",
-      "Only use provided texts."
+      "Keep wording neutral; avoid speculative or forward-looking claims.",
+      "Do not mention the words \"base\" or \"quote\" in the explanations—use the currency codes only.",
+      "Cite concrete policy remarks, macro data points, or sentiment cues from the supplied material."
     ]
   },
   "response_template": {
-    "base_currency": "${base_currency}",
-    "quote_currency": "${quote_currency}",
-    "answers": {
-      "BASE": [ { "id": "cb_1", "answer": "YES_OR_NO" } ],
-      "QUOTE": [ { "id": "cb_1", "answer": "YES_OR_NO" } ]
-    },
+    "pair": "${base_currency}/${quote_currency}",
+    "answers": [
+      { "id": "cb_01", "answer": "${base_currency_or_quote}", "reason": "Factual reference from texts." }
+    ],
     "scores": {
       "BASE": 0,
       "QUOTE": 0,
       "NET": 0,
       "signal": "NEUTRAL"
     },
-    "rationale": "Optional short summary of key drivers."
+    "summary": "Optional short overview of key evidence."
   }
 }
