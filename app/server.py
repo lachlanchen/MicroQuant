@@ -523,8 +523,7 @@ def _build_news_prompt(article_text: str) -> str:
     return (
         "You are an analyst that only answers with JSON. "
         "Read the news article and answer each question with \"yes\" or \"no\". "
-        "If the article does not provide enough evidence, answer \"no\". "
-        "Base answers solely on the article provided.\n\n"
+        "If the article does not provide enough evidence, answer \"no\".\n\n"
         f"Article:\n---\n{article_text}\n---\n\n"
         "Questions:\n"
         f"{questions_block}\n\n"
@@ -2349,6 +2348,8 @@ class HealthRunHandler(tornado.web.RequestHandler):
             payload = {}
 
         kind = str(payload.get("kind") or "").lower()
+        # Optional template override coming from the UI select (e.g. forex_pair_neutral_30q.json)
+        strategy_override = str(payload.get("strategy") or payload.get("template") or "").strip()
         timeframe = str(payload.get("timeframe") or "30d")
         news_count = int(payload.get("news_count") or 3)
 
@@ -2714,8 +2715,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
