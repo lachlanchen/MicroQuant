@@ -41,6 +41,7 @@ from app.db import (
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
 from app.news_fetcher import fetch_symbol_digest
+from app.news_fetcher import fetch_fmp_snapshot
 from app.news_fetcher import fetch_fmp_forex_latest
 from app.news_fetcher import fetch_news_for_symbol
 
@@ -2015,6 +2016,12 @@ class NewsHandler(tornado.web.RequestHandler):
                 self.set_header("Cache-Control", "no-store")
                 self.finish(json.dumps({"ok": False, "error": str(e), "news": [], "snapshot": {}}))
                 return
+        if not snapshot:
+            try:
+                snapshot = await loop.run_in_executor(EXECUTOR, lambda: fetch_fmp_snapshot(symbol))
+            except Exception as exc:
+                logger.warning("[news] snapshot fallback failed for %s: %s", symbol, exc)
+                snapshot = {}
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         logger.info("[news] respond symbol=%s count=%d snapshot=%s", symbol, len(rows), bool(snapshot))
