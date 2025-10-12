@@ -106,10 +106,12 @@
     .stl-field .stl-lbl { text-align:right; white-space:nowrap; }
     .stl-field input[type="datetime-local"] { width: 240px; max-width: 100%; height: 32px; padding: 6px 8px; }
   </style>
-  <link rel="icon" href="data:," />
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+  <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico" />
   </head>
   <body>
     <header>
+      <img src="/static/logo.png" alt="Micro Quant" style="height:28px; width:auto; margin-right:10px; border-radius:4px; background:#fff; padding:2px;" />
       <h2>Micro Quant</h2>
       <iframe width="604" height="40" frameborder="0" class="efx" src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape" style="margin-left:12px; vertical-align:middle;"></iframe>
       <div style="display:flex; gap:16px; align-items:center;">
@@ -363,10 +365,6 @@
           </div>
           <div id="stratStatus" style="color:var(--muted)">Signal: —</div>
         </div>
-        <div class="row">
-          <button class="btn secondary" id="btnPos">Refresh Positions</button>
-        </div>
-        <pre id="positionsBox" style="background:var(--panel); padding:8px; border:1px solid var(--line); border-radius:8px; height:400px; overflow:auto;"></pre>
         <div id="rfRightForecasts" style="margin-top:12px; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;"
           class="rf-hidden"
           data-rf-type="iframe"
@@ -374,11 +372,29 @@
           data-rf-width="100%"
           data-rf-height="260"
           data-rf-placeholder="RoboForex forecasts widget disabled.">
-          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:14px;">
             <strong style="color:var(--accent)">RoboForex Market Forecasts</strong>
-          <div class="rf-head" style="position:static;">
-            <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
+            <div class="rf-head" style="position:static;">
+              <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
+            </div>
           </div>
+        <div style="margin:10px 0 12px 0;">
+          <a href="https://roboforex.com/"
+             class="efx"
+             target="_blank"
+             rel="noopener noreferrer sponsored"
+             style="display:block; width:100%; max-width:100%; box-sizing:border-box; text-align:center; padding:10px 12px; font-size:13px; font-weight:600; color:#fff; text-decoration:none; border-radius:10px; background:linear-gradient(90deg, var(--accent), var(--accent2)); box-shadow:0 6px 18px rgba(0,0,0,0.12); overflow:hidden;">
+            Data Source Provider
+          </a>
+        </div>
+        </div>
+        <!-- Positions moved to bottom (independent panel) -->
+        <div style="margin-top:12px;">
+          <div class="row">
+            <strong style="color:var(--accent)">Positions</strong>
+            <button class="btn secondary" id="btnPos" style="margin-left:auto;">Refresh</button>
+          </div>
+          <pre id="positionsBox" style="margin-top:6px; background:var(--panel); padding:8px; border:1px solid var(--line); border-radius:8px; height:300px; overflow:auto;"></pre>
         </div>
         
         
