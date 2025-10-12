@@ -260,6 +260,9 @@
               <input type="checkbox" id="chkStlAutoPeriod"{% if default_stl_auto_period != '0' %} checked{% end %} />
               <span>Auto period</span>
             </label>
+            <label>Period
+              <input type="number" id="stlPeriodInput" min="3" value="{{ default_stl_manual_period }}" disabled />
+            </label>
             <label class="switch">
               <input type="checkbox" id="chkStlDerivative" checked />
               <span>Show STL speed</span>
@@ -267,9 +270,6 @@
             <label class="switch">
               <input type="checkbox" id="chkStlAcceleration" />
               <span>Show STL accel</span>
-            </label>
-            <label>Period
-              <input type="number" id="stlPeriodInput" min="3" value="{{ default_stl_manual_period }}" disabled />
             </label>
             <label class="switch">
               <input type="checkbox" id="chkStlPeriodLines" />
@@ -2192,32 +2192,27 @@ const ensureLwMacd = () => {
         if (trendData.length && stlTrendSeries) stlTrendSeries.setData(trendData);
         if (seasonalData.length && stlSeasonSeries) stlSeasonSeries.setData(seasonalData);
         if (residData.length && stlResidSeries) stlResidSeries.setData(residData);
-        if (trendData.length > 1) {
-          const speedRaw = [];
-          for (let i = 1; i < trendData.length; i += 1) {
-            const prev = trendData[i - 1];
-            const curr = trendData[i];
-            const dt = (curr.time ?? 0) - (prev.time ?? 0);
-            if (!dt) continue;
-            const dv = (curr.value ?? 0) - (prev.value ?? 0);
-            speedRaw.push({ time: curr.time, value: dv / dt });
-          }
-          const maxAbsSpeed = speedRaw.reduce((acc, p) => Math.max(acc, Math.abs(p.value ?? 0)), 0);
-          const speedScale = maxAbsSpeed > 0 ? maxAbsSpeed : 1;
-          stlSpeedPoints = speedRaw.map((p) => ({ time: p.time, value: (p.value ?? 0) / speedScale }));
+        if (trendData.length > 2) {
+          const trendValues = trendData.map((pt) => Number(pt.value) || 0);
+          const mean = trendValues.reduce((acc, val) => acc + val, 0) / trendValues.length;
+          const variance = trendValues.reduce((acc, val) => {
+            const diff = val - mean;
+            return acc + diff * diff;
+          }, 0) / trendValues.length;
+          const scale = Number.isFinite(variance) && variance > 0 ? Math.sqrt(variance) : Math.max(1, Math.abs(mean) || 1);
+          const normalizedTrend = trendValues.map((val) => (val - mean) / scale);
 
-          const accelRaw = [];
-          for (let i = 1; i < speedRaw.length; i += 1) {
-            const prev = speedRaw[i - 1];
-            const curr = speedRaw[i];
-            const dt = (curr.time ?? 0) - (prev.time ?? 0);
-            if (!dt) continue;
-            const dv = (curr.value ?? 0) - (prev.value ?? 0);
-            accelRaw.push({ time: curr.time, value: dv / dt });
+          stlSpeedPoints = [];
+          for (let i = 1; i < normalizedTrend.length; i += 1) {
+            const speedVal = normalizedTrend[i] - normalizedTrend[i - 1];
+            stlSpeedPoints.push({ time: trendData[i].time, value: speedVal });
           }
-          const maxAbsAccel = accelRaw.reduce((acc, p) => Math.max(acc, Math.abs(p.value ?? 0)), 0);
-          const accelScale = maxAbsAccel > 0 ? maxAbsAccel : 1;
-          stlAccelPoints = accelRaw.map((p) => ({ time: p.time, value: (p.value ?? 0) / accelScale }));
+
+          stlAccelPoints = [];
+          for (let i = 1; i < stlSpeedPoints.length; i += 1) {
+            const accelVal = (stlSpeedPoints[i].value ?? 0) - (stlSpeedPoints[i - 1].value ?? 0);
+            stlAccelPoints.push({ time: stlSpeedPoints[i].time, value: accelVal });
+          }
         } else {
           stlSpeedPoints = [];
           stlAccelPoints = [];
