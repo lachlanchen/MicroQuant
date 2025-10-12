@@ -2030,7 +2030,7 @@
         });
       }
 
-      function applyStlData(rows, meta) {
+      async function applyStlData(rows, meta) {
         const box = el('stlStatus');
         if (!rows || !rows.length) {
           clearStlOverlay('No STL data cached yet. Use Recalculate to compute.');
