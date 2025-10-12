@@ -11,6 +11,7 @@ from typing import Any
 import tornado.ioloop
 import tornado.web
 from tornado.websocket import WebSocketHandler
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 from dotenv import load_dotenv
 import numpy as np
 from statsmodels.tsa.seasonal import STL
@@ -3320,6 +3321,40 @@ class TradePlanHandler(tornado.web.RequestHandler):
 
         basic_run = await _latest_run(basic_strategy)
         tech_run = await _latest_run("tech_snapshot_10q.json")
+
+        # Ensure prerequisite reports exist: if missing, trigger them via the same API
+        # so they are persisted to history just like a frontend click.
+        if basic_run is None or tech_run is None:
+            try:
+                client = AsyncHTTPClient()
+                base_url = f"{self.request.protocol}://{self.request.host}"
+                url = base_url + "/api/health/run"
+                # Run Basic health if absent
+                if basic_run is None:
+                    basic_payload: dict[str, Any] = {
+                        "kind": kind,
+                        "symbol": symbol,
+                        "strategy": basic_strategy,
+                        # keep defaults for news_count/timeframe; server will pick sensible values
+                    }
+                    req = HTTPRequest(url, method="POST", headers={"Content-Type": "application/json"}, body=json.dumps(basic_payload))
+                    await client.fetch(req, raise_error=False)
+                # Run Tech+AI snapshot (requires snapshot text) if absent
+                if tech_run is None and snapshot_text:
+                    tech_payload: dict[str, Any] = {
+                        "kind": kind,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "strategy": "tech_snapshot_10q.json",
+                        "tech_snapshot": snapshot_text,
+                    }
+                    req2 = HTTPRequest(url, method="POST", headers={"Content-Type": "application/json"}, body=json.dumps(tech_payload))
+                    await client.fetch(req2, raise_error=False)
+            except Exception:
+                logger.debug("failed to auto-run basic/tech reports before trade plan", exc_info=True)
+            # Requery after attempted creation
+            basic_run = await _latest_run(basic_strategy)
+            tech_run = await _latest_run("tech_snapshot_10q.json")
 
         def _format_run_block(run: dict | None) -> str:
             if not run:
