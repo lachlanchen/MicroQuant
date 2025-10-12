@@ -68,13 +68,18 @@ class MixedAIRequestJSONBase:
 
     def _call_with_fallback(self, method_name: str, *args, **kwargs):
         last_exc: Optional[Exception] = None
-        for provider in self._order:
+        # Allow caller to hint a specific provider (e.g., 'openai' or 'deepseek')
+        preferred = (kwargs.pop('provider', None) or kwargs.pop('preferred_provider', None) or '').strip().lower()
+        if preferred and preferred in self._order:
+            trial_order = [preferred] + [p for p in self._order if p != preferred]
+        else:
+            trial_order = list(self._order)
+        for provider in trial_order:
             client = self._clients.get(provider)
             if not client:
                 continue
             call_kwargs = dict(kwargs)
-            if provider != 'openai' and 'model' in call_kwargs:
-                call_kwargs['model'] = None
+            # Pass through model to both providers; each client handles its defaults
             try:
                 method = getattr(client, method_name)
                 return method(*args, **call_kwargs)

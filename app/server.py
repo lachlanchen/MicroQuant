@@ -735,6 +735,7 @@ PREF_KEYS = [
     "last_fast",
     "last_slow",
     "chart_shift",
+    "trade_ai_model",
 ]
 
 def _default_backfill_days(tf: str) -> int:
@@ -3085,9 +3086,34 @@ class TradePlanHandler(tornado.web.RequestHandler):
         )
 
         # Call AI
+        # Optional model/provider override (only for trade plans)
+        model = None
+        provider = None
+        try:
+            req = json.loads(self.request.body or b"{}")
+            model = str((req or {}).get("model") or "").strip() or None
+            provider = str((req or {}).get("provider") or "").strip().lower() or None
+        except Exception:
+            model = None
+            provider = None
+        # Infer provider from model when not explicitly provided
+        if not provider and model:
+            low = model.lower()
+            if low.startswith("deepseek"):
+                provider = "deepseek"
+            else:
+                provider = "openai"
         try:
             out = await tornado.ioloop.IOLoop.current().run_in_executor(
-                EXECUTOR, lambda: AI_CLIENT.send_request_with_json_schema(prompt, TRADE_PLAN_SCHEMA, system_content="You are a disciplined trading assistant. Reply only with JSON matching the schema.", schema_name="trade_plan")
+                EXECUTOR,
+                lambda: AI_CLIENT.send_request_with_json_schema(
+                    prompt,
+                    TRADE_PLAN_SCHEMA,
+                    system_content="You are a disciplined trading assistant. Reply only with JSON matching the schema.",
+                    schema_name="trade_plan",
+                    model=model,
+                    provider=provider,
+                ),
             )
         except Exception as exc:
             self.set_status(502)

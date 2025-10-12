@@ -278,6 +278,16 @@
                 <span style="display:inline-block; width:120px; text-align:right;">Leverage</span>
                 <input id="aiLeverage" type="number" min="1" max="100" value="10" style="width:80px;" />
               </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Trade AI model</span>
+                <select id="aiModelSelect" style="min-width:220px; padding:4px 6px;">
+                  <option value="gpt-5">gpt-5 (default)</option>
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                  <option value="deepseek-chat">deepseek-chat</option>
+                  <option value="deepseek-reasoner">deepseek-reasoner</option>
+                </select>
+              </label>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <button class="btn btn-buy" id="btnAiBuy" style="padding:6px 10px;">AI Buy</button>
@@ -723,6 +733,31 @@
       const currentBarsLimit = () => Math.max(10, Number(countInput && countInput.value ? countInput.value : DEFAULT_BARS) || DEFAULT_BARS);
       applyTechWindowDefault(true);
       ensureStrategyForKind(isFxPair(currentSymbol()) ? 'forex_pair' : 'stock');
+
+      // Trade AI model preference
+      const aiModelSelect = el('aiModelSelect');
+      const getTradeAiModel = () => {
+        const val = aiModelSelect && aiModelSelect.value ? aiModelSelect.value.trim() : '';
+        return val || 'gpt-5';
+      };
+      if (aiModelSelect) {
+        aiModelSelect.value = 'gpt-5';
+        aiModelSelect.addEventListener('change', () => {
+          const model = getTradeAiModel();
+          try { queuePrefUpdate('trade_ai_model', model); } catch (e) {}
+        });
+        // Load saved preference (non-blocking)
+        (async () => {
+          try {
+            const r = await fetch(`${PREF_ENDPOINT}?keys=trade_ai_model`, { cache: 'no-store' });
+            const js = await r.json();
+            const saved = js && js.prefs && js.prefs.trade_ai_model;
+            if (saved && typeof saved === 'string') {
+              aiModelSelect.value = saved;
+            }
+          } catch {}
+        })();
+      }
 
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
@@ -2167,7 +2202,7 @@ const ensureLwMacd = () => {
         try {
           const snapshot = buildTechSnapshotString();
           const side = (typeof tradeState !== 'undefined' && tradeState && tradeState.action) ? tradeState.action : 'BUY';
-          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot };
+          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) { outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
@@ -2194,7 +2229,7 @@ const ensureLwMacd = () => {
         if (outBox) outBox.textContent = 'Drafting plan…';
         try {
           const snapshot = buildTechSnapshotString();
-          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot };
+          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) { if (outBox) outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
@@ -2262,7 +2297,7 @@ const ensureLwMacd = () => {
         outBox.textContent = 'Drafting plan…';
         try {
           const snapshot = buildTechSnapshotString();
-          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot };
+          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) { outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
