@@ -2317,31 +2317,95 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
         last_run_at = last_run_at_dt.isoformat() if last_run_at_dt else None
         last_news_used = int(last_run.get("news_count") or 0) if last_run else 0
 
+        # Determine the latest published time among the news actually used in the run
+        base_url_list: list[str] = []
+        used_symbols: set[str] = set()
+        try:
+            raw_ids = list((last_run or {}).get("news_ids") or [])
+        except Exception:
+            raw_ids = []
+        if raw_ids:
+            for ident in raw_ids:
+                try:
+                    s = str(ident)
+                    # Forex runs store "CCY:url"; stocks store plain URL
+                    if len(s) > 4 and s[:3].isalpha() and s[3] == ":":
+                        used_symbols.add(s[:3].upper())
+                        base_url_list.append(s[4:])
+                    else:
+                        base_url_list.append(s)
+                except Exception:
+                    continue
+        # For stocks, ensure symbol is counted even if news_ids had plain URLs
+        if kind == "stock" and symbol:
+            used_symbols.add(symbol)
+        # For forex, include explicit base/quote as fallbacks
+        if kind == "forex_pair":
+            if base: used_symbols.add(base)
+            if quote: used_symbols.add(quote)
+
+        baseline_iso = None
+        try:
+            if base_url_list:
+                async with self.pool.acquire() as conn:
+                    baseline_ts = await conn.fetchval(
+                        "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE url = ANY($1::text[])",
+                        base_url_list,
+                    )
+                if baseline_ts is not None and hasattr(baseline_ts, "isoformat"):
+                    baseline_iso = baseline_ts.isoformat()
+        except Exception:
+            baseline_iso = None
+        # Fallback to run creation time if we couldn't resolve a baseline from news_ids
+        if baseline_iso is None and last_run_at_dt is not None:
+            baseline_ts = last_run_at_dt
+            baseline_iso = last_run_at
+
         # Latest news timestamp and count since last run
         latest_news_iso = None
         new_count = None
         try:
             async with self.pool.acquire() as conn:
-                latest_ts = await conn.fetchval(
-                    "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE symbol=$1",
-                    symbol,
-                )
+                # Latest overall ts among relevant symbols
+                if used_symbols:
+                    latest_ts = await conn.fetchval(
+                        "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE symbol = ANY($1::text[])",
+                        list(used_symbols),
+                    )
+                else:
+                    latest_ts = await conn.fetchval(
+                        "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE symbol=$1",
+                        symbol,
+                    )
                 if latest_ts is not None and hasattr(latest_ts, "isoformat"):
                     latest_news_iso = latest_ts.isoformat()
-                # Count newer items
-                if last_run_at_dt is not None:
-                    new_count_val = await conn.fetchval(
-                        "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1 AND COALESCE(published_at, created_at) > $2",
-                        symbol,
-                        last_run_at_dt,
-                    )
+                # Count newer items strictly after the baseline used for that run
+                if 'baseline_ts' in locals() and baseline_ts is not None:
+                    if used_symbols:
+                        new_count_val = await conn.fetchval(
+                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol = ANY($1::text[]) AND COALESCE(published_at, created_at) > $2",
+                            list(used_symbols),
+                            baseline_ts,
+                        )
+                    else:
+                        new_count_val = await conn.fetchval(
+                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1 AND COALESCE(published_at, created_at) > $2",
+                            symbol,
+                            baseline_ts,
+                        )
                     new_count = int(new_count_val or 0)
                 else:
                     # If never ran, report total as 'new'
-                    new_count_val = await conn.fetchval(
-                        "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1",
-                        symbol,
-                    )
+                    if used_symbols:
+                        new_count_val = await conn.fetchval(
+                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol = ANY($1::text[])",
+                            list(used_symbols),
+                        )
+                    else:
+                        new_count_val = await conn.fetchval(
+                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1",
+                            symbol,
+                        )
                     new_count = int(new_count_val or 0)
         except Exception:
             pass
@@ -2364,6 +2428,7 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                     "status": status,
                     "latest_news_at": latest_news_iso,
                     "last_run_at": last_run_at,
+                    "baseline_at": baseline_iso,
                     "new_count": new_count,
                     "last_run_news_count": last_news_used,
                 }
