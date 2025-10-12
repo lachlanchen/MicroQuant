@@ -990,7 +990,7 @@
           const elDeriv = document.getElementById('lwDeriv');
           if (!elDeriv) return;
           lwDerivChart = LightweightCharts.createChart(elDeriv, {
-            rightPriceScale: { visible: true },
+            rightPriceScale: { visible: true, scaleMargins: { top: 0.2, bottom: 0.2 } },
             leftPriceScale: { visible: false },
             timeScale: { rightOffset: 10, fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
@@ -1083,6 +1083,25 @@ const ensureLwMacd = () => {
         }
         if (lwDerivAccelSeries) {
           lwDerivAccelSeries.setData(showAccel ? stlAccelPoints : []);
+        }
+        const combinedValues = [];
+        if (showSpeed) {
+          stlSpeedPoints.forEach((pt) => combinedValues.push(Number(pt.value) || 0));
+        }
+        if (showAccel) {
+          stlAccelPoints.forEach((pt) => combinedValues.push(Number(pt.value) || 0));
+        }
+        const maxAbs = combinedValues.reduce((acc, val) => Math.max(acc, Math.abs(val)), 0);
+        const range = maxAbs > 0 ? maxAbs * 1.05 : 1;
+        const provider = () => ({ priceRange: { minValue: -range, maxValue: range } });
+        if (lwDerivSpeedSeries && typeof lwDerivSpeedSeries.setAutoscaleInfoProvider === 'function') {
+          lwDerivSpeedSeries.setAutoscaleInfoProvider(provider);
+        }
+        if (lwDerivAccelSeries && typeof lwDerivAccelSeries.setAutoscaleInfoProvider === 'function') {
+          lwDerivAccelSeries.setAutoscaleInfoProvider(provider);
+        }
+        if (lwDerivChart) {
+          lwDerivChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.2, bottom: 0.2 } });
         }
         lwDerivHasSpeed = showSpeed && stlSpeedPoints.length > 0;
         lwDerivHasAccel = showAccel && stlAccelPoints.length > 0;
