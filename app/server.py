@@ -1661,6 +1661,7 @@ async def make_app():
             (r"/api/close", CloseHandler),
             (r"/api/positions", PositionsHandler),
             (r"/api/tick", TickHandler),
+            (r"/api/health/freshness", HealthFreshnessHandler, dict(pool=pool)),
             (r"/api/account/balance_series", AccountBalanceHandler, dict(pool=pool)),
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
@@ -2232,6 +2233,92 @@ class PreferencesHandler(tornado.web.RequestHandler):
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "updated": sorted(updates.keys())}))
 
+
+class HealthFreshnessHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        symbol = str(self.get_argument("symbol", default=default_symbol())).upper()
+        strategy = self.get_argument("strategy", default=None)
+
+        # Determine kind and defaults
+        if _is_fx_symbol(symbol):
+            kind = "forex_pair"
+            base = symbol[:3]
+            quote = symbol[3:6]
+        else:
+            kind = "stock"
+            base = None
+            quote = None
+        if not strategy:
+            strategy = DEFAULT_STRATEGIES.get(kind)
+
+        # Find latest run for this symbol/strategy
+        try:
+            if kind == "stock":
+                runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=1, strategy=str(strategy) if strategy else None)
+            else:
+                runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=1, strategy=str(strategy) if strategy else None)
+        except Exception:
+            runs = []
+        last_run = runs[0] if runs else None
+        last_run_at_dt = last_run.get("created_at") if last_run else None
+        last_run_at = last_run_at_dt.isoformat() if last_run_at_dt else None
+        last_news_used = int(last_run.get("news_count") or 0) if last_run else 0
+
+        # Latest news timestamp and count since last run
+        latest_news_iso = None
+        new_count = None
+        try:
+            async with self.pool.acquire() as conn:
+                latest_ts = await conn.fetchval(
+                    "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE symbol=$1",
+                    symbol,
+                )
+                if latest_ts is not None and hasattr(latest_ts, "isoformat"):
+                    latest_news_iso = latest_ts.isoformat()
+                # Count newer items
+                if last_run_at_dt is not None:
+                    new_count_val = await conn.fetchval(
+                        "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1 AND COALESCE(published_at, created_at) > $2",
+                        symbol,
+                        last_run_at_dt,
+                    )
+                    new_count = int(new_count_val or 0)
+                else:
+                    # If never ran, report total as 'new'
+                    new_count_val = await conn.fetchval(
+                        "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1",
+                        symbol,
+                    )
+                    new_count = int(new_count_val or 0)
+        except Exception:
+            pass
+
+        status = "unknown"
+        if last_run_at_dt is not None:
+            status = "fresh" if (new_count or 0) == 0 else "stale"
+        elif (new_count or 0) > 0:
+            status = "stale"
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            json.dumps(
+                {
+                    "ok": True,
+                    "symbol": symbol,
+                    "kind": kind,
+                    "strategy": strategy,
+                    "status": status,
+                    "latest_news_at": latest_news_iso,
+                    "last_run_at": last_run_at,
+                    "new_count": new_count,
+                    "last_run_news_count": last_news_used,
+                }
+            )
+        )
 
 class ConfigHandler(tornado.web.RequestHandler):
     async def get(self):
