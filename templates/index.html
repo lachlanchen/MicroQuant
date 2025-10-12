@@ -111,15 +111,6 @@
   <body>
     <header>
       <h2>Micro Quant</h2>
-      <iframe width="604" height="40" frameborder="0" class="efx" src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape" style="margin-left:12px; vertical-align:middle;"></iframe>
-      <div id="rfTopQuotes" class="rf-inline rf-hidden"
-        data-rf-type="iframe"
-        data-rf-src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=450&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape"
-        data-rf-width="450"
-        data-rf-height="40"
-        data-rf-placeholder="RoboForex quotes widget disabled.">
-        <button id="rfTopQuotesClose" title="Hide">×</button>
-      </div>
       <div style="display:flex; gap:16px; align-items:center;">
         <div id="signalBar" style="display:flex; gap:8px; align-items:center;">
           <span id="signalDot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#999;"></span>
@@ -726,6 +717,7 @@
       let lwSubscriptionsEnabled = false;
       let lwVolSubscribed = false, lwRsiSubscribed = false, lwMacdSubscribed = false; // sync disabled
       let lwDerivSubscribed = false;
+      let lwAtrSubscribed = false, lwAdxSubscribed = false;
       let lwVolHasData = false, lwRsiHasData = false, lwMacdHasData = false;
       let lwDerivHasSpeed = false, lwDerivHasAccel = false;
 
@@ -1535,6 +1527,12 @@ const ensureLwMacd = () => {
         if (!lwAtrSeries && lwAtrChart) {
           lwAtrSeries = lwAtrChart.addLineSeries({ color: '#455a64', lineWidth: 2 });
         }
+        if (!lwAtrSubscribed && lwAtrChart) {
+          lwAtrChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            handleChartRangeChange(lwAtrChart);
+          });
+          lwAtrSubscribed = true;
+        }
       };
 
       const ensureLwAdx = () => {
@@ -1556,6 +1554,12 @@ const ensureLwMacd = () => {
         }
         if (!lwAdxMinus && lwAdxChart) {
           lwAdxMinus = lwAdxChart.addLineSeries({ color: '#e74c3c', lineWidth: 1.5 });
+        }
+        if (!lwAdxSubscribed && lwAdxChart) {
+          lwAdxChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            handleChartRangeChange(lwAdxChart);
+          });
+          lwAdxSubscribed = true;
         }
       };
 
@@ -1972,6 +1976,12 @@ const ensureLwMacd = () => {
           }
           if (lwDerivChart && (lwDerivHasSpeed || lwDerivHasAccel) && sourceChart !== lwDerivChart) {
             setLogicalRangeIfNeeded(lwDerivChart, logicalRange);
+          }
+          if (lwAtrChart && (lastAtrValues && lastAtrValues.length) && sourceChart !== lwAtrChart) {
+            setLogicalRangeIfNeeded(lwAtrChart, logicalRange);
+          }
+          if (lwAdxChart && (lastAdxObj && (lastAdxObj.adx||[]).length) && sourceChart !== lwAdxChart) {
+            setLogicalRangeIfNeeded(lwAdxChart, logicalRange);
           }
         } finally {
           lwSyncing = false;
@@ -4708,7 +4718,7 @@ const ensureLwMacd = () => {
       const RF_TOP_KEY = 'rfTopQuotesHidden';
       const RF_BOT_KEY = 'rfBottomBannerHidden';
       const RF_BR_KEY = 'rfRightForecastsHidden';
-      const RF_WIDGET_IDS = ['rfTopQuotes', 'rfBottomBanner', 'rfRightForecasts'];
+      const RF_WIDGET_IDS = ['rfBottomBanner', 'rfRightForecasts'];
       const rfOptIn = (() => {
         try {
           const v = localStorage.getItem('rfWidgetsOptIn');
