@@ -1495,7 +1495,13 @@ class FetchHandler(tornado.web.RequestHandler):
         else:
             background_flag = background_requested
         deferred = bool(background_requested) and mode in {"inc", "full"}
-        logger.info("/api/fetch symbol=%s tf=%s count=%s mode=%s", symbol, timeframe, count, mode)
+        persist_arg = self.get_argument("persist", default=None)
+        def _truthy(v: str | None) -> bool:
+            if v is None:
+                return False
+            return str(v).strip().lower() in {"1", "true", "yes", "on"}
+        persist_flag = _truthy(persist_arg)
+        logger.info("/api/fetch symbol=%s tf=%s count=%s mode=%s persist=%s", symbol, timeframe, count, mode, persist_flag)
         schedule_backfill = (mode == "inc")
         info = await _perform_fetch(
             self.pool,
@@ -1504,7 +1510,7 @@ class FetchHandler(tornado.web.RequestHandler):
             count,
             mode,
             schedule_backfill=schedule_backfill,
-            persist_selection=True,
+            persist_selection=persist_flag,
             event_scope="interactive",
             background=background_flag,
             deferred=deferred,

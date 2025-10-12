@@ -4063,6 +4063,7 @@ const ensureLwMacd = () => {
             count,
             mode,
           });
+          params.set('persist', '1');
           if (background) params.set('background', '1');
           const r = await fetch(`/api/fetch?${params.toString()}`, { cache: 'no-store' });
           const js = await r.json().catch(() => ({}));
