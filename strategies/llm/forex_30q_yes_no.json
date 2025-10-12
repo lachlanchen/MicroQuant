@@ -74,11 +74,10 @@
   },
   "prompt": {
     "system": "You are a precise macro/FX analyst. Answer strictly with JSON.",
-    "instructions": "For each currency independently (BASE then QUOTE), evaluate the provided news texts. For every question, answer YES if the texts support a bullish interpretation for that currency; otherwise answer NO. Be decisive and avoid hedging. Do not use outside knowledge beyond the timeframe.",
+    "instructions": "For each currency independently (BASE then QUOTE), evaluate the provided news texts. For every question, answer YES if the texts support a bullish interpretation for that currency; otherwise answer NO. Be decisive and avoid hedging.",
     "notes": [
       "Run the full 30 questions for BASE, then repeat for QUOTE.",
-      "Provide a brief one-sentence explanation for each answer.",
-      "Only use provided texts."
+      "Provide a brief one-sentence explanation for each answer."
     ]
   },
   "response_template": {
