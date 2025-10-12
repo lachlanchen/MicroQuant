@@ -82,6 +82,7 @@
     .rf-btn { border:0; background:rgba(0,0,0,0.5); color:#fff; width:18px; height:18px; line-height:18px; border-radius:3px; font-size:12px; cursor:pointer; }
     .rf-btn:hover { background:rgba(0,0,0,0.7); }
     .rf-hidden { display:none !important; }
+    .rf-placeholder { font-size:12px; color:var(--muted); display:block; padding:4px 0; }
     .rf-inline { display:flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:4px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.08); margin-left:16px; }
     .rf-inline button { border:0; background:transparent; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; padding:0 4px; }
     .rf-inline button:hover { color:#000; }
@@ -110,10 +111,12 @@
   <body>
     <header>
       <h2>Micro Quant</h2>
-      <div id="rfTopQuotes" class="rf-inline">
-        <iframe width="450" height="40" frameborder="0" class="efx" loading="lazy"
-          src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=450&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape">
-        </iframe>
+      <div id="rfTopQuotes" class="rf-inline rf-hidden"
+        data-rf-type="iframe"
+        data-rf-src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=450&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape"
+        data-rf-width="450"
+        data-rf-height="40"
+        data-rf-placeholder="RoboForex quotes widget disabled.">
         <button id="rfTopQuotesClose" title="Hide">×</button>
       </div>
       <div style="display:flex; gap:16px; align-items:center;">
@@ -296,16 +299,19 @@
           <button class="btn secondary" id="btnPos">Refresh Positions</button>
         </div>
         <pre id="positionsBox" style="background:var(--panel); padding:8px; border:1px solid var(--line); border-radius:8px; height:400px; overflow:auto;"></pre>
-        <div id="rfRightForecasts" style="margin-top:12px; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;">
+        <div id="rfRightForecasts" style="margin-top:12px; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;"
+          class="rf-hidden"
+          data-rf-type="iframe"
+          data-rf-src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts"
+          data-rf-width="100%"
+          data-rf-height="260"
+          data-rf-placeholder="RoboForex forecasts widget disabled.">
           <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
             <strong style="color:var(--accent)">RoboForex Market Forecasts</strong>
             <div class="rf-head" style="position:static;">
               <button class="rf-btn" id="rfRightForecastsClose" title="Hide">×</button>
             </div>
           </div>
-          <iframe width="100%" height="260" frameborder="0" class="efx" loading="lazy"
-            src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=300&theme_2=classic&amount=5&type=forecasts">
-          </iframe>
         </div>
       </div>
     </div>
@@ -331,21 +337,37 @@
     </div>
 
     <!-- Affiliate floating widgets -->
-    <div id="rfBottomBanner" class="rf-floating rf-bottom" style="width:728px; height:90px;">
+    <div id="rfBottomBanner" class="rf-floating rf-bottom rf-hidden" style="width:728px; height:90px;"
+      data-rf-type="img"
+      data-rf-src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg"
+      data-rf-width="728"
+      data-rf-height="90"
+      data-rf-placeholder="RoboForex banner disabled.">
       <div class="rf-head">
         <button class="rf-btn" id="rfBottomBannerClose" title="Hide">×</button>
       </div>
-      <a href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
-        <img loading="lazy" src="https://my.roboforex.com/files/banners/38_en_rbfx_728x90__3b5edc5363862a2d33fef8a5eff0e961.jpg" alt="RoboForex" width="728" height="90" />
+      <a id="rfBottomBannerLink" href="https://roboforex.com/?utm_source=domain&amp;utm_medium=affbanerimg&amp;utm_content=size728_90&amp;utm_campaign=affconditions&amp;a=efx" target="_blank" rel="noopener noreferrer sponsored">
       </a>
     </div>
 
     <script>
       const el = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+      let DEBUG_LOGS = false;
+      try {
+        if (window.DEBUG_LOGS === true) {
+          DEBUG_LOGS = true;
+        } else if (typeof localStorage !== 'undefined' && localStorage.getItem('debugLogs') === '1') {
+          DEBUG_LOGS = true;
+        }
+      } catch (_) {
+        DEBUG_LOGS = false;
+      }
+      const debugLog = (...args) => { if (DEBUG_LOGS) console.log(...args); };
+      const debugWarn = (...args) => { if (DEBUG_LOGS) console.warn(...args); };
       const status = (msg) => {
         el('status').textContent = msg || '';
-        if (msg) console.log('[App]', msg);
+        if (msg && DEBUG_LOGS) console.log('[App]', msg);
       };
       // Update top signal UI (dot color and Trade button)
       let lastSignal = 'hold';
@@ -358,7 +380,7 @@
         if (lastSignal === 'sell') color = getComputedStyle(document.documentElement).getPropertyValue('--sell').trim() || '#e74c3c';
         if (dot) dot.style.background = color;
         if (btn) btn.disabled = !(lastSignal === 'buy' || lastSignal === 'sell');
-        if (reason) console.log('[Strategy]', lastSignal, reason);
+        if (reason && DEBUG_LOGS) console.log('[Strategy]', lastSignal, reason);
       }
 
       // Read config from data-attributes (CSV → array)
@@ -368,7 +390,7 @@
       const NEWS_AI_AVAILABLE = cfgNode ? (cfgNode.getAttribute('data-ai') === '1') : false;
       const APP_SYMBOLS = _csv ? _csv.split(',').map(s => s.trim()).filter(Boolean) : ['XAUUSD'];
       const APP_DEFAULT_SYMBOL = _def || (APP_SYMBOLS.length ? APP_SYMBOLS[0] : 'XAUUSD');
-      console.log('[App] Config symbols/default:', APP_SYMBOLS, APP_DEFAULT_SYMBOL);
+      debugLog('[App] Config symbols/default:', APP_SYMBOLS, APP_DEFAULT_SYMBOL);
       const DEFAULT_TF = "{{ default_tf }}";
       const DEFAULT_BARS = Number("{{ default_count }}") || 500;
       const DEFAULT_STL_AUTO_PERIOD = "{{ default_stl_auto_period }}";
@@ -435,6 +457,7 @@
       const stlOverlayData = new Map();
       const stlOverlayInputs = new Map();
       const stlOverlayLoading = new Map();
+      const stlOverlayPending = new Set();
       let stlAutoPeriod = !(DEFAULT_STL_AUTO_PERIOD === '0' || DEFAULT_STL_AUTO_PERIOD === 'false');
       let stlManualPeriod = DEFAULT_STL_MANUAL_PERIOD;
       const stlPeriodLinesToggle = el('chkStlPeriodLines');
@@ -587,7 +610,7 @@
             body: JSON.stringify(payload),
           });
         } catch (err) {
-          console.warn('[App] Preference update failed', err);
+          debugWarn('[App] Preference update failed', err);
         }
       };
 
@@ -606,10 +629,10 @@
         chartRefreshTimer = setTimeout(async () => {
           chartRefreshTimer = null;
           try {
-            console.log('[App] Refreshing chart due to', reason);
+            debugLog('[App] Refreshing chart due to', reason);
             await refreshChart();
           } catch (err) {
-            console.warn('[App] Chart refresh failed for', reason, err);
+            debugWarn('[App] Chart refresh failed for', reason, err);
           }
         }, 400);
       };
@@ -1637,7 +1660,7 @@
       }
       function handleFetchEvent(data) {
         if (!data) return;
-        console.log('[WS] fetch event', data);
+        debugLog('[WS] fetch event', data);
         if (data.status === 'scheduled' && data.background) {
           status(`Background fetch scheduled (${data.symbol} ${data.timeframe})`);
           return;
@@ -1673,8 +1696,9 @@
         const overlayKey = `${data.symbol}__${data.timeframe}`;
         stlOverlayLoading.delete(overlayKey);
         stlOverlayData.delete(overlayKey);
+        const wasPending = stlOverlayPending.delete(overlayKey);
         const pendingInput = stlOverlayInputs.get(data.timeframe);
-        if (pendingInput && pendingInput.dataset.loading === '1') {
+        if (pendingInput && (wasPending || pendingInput.dataset.loading === '1')) {
           pendingInput.dataset.loading = '';
         }
         if (sameSymbol && sameTf && data.status === 'scheduled') {
@@ -1693,6 +1717,8 @@
           if (sameSymbol && sameTf) {
             stlPendingCompute = false;
             refreshStlOverlay({ autoCompute: false });
+          } else if (sameSymbol && pendingInput && !pendingInput.disabled) {
+            pendingInput.checked = false;
           }
           return;
         }
@@ -1707,6 +1733,9 @@
           refreshStlOverlay({ runId: data.run_id || null, autoCompute: false });
         } else if (!sameSymbol || !sameTf) {
           status(`STL ${data.status} (${desc}${note ? `, ${data.note}` : ''})`);
+        }
+        if (sameSymbol && data.timeframe !== currentTf() && isStlOverlayEnabled(data.timeframe)) {
+          loadStlOverlay(data.timeframe);
         }
         syncStlOverlayVisibility();
       }
@@ -1745,6 +1774,29 @@
       }
       function overlayKey(symbol, tf) {
         return `${symbol}__${tf}`;
+      }
+      function scheduleStlOverlayCompute(symbol, tf) {
+        const key = overlayKey(symbol, tf);
+        if (stlOverlayPending.has(key)) return;
+        const input = stlOverlayInputs.get(tf);
+        if (input) input.dataset.loading = '1';
+        stlOverlayPending.add(key);
+        status(`Scheduling STL overlay compute (${symbol} ${tf})...`);
+        triggerStl('current', {
+          symbol,
+          timeframe: tf,
+          silent: true,
+          skipPref: true,
+          allData: true,
+        })
+          .then(() => {
+            debugLog('[STL overlay] compute scheduled', symbol, tf);
+          })
+          .catch((err) => {
+            stlOverlayPending.delete(key);
+            debugWarn('[STL overlay] compute schedule failed', symbol, tf, err);
+            status(`Failed to schedule STL overlay (${symbol} ${tf}).`);
+          });
       }
       function applyStoredOverlay(tf) {
         if (curType !== 'candlestick') return;
@@ -1799,18 +1851,21 @@
           }
           stlOverlayData.set(key, seriesData);
           applyStoredOverlay(tf);
-          console.log(`[STL overlay] loaded ${symbol} ${tf}`);
+          debugLog(`[STL overlay] loaded ${symbol} ${tf}`);
         })().catch((err) => {
-          console.warn('[STL overlay]', tf, err);
-          const inputEl = stlOverlayInputs.get(tf);
-          if (inputEl && !inputEl.disabled) {
-            inputEl.checked = false;
-          }
-          status(`STL overlay unavailable (${symbol} ${tf})`);
+          debugWarn('[STL overlay]', tf, err);
+          scheduleStlOverlayCompute(symbol, tf);
+          status(`STL overlay pending compute (${symbol} ${tf})`);
         }).finally(() => {
           stlOverlayLoading.delete(key);
           const inputEl = stlOverlayInputs.get(tf);
-          if (inputEl) inputEl.dataset.loading = '';
+          if (inputEl) {
+            if (stlOverlayPending.has(key)) {
+              inputEl.dataset.loading = '1';
+            } else {
+              inputEl.dataset.loading = '';
+            }
+          }
         });
         stlOverlayLoading.set(key, promise);
         return promise;
@@ -2266,7 +2321,7 @@
         const ws = new WebSocket(wsUrl);
 
         ws.addEventListener('open', () => {
-          console.log('[WS] connected', wsUrl);
+          debugLog('[WS] connected', wsUrl);
         });
 
         ws.addEventListener('message', (ev) => {
@@ -2274,7 +2329,7 @@
           try {
             data = JSON.parse(ev.data);
           } catch (err) {
-            console.warn('[WS] message parse failed', err);
+            debugWarn('[WS] message parse failed', err);
             return;
           }
           if (!data || !data.type) return;
@@ -2286,12 +2341,12 @@
         });
 
         ws.addEventListener('close', () => {
-          console.log('[WS] disconnected, retrying in', retryDelay, 'ms');
+          debugLog('[WS] disconnected, retrying in', retryDelay, 'ms');
           setTimeout(() => connectUpdates(Math.min(retryDelay * 1.5, 10000)), retryDelay);
         });
 
         ws.addEventListener('error', (err) => {
-          console.warn('[WS] error', err);
+          debugWarn('[WS] error', err);
           ws.close();
         });
       }
@@ -2506,12 +2561,12 @@
         buildStlOverlayControls();
         queuePrefUpdate('last_symbol', currentSymbol());
         try {
-          console.log('[App] Auto-fetch on symbol change');
+          debugLog('[App] Auto-fetch on symbol change');
           lwInitialFitted = false;
           await fetchAndSave();
           await refreshPositions();
         } catch (e) {
-          console.warn('[App] Auto-fetch failed', e);
+          debugWarn('[App] Auto-fetch failed', e);
         } finally {
           await refreshNews();
           if (autoTimer) startAuto({ announce: false });
@@ -2529,11 +2584,11 @@
         buildStlOverlayControls();
         queuePrefUpdate('last_tf', currentTf());
         try {
-          console.log('[App] Auto-fetch on timeframe change');
+          debugLog('[App] Auto-fetch on timeframe change');
           lwInitialFitted = false;
           await fetchAndSave();
         } catch (e) {
-          console.warn('[App] Auto-fetch failed', e);
+          debugWarn('[App] Auto-fetch failed', e);
         } finally {
           await refreshNews();
           if (autoTimer) startAuto({ announce: false });
@@ -2543,7 +2598,7 @@
       if (countSel) countSel.addEventListener('change', async () => {
         queuePrefUpdate('last_count', el('count').value);
         try {
-          console.log('[App] Bars limit changed');
+          debugLog('[App] Bars limit changed');
           await refreshChart();
           // Kick off a deeper background fill for this symbol/timeframe
           await backgroundFetch('symbol_tf', { mode: 'full_async' });
@@ -3111,17 +3166,127 @@
       const RF_TOP_KEY = 'rfTopQuotesHidden';
       const RF_BOT_KEY = 'rfBottomBannerHidden';
       const RF_BR_KEY = 'rfRightForecastsHidden';
+      const RF_WIDGET_IDS = ['rfTopQuotes', 'rfBottomBanner', 'rfRightForecasts'];
+      const rfOptIn = (() => {
+        try {
+          return localStorage.getItem('rfWidgetsOptIn') === '1';
+        } catch (_) {
+          return false;
+        }
+      })();
+      const teardownRfWidget = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.querySelectorAll('[data-rf-content]').forEach((node) => node.remove());
+        delete el.dataset.rfMounted;
+        const placeholderText = el.dataset.rfPlaceholder || 'RoboForex widget disabled.';
+        if (!el.querySelector('.rf-placeholder')) {
+          const target = el.dataset.rfType === 'img' ? el.querySelector('a') || el : el;
+          const placeholderTag = el.dataset.rfType === 'img' ? 'span' : 'div';
+          const placeholder = document.createElement(placeholderTag);
+          placeholder.className = 'rf-placeholder';
+          placeholder.textContent = placeholderText;
+          if (el.dataset.rfType === 'iframe') {
+            const head = el.querySelector('.rf-head');
+            if (head) {
+              head.insertAdjacentElement('afterend', placeholder);
+            } else {
+              el.appendChild(placeholder);
+            }
+          } else {
+            target.appendChild(placeholder);
+          }
+        }
+      };
+      const mountRfWidget = (id) => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.rfMounted === '1' || el.classList.contains('rf-hidden')) return;
+        const type = el.dataset.rfType;
+        const src = el.dataset.rfSrc;
+        if (!type || !src) return;
+        const width = el.dataset.rfWidth || '100%';
+        const height = el.dataset.rfHeight || '200';
+        el.querySelectorAll('.rf-placeholder').forEach((node) => node.remove());
+        if (type === 'iframe') {
+          const iframe = document.createElement('iframe');
+          iframe.setAttribute('data-rf-content', '1');
+          iframe.frameBorder = '0';
+          iframe.loading = 'lazy';
+          iframe.className = 'efx';
+          iframe.width = width;
+          iframe.height = height;
+          iframe.src = src;
+          const head = el.querySelector('.rf-head');
+          const closeBtn = el.querySelector('.rf-btn') || el.querySelector('button');
+          if (head && head.parentNode === el) {
+            head.insertAdjacentElement('afterend', iframe);
+          } else if (closeBtn && closeBtn.parentNode === el) {
+            el.insertBefore(iframe, closeBtn);
+          } else {
+            el.insertBefore(iframe, el.firstChild);
+          }
+        } else if (type === 'img') {
+          const anchor = el.querySelector('a');
+          if (!anchor) return;
+          const img = document.createElement('img');
+          img.setAttribute('data-rf-content', '1');
+          img.loading = 'lazy';
+          img.src = src;
+          const w = parseInt(width, 10);
+          const h = parseInt(height, 10);
+          if (!Number.isNaN(w)) img.width = w;
+          if (!Number.isNaN(h)) img.height = h;
+          img.alt = 'RoboForex';
+          anchor.appendChild(img);
+        }
+        el.dataset.rfMounted = '1';
+        el.classList.remove('rf-hidden');
+      };
+      };
       const setRfHidden = (id, key) => {
         const el = document.getElementById(id);
-        if (el) el.classList.add('rf-hidden');
+        if (el) {
+          teardownRfWidget(id);
+          el.classList.add('rf-hidden');
+        }
         try { localStorage.setItem(key, '1'); } catch {}
       };
       const initRfWidget = (id, key, btnId) => {
         const el = document.getElementById(id);
         const btn = document.getElementById(btnId);
-        try { if (localStorage.getItem(key) === '1' && el) el.classList.add('rf-hidden'); } catch {}
+        if (!el) return;
+        let hidden = false;
+        try {
+          hidden = localStorage.getItem(key) === '1';
+        } catch {}
+        if (hidden) {
+          teardownRfWidget(id);
+          el.classList.add('rf-hidden');
+        }
         if (btn) btn.addEventListener('click', () => setRfHidden(id, key));
+        if (rfOptIn && !hidden) {
+          mountRfWidget(id);
+        }
       };
+      if (!rfOptIn) {
+        RF_WIDGET_IDS.forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) {
+            teardownRfWidget(id);
+            el.classList.add('rf-hidden');
+          }
+        });
+        window.enableRoboForexWidgets = () => {
+          try { localStorage.setItem('rfWidgetsOptIn', '1'); } catch {}
+          window.location.reload();
+        };
+      } else {
+        RF_WIDGET_IDS.forEach((id) => mountRfWidget(id));
+        window.disableRoboForexWidgets = () => {
+          try { localStorage.setItem('rfWidgetsOptIn', '0'); } catch {}
+          window.location.reload();
+        };
+      }
       initRfWidget('rfTopQuotes', RF_TOP_KEY, 'rfTopQuotesClose');
       initRfWidget('rfBottomBanner', RF_BOT_KEY, 'rfBottomBannerClose');
       initRfWidget('rfRightForecasts', RF_BR_KEY, 'rfRightForecastsClose');
@@ -3152,20 +3317,20 @@
       async function refreshNews() {
         const symbol = currentSymbol();
         try {
-          console.log('[App] Refresh news/intel for', symbol);
+          debugLog('[App] Refresh news/intel for', symbol);
           const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
           const js = await r.json();
           if (js && js.ok) {
-            console.log(`[App] News result ok=true count=${(js.news||[]).length} snapshot=${!!js.snapshot}`);
+            debugLog(`[App] News result ok=true count=${(js.news||[]).length} snapshot=${!!js.snapshot}`);
             renderSymbolInfo(js.snapshot || {});
             renderNews(js.news || []);
           } else {
-            console.log(`[App] News result ok=false for ${symbol}`, js);
+            debugLog(`[App] News result ok=false for ${symbol}`, js);
             renderSymbolInfo({});
             renderNews([]);
           }
         } catch (e) {
-          console.warn('News fetch failed', e);
+          debugWarn('News fetch failed', e);
           renderSymbolInfo({});
           renderNews([]);
         }
