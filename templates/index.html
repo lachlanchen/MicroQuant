@@ -394,23 +394,6 @@
             src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape"
             style="width:100%; border:0; display:block;"></iframe>
         </div>
-        <!-- Affiliate backlink URLs entry -->
-        <div id="rfBacklinksPanel" style="margin-top:12px; padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;">
-          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <strong style="color:var(--accent)">Affiliate Backlinks</strong>
-          </div>
-          <div style="font-size:13px; color:var(--muted); margin-bottom:6px;">
-            Enter URLs of your websites (pages that reference the RoboForex website).
-          </div>
-          <textarea id="rfBacklinksInput" rows="3" placeholder="https://example.com/page-1\nhttps://example.org/page-2" style="width:100%; resize:vertical; padding:8px; border:1px solid var(--line); border-radius:6px;"></textarea>
-          <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
-            <button class="btn secondary" id="btnRfBacklinksSave" style="padding:6px 10px;">Save</button>
-            <span id="rfBacklinksStatus" style="font-size:12px; color:var(--muted);"></span>
-          </div>
-          <div style="font-size:12px; color:var(--muted); margin-top:8px;">
-            <a href="https://roboforex.com/" class="efx" target="_blank" rel="noopener noreferrer sponsored">Data Source Provider</a>
-          </div>
-        </div>
         </div>
       </div>
     </div>
@@ -4873,28 +4856,7 @@ const ensureLwMacd = () => {
       if (modalCloseEl) modalCloseEl.addEventListener('click', closeNewsModal);
       if (modalEl) modalEl.addEventListener('click', (e) => { if (e.target === modalEl) closeNewsModal(); });
 
-      // Affiliate backlink URLs: simple local persistence
-      const rfBacklinksInput = document.getElementById('rfBacklinksInput');
-      const rfBacklinksStatus = document.getElementById('rfBacklinksStatus');
-      const btnRfBacklinksSave = document.getElementById('btnRfBacklinksSave');
-      const loadRfBacklinks = () => {
-        try {
-          const raw = localStorage.getItem('rfBacklinkUrls') || '';
-          if (rfBacklinksInput) rfBacklinksInput.value = raw;
-          const n = raw ? raw.split(/\n+/).filter(s => s.trim()).length : 0;
-          if (rfBacklinksStatus) rfBacklinksStatus.textContent = n ? `Loaded ${n} URL${n===1?'':'s'}` : '';
-        } catch (_) { /* ignore */ }
-      };
-      const saveRfBacklinks = () => {
-        try {
-          const raw = (rfBacklinksInput && rfBacklinksInput.value) ? rfBacklinksInput.value.trim() : '';
-          localStorage.setItem('rfBacklinkUrls', raw);
-          const n = raw ? raw.split(/\n+/).filter(s => s.trim()).length : 0;
-          if (rfBacklinksStatus) rfBacklinksStatus.textContent = n ? `Saved ${n} URL${n===1?'':'s'}` : 'Saved';
-        } catch (_) { if (rfBacklinksStatus) rfBacklinksStatus.textContent = 'Save failed'; }
-      };
-      if (btnRfBacklinksSave) btnRfBacklinksSave.addEventListener('click', saveRfBacklinks);
-      loadRfBacklinks();
+      // (Affiliate Backlinks panel removed per request)
 
       async function refreshNews(arg = {}) {
         let opts = {};
