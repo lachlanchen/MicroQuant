@@ -2339,6 +2339,7 @@ class HealthRunsHandler(tornado.web.RequestHandler):
         limit = int(self.get_argument("limit", default="5"))
         offset = int(self.get_argument("offset", default="0"))
         strategy_filter = self.get_argument("strategy", default=None)
+        exclude_strategy = self.get_argument("exclude_strategy", default=None)
 
         # Auto-detect kind if not explicitly provided
         kind = raw_kind
@@ -2369,6 +2370,7 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 limit=limit,
                 offset=offset,
                 strategy=(strategy_filter or None) if strategy_filter else None,
+                exclude_strategy=(exclude_strategy or None) if exclude_strategy else None,
             )
         else:
             if not symbol:
@@ -2380,6 +2382,7 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 limit=limit,
                 offset=offset,
                 strategy=(strategy_filter or None) if strategy_filter else None,
+                exclude_strategy=(exclude_strategy or None) if exclude_strategy else None,
             )
 
         def _ser(run: dict) -> dict:

@@ -866,7 +866,7 @@
       };
 
       const newsAnalysisCache = new Map();
-      let healthState = { kind: null, offset: 0, strategy: null };
+      let healthState = { kind: null, offset: 0, strategy: null, excludeStrategy: null };
       const chartPeriodPluginId = 'periodOverlay';
       if (window.Chart && window.Chart.register && !window.__periodOverlayRegistered) {
         const periodOverlayPlugin = {
@@ -1657,6 +1657,8 @@ const ensureLwMacd = () => {
       function openHealth(kind, preferredStrategy) {
       healthState.kind = kind;
       healthState.strategy = preferredStrategy || null;
+      // If no specific strategy requested (Basic), exclude Tech snapshot from history by default
+      healthState.excludeStrategy = preferredStrategy ? null : 'tech_snapshot_10q.json';
       healthState.offset = 0;
       healthState.runs = [];
       const modal = el('healthModal');
@@ -1899,6 +1901,7 @@ const ensureLwMacd = () => {
         }
         params.set('limit','5'); params.set('offset', String(healthState.offset||0));
         if (healthState.strategy) { params.set('strategy', healthState.strategy); }
+        if (healthState.excludeStrategy) { params.set('exclude_strategy', healthState.excludeStrategy); }
         try {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
