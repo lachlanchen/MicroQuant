@@ -1801,9 +1801,20 @@ const ensureLwMacd = () => {
             textColor = isTrue ? '#1b5e20' : '#b71c1c';
           } else if (typeof val === 'string') {
             label = val.toUpperCase();
-            bg = 'rgba(33,150,243,0.12)';
-            border = '#2196f3';
-            textColor = '#0d47a1';
+            if (label === 'BULLISH') {
+              bg = 'rgba(46,204,113,0.12)';
+              border = '#2ecc71';
+              textColor = '#1b5e20';
+            } else if (label === 'BEARISH') {
+              bg = 'rgba(231,76,60,0.12)';
+              border = '#e74c3c';
+              textColor = '#b71c1c';
+            } else {
+              // Neutral color for currency-code answers (e.g., EUR/USD)
+              bg = 'rgba(33,150,243,0.12)';
+              border = '#2196f3';
+              textColor = '#0d47a1';
+            }
           } else {
             label = val == null ? '—' : String(val);
             bg = 'rgba(158,158,158,0.12)';
