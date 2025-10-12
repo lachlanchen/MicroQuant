@@ -232,15 +232,19 @@
           </div>
           <div id="newsBox" style="font-size:14px; line-height:1.35; color:var(--text);"><em style="color:var(--muted)">No news yet…</em></div>
         </div>
-        <!-- Health Check panel (outside news panel) -->
+        <!-- Analysis panel -->
         <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
           <div class="row" style="gap:8px; align-items:center; justify-content:space-between;">
-            <strong style="color:var(--accent)">AI Health Check</strong>
-            <div class="row" style="gap:8px; align-items:center;">
+            <strong style="color:var(--accent)">Analysis</strong>
+            <div class="row" style="gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
               <label style="display:flex; align-items:center; gap:6px;">News to use
                 <input id="healthNewsCount" type="number" min="1" max="20" value="3" style="width:72px;" />
               </label>
-              <button class="btn secondary" id="btnHealthCheck" style="padding:6px 10px;">Health Check</button>
+              <button class="btn secondary" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
+              <label style="display:flex; align-items:center; gap:6px;">Bars
+                <input id="techHealthBars" type="number" min="1" max="500" style="width:72px;" />
+              </label>
+              <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Health Check</button>
             </div>
           </div>
         </div>
@@ -347,6 +351,17 @@
         <div id="healthResultsBox" style="margin-top:10px;"></div>
       </div>
     </div>
+    <!-- Technical Health Modal -->
+    <div id="techModal" style="position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); z-index:1000;">
+      <div style="background:#fff; border-radius:8px; border:1px solid var(--line); padding:16px; width:min(720px, 94vw); max-height:86vh; overflow:auto;">
+        <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; z-index:5; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line);">
+          <strong style="color:var(--accent)">Technical Snapshot</strong>
+          <button class="btn secondary" id="btnTechClose" style="padding:6px 10px;">Close</button>
+        </div>
+        <div id="techSummaryMeta" style="margin-top:4px; font-size:13px; color:var(--muted);"></div>
+        <div id="techSummaryBox" style="margin-top:12px; display:flex; flex-direction:column; gap:12px;"></div>
+      </div>
+    </div>
     </div>
 
     <!-- Affiliate floating widgets -->
@@ -409,6 +424,56 @@
       const DEFAULT_STL_AUTO_PERIOD = "{{ default_stl_auto_period }}";
       const DEFAULT_STL_MANUAL_PERIOD = Number("{{ default_stl_manual_period }}") || 30;
       const ALL_TFS = ['M1','M5','M15','M30','H1','H4','D1','W1','MN1','Y1'];
+      const DEFAULT_TECH_WINDOW = 7;
+      const TF_SECONDS = {
+        M1: 60,
+        M5: 300,
+        M15: 900,
+        M30: 1800,
+        H1: 3600,
+        H4: 14400,
+        D1: 86400,
+        W1: 604800,
+        MN1: 2629746,
+        Y1: 31556952,
+      };
+      const techHealthBarsInput = el('techHealthBars');
+      let techHealthUserOverride = false;
+      const nextTimeframe = (tf) => {
+        const idx = ALL_TFS.indexOf(tf);
+        if (idx === -1 || idx >= ALL_TFS.length - 1) return null;
+        return ALL_TFS[idx + 1];
+      };
+      const defaultTechWindow = (tf) => {
+        const next = nextTimeframe(tf);
+        const baseSeconds = TF_SECONDS[tf];
+        const nextSeconds = next ? TF_SECONDS[next] : null;
+        if (Number.isFinite(baseSeconds) && Number.isFinite(nextSeconds) && nextSeconds > baseSeconds) {
+          const ratio = Math.round(nextSeconds / baseSeconds);
+          if (Number.isFinite(ratio) && ratio > 0) return ratio;
+        }
+        return DEFAULT_TECH_WINDOW;
+      };
+      const applyTechWindowDefault = (force = false) => {
+        if (!techHealthBarsInput) return;
+        if (!force && techHealthUserOverride) return;
+        const computed = defaultTechWindow(currentTf());
+        techHealthUserOverride = false;
+        techHealthBarsInput.value = String(computed);
+      };
+      const resolveTechWindow = () => {
+        if (!techHealthBarsInput) return defaultTechWindow(currentTf());
+        const raw = Number(techHealthBarsInput.value);
+        if (Number.isFinite(raw) && raw > 0) {
+          const clamped = Math.max(1, Math.min(500, Math.round(raw)));
+          if (techHealthBarsInput.value !== String(clamped)) {
+            techHealthBarsInput.value = String(clamped);
+          }
+          return clamped;
+        }
+        applyTechWindowDefault(true);
+        return defaultTechWindow(currentTf());
+      };
 
       const DEFAULT_CHART_TYPE = "{{ default_chart_type }}";
       const symbolSelect = document.getElementById('symbol');
@@ -445,6 +510,9 @@
       let stlTargetStart = null;
       let stlTargetEnd = null;
       let stlLastPeriod = null;
+      let stlTrendPoints = [];
+      let stlSeasonPoints = [];
+      let stlResidPoints = [];
       let stlSpeedPoints = [];
       let stlAccelPoints = [];
       const stlAllToggle = el('chkStlAllData');
@@ -543,6 +611,7 @@
       const currentSymbol = () => (symbolSelect && symbolSelect.value ? symbolSelect.value.trim().toUpperCase() : APP_DEFAULT_SYMBOL);
       const currentTf = () => (tfSelect && tfSelect.value ? tfSelect.value.trim().toUpperCase() : DEFAULT_TF);
       const currentBarsLimit = () => Math.max(10, Number(countInput && countInput.value ? countInput.value : DEFAULT_BARS) || DEFAULT_BARS);
+      applyTechWindowDefault(true);
 
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
@@ -600,6 +669,24 @@
         const d = new Date(iso);
         if (Number.isNaN(d.getTime())) return iso;
         return d.toISOString().slice(0, 16).replace('T', ' ');
+      };
+
+      const formatEpochDateTime = (epochSec) => {
+        if (!Number.isFinite(epochSec)) return '';
+        const d = new Date(epochSec * 1000);
+        if (Number.isNaN(d.getTime())) return '';
+        return d.toISOString().slice(0, 16).replace('T', ' ');
+      };
+
+      const formatTechNumber = (value) => {
+        if (!Number.isFinite(value)) return '—';
+        const abs = Math.abs(value);
+        if (abs >= 100000) return value.toFixed(0);
+        if (abs >= 1000) return value.toFixed(2);
+        if (abs >= 100) return value.toFixed(3);
+        if (abs >= 1) return value.toFixed(4);
+        if (abs >= 0.01) return value.toFixed(6);
+        return value.toFixed(8);
       };
 
       function populateStlRuns(runs, selectedId) {
@@ -840,6 +927,112 @@
           }
         }
         return { macd: macdLine, signal: signalLine, histogram };
+      };
+
+      const computeTrueRangeSeries = (rows) => {
+        if (!Array.isArray(rows)) return [];
+        const out = new Array(rows.length).fill(null);
+        for (let i = 0; i < rows.length; i += 1) {
+          const high = Number(rows[i]?.high);
+          const low = Number(rows[i]?.low);
+          if (!Number.isFinite(high) || !Number.isFinite(low)) {
+            out[i] = null;
+            continue;
+          }
+          const base = Math.abs(high - low);
+          if (i === 0) {
+            out[i] = base;
+            continue;
+          }
+          const prevClose = Number(rows[i - 1]?.close);
+          if (!Number.isFinite(prevClose)) {
+            out[i] = base;
+            continue;
+          }
+          const range2 = Math.abs(high - prevClose);
+          const range3 = Math.abs(low - prevClose);
+          out[i] = Math.max(base, range2, range3);
+        }
+        return out;
+      };
+
+      const computeAtrSeries = (rows, period = 14) => {
+        const tr = computeTrueRangeSeries(rows);
+        const atr = new Array(tr.length).fill(null);
+        if (!tr.length) return { atr, tr };
+        let sum = 0;
+        for (let i = 0; i < tr.length; i += 1) {
+          const value = Number(tr[i]);
+          sum += Number.isFinite(value) ? value : 0;
+          if (i >= period) {
+            const drop = Number(tr[i - period]);
+            sum -= Number.isFinite(drop) ? drop : 0;
+          }
+          if (i >= period - 1) {
+            const denom = Math.min(period, i + 1);
+            atr[i] = denom > 0 ? sum / denom : null;
+          }
+        }
+        return { atr, tr };
+      };
+
+      const computeAdxSeries = (rows, trSeries, period = 14) => {
+        const len = Array.isArray(rows) ? rows.length : 0;
+        const adx = new Array(len).fill(null);
+        const plusDI = new Array(len).fill(null);
+        const minusDI = new Array(len).fill(null);
+        if (!len) return { adx, plusDI, minusDI };
+        const plusDM = new Array(len).fill(0);
+        const minusDM = new Array(len).fill(0);
+        for (let i = 1; i < len; i += 1) {
+          const high = Number(rows[i]?.high);
+          const low = Number(rows[i]?.low);
+          const prevHigh = Number(rows[i - 1]?.high);
+          const prevLow = Number(rows[i - 1]?.low);
+          if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(prevHigh) || !Number.isFinite(prevLow)) {
+            plusDM[i] = 0;
+            minusDM[i] = 0;
+            continue;
+          }
+          const upMove = high - prevHigh;
+          const downMove = prevLow - low;
+          plusDM[i] = (upMove > downMove && upMove > 0) ? upMove : 0;
+          minusDM[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
+        }
+        let sumTR = 0;
+        let sumPlus = 0;
+        let sumMinus = 0;
+        const dxWindow = [];
+        let dxSum = 0;
+        for (let i = 0; i < len; i += 1) {
+          const trVal = Number(trSeries?.[i]);
+          const plusVal = plusDM[i] || 0;
+          const minusVal = minusDM[i] || 0;
+          sumTR += Number.isFinite(trVal) ? trVal : 0;
+          sumPlus += plusVal;
+          sumMinus += minusVal;
+          if (i >= period) {
+            const oldTr = Number(trSeries?.[i - period]);
+            sumTR -= Number.isFinite(oldTr) ? oldTr : 0;
+            sumPlus -= plusDM[i - period] || 0;
+            sumMinus -= minusDM[i - period] || 0;
+          }
+          if (i >= period - 1 && sumTR > 0) {
+            const plusPct = (sumPlus / sumTR) * 100;
+            const minusPct = (sumMinus / sumTR) * 100;
+            plusDI[i] = plusPct;
+            minusDI[i] = minusPct;
+            const denom = plusPct + minusPct;
+            const dx = denom === 0 ? 0 : (Math.abs(plusPct - minusPct) / denom) * 100;
+            dxWindow.push(dx);
+            dxSum += dx;
+            if (dxWindow.length > period) {
+              dxSum -= dxWindow.shift();
+            }
+            adx[i] = dxWindow.length ? dxSum / dxWindow.length : dx;
+          }
+        }
+        return { adx, plusDI, minusDI };
       };
 
       const computeBollingerBands = (values, period = 20, stdMultiplier = 2) => {
@@ -1398,6 +1591,119 @@ const ensureLwMacd = () => {
         openHealth(kind);
       }
 
+      const buildTechTable = (title, headers, rows) => {
+        const headCells = headers.map((label) => `<th style="text-align:right; padding:4px 6px; border-bottom:1px solid var(--line);">${esc(label)}</th>`).join('');
+        const bodyHtml = rows.length
+          ? rows.map((row) => {
+              const timeCell = `<td style="padding:4px 6px; border-bottom:1px solid var(--line);">${esc(row.time || '')}</td>`;
+              const valueCells = row.values.map((val) => `<td style="text-align:right; padding:4px 6px; border-bottom:1px solid var(--line);">${esc(val)}</td>`).join('');
+              return `<tr>${timeCell}${valueCells}</tr>`;
+            }).join('')
+          : `<tr><td colspan="${headers.length + 1}" style="padding:10px; text-align:center; color:var(--muted);"><em>No data</em></td></tr>`;
+        return `<div style="border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);">
+          <div style="font-weight:600; margin-bottom:6px;">${esc(title)}</div>
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr>
+                <th style="text-align:left; padding:4px 6px; border-bottom:1px solid var(--line);">Time</th>
+                ${headCells}
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyHtml}
+            </tbody>
+          </table>
+        </div>`;
+      };
+
+      function openTechHealth() {
+        applyTechWindowDefault(false);
+        const modal = el('techModal');
+        const box = el('techSummaryBox');
+        const metaBox = el('techSummaryMeta');
+        if (!modal || !box || !metaBox) return;
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const rows = Array.isArray(lastPriceRows) ? lastPriceRows : [];
+        const windowSize = Math.max(1, resolveTechWindow());
+        const startIdx = Math.max(rows.length - windowSize, 0);
+        const windowRows = rows.slice(startIdx);
+        const closes = rows.map((r) => Number(r?.close));
+        const volumes = rows.map((r) => {
+          const stack = [r?.real_volume, r?.tick_volume, r?.volume]
+            .map((v) => Number(v))
+            .filter((v) => Number.isFinite(v) && v > 0);
+          return stack.length ? stack[0] : null;
+        });
+        const rsiValues = computeRSI(closes);
+        const macdObj = computeMACD(closes);
+        const { atr, tr } = computeAtrSeries(rows);
+        const adxObj = computeAdxSeries(rows, tr);
+
+        const buildFromArray = (arr) => windowRows.map((row, offset) => {
+          const idx = startIdx + offset;
+          const raw = arr ? arr[idx] : null;
+          const numeric = Number(raw);
+          const formatted = raw != null && Number.isFinite(numeric) ? formatTechNumber(numeric) : '—';
+          const ts = row && row.ts ? formatDateTime(row.ts) : '';
+          return { time: ts, values: [formatted] };
+        });
+
+        const buildFromArrays = (arrays) => windowRows.map((row, offset) => {
+          const idx = startIdx + offset;
+          const values = arrays.map((arr) => {
+            const raw = arr ? arr[idx] : null;
+            const numeric = Number(raw);
+            return raw != null && Number.isFinite(numeric) ? formatTechNumber(numeric) : '—';
+          });
+          const ts = row && row.ts ? formatDateTime(row.ts) : '';
+          return { time: ts, values };
+        });
+
+        const slicePoints = (points) => {
+          if (!Array.isArray(points) || !points.length) return [];
+          return points.slice(Math.max(points.length - windowSize, 0)).map((pt) => ({
+            time: formatEpochDateTime(pt.time),
+            values: [Number.isFinite(Number(pt.value)) ? formatTechNumber(Number(pt.value)) : '—'],
+          }));
+        };
+
+        const priceData = buildFromArray(closes);
+        const volumeData = buildFromArray(volumes);
+        const rsiData = buildFromArray(rsiValues);
+        const macdData = buildFromArrays([macdObj.macd, macdObj.signal, macdObj.histogram]);
+        const atrData = buildFromArray(atr);
+        const adxData = buildFromArrays([adxObj.adx, adxObj.plusDI, adxObj.minusDI]);
+        const trendData = slicePoints(stlTrendPoints);
+        const seasonalData = slicePoints(stlSeasonPoints);
+        const residData = slicePoints(stlResidPoints);
+        const speedData = slicePoints(stlSpeedPoints);
+        const accelData = slicePoints(stlAccelPoints);
+
+        const sections = [
+          buildTechTable(`${tf} Close Price`, ['Value'], priceData),
+          buildTechTable('Volume', ['Value'], volumeData),
+          buildTechTable('STL Trend', ['Value'], trendData),
+          buildTechTable('STL Seasonal', ['Value'], seasonalData),
+          buildTechTable('STL Residual', ['Value'], residData),
+          buildTechTable('STL Speed (ΔTrend)', ['Value'], speedData),
+          buildTechTable('STL Acceleration (ΔSpeed)', ['Value'], accelData),
+          buildTechTable('RSI (14)', ['Value'], rsiData),
+          buildTechTable('MACD (12,26,9)', ['MACD', 'Signal', 'Hist'], macdData),
+          buildTechTable('ATR (14)', ['Value'], atrData),
+          buildTechTable('ADX (14)', ['ADX', '+DI', '-DI'], adxData),
+        ];
+
+        box.innerHTML = sections.join('');
+        const metaParts = [symbol, `TF ${tf}`, 'Seasonal-Trend decomposition using Loess (STL)'];
+        if (stlLastMeta && Number.isFinite(Number(stlLastMeta.period))) {
+          metaParts.push(`STL period ${Number(stlLastMeta.period)}`);
+        }
+        metaParts.push(`N=${windowSize}`);
+        metaBox.textContent = metaParts.join(' • ');
+        modal.style.display = 'flex';
+      }
+
       async function loadHealthHistory() {
         const box = el('healthHistoryBox');
         box.innerHTML = '<em style="color:var(--muted)">Loading…</em>';
@@ -1458,10 +1764,28 @@ const ensureLwMacd = () => {
       const btnHealthStart = document.getElementById('btnHealthStart');
       const btnHealthMore = document.getElementById('btnHealthMore');
       const btnHealthClose = document.getElementById('btnHealthClose');
+      const btnTechHealth = document.getElementById('btnTechHealth');
+      const btnTechClose = document.getElementById('btnTechClose');
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
       if (btnHealthStart) btnHealthStart.addEventListener('click', startHealthRun);
       if (btnHealthMore) btnHealthMore.addEventListener('click', ()=> { healthState.offset = (healthState.offset||0) + 5; loadHealthHistory(); });
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
+      if (btnTechHealth) btnTechHealth.addEventListener('click', openTechHealth);
+      if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });
+      if (techHealthBarsInput) {
+        techHealthBarsInput.addEventListener('input', () => { techHealthUserOverride = true; });
+        const validateTechBars = () => {
+          const raw = Number(techHealthBarsInput.value);
+          if (!Number.isFinite(raw) || raw <= 0) {
+            applyTechWindowDefault(true);
+          } else {
+            const clamped = Math.max(1, Math.min(500, Math.round(raw)));
+            techHealthBarsInput.value = String(clamped);
+          }
+        };
+        techHealthBarsInput.addEventListener('change', validateTechBars);
+        techHealthBarsInput.addEventListener('blur', validateTechBars);
+      }
 
       // Click history item to show saved result
       const healthHistoryBox = document.getElementById('healthHistoryBox');
@@ -1572,6 +1896,9 @@ const ensureLwMacd = () => {
           lwVolHasData = false;
           lwRsiHasData = false;
           lwMacdHasData = false;
+          stlTrendPoints = [];
+          stlSeasonPoints = [];
+          stlResidPoints = [];
           stlSpeedPoints = [];
           stlAccelPoints = [];
           updateStlDerivativeSeries();
@@ -2208,6 +2535,9 @@ const ensureLwMacd = () => {
         const trendData = toSeriesData('trend');
         const seasonalData = toSeriesData('seasonal');
         const residData = toSeriesData('resid');
+        stlTrendPoints = trendData.slice();
+        stlSeasonPoints = seasonalData.slice();
+        stlResidPoints = residData.slice();
         if (trendData.length && stlTrendSeries) stlTrendSeries.setData(trendData);
         if (seasonalData.length && stlSeasonSeries) stlSeasonSeries.setData(seasonalData);
         if (residData.length && stlResidSeries) stlResidSeries.setData(residData);
@@ -2226,6 +2556,9 @@ const ensureLwMacd = () => {
             stlAccelPoints.push({ time: stlSpeedPoints[i].time, value: accelVal });
           }
         } else {
+          stlTrendPoints = [];
+          stlSeasonPoints = [];
+          stlResidPoints = [];
           stlSpeedPoints = [];
           stlAccelPoints = [];
         }
@@ -2290,6 +2623,9 @@ const ensureLwMacd = () => {
           stlLastMeta = null;
           stlLastPeriod = null;
           updatePeriodOverlays(null);
+          stlTrendPoints = [];
+          stlSeasonPoints = [];
+          stlResidPoints = [];
         } else {
           if (!stlLastMeta) {
             stlLastRows = [];
@@ -2751,6 +3087,7 @@ const ensureLwMacd = () => {
         stlOverlayLoading.clear();
         clearAllStlOverlaySeries();
         buildStlOverlayControls();
+        applyTechWindowDefault(false);
         queuePrefUpdate('last_symbol', currentSymbol());
         try {
           debugLog('[App] Auto-fetch on symbol change');
@@ -2774,6 +3111,7 @@ const ensureLwMacd = () => {
         stlOverlayLoading.clear();
         clearAllStlOverlaySeries();
         buildStlOverlayControls();
+        applyTechWindowDefault(false);
         queuePrefUpdate('last_tf', currentTf());
         try {
           debugLog('[App] Auto-fetch on timeframe change');
