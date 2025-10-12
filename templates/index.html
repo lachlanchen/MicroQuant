@@ -4724,9 +4724,11 @@ const ensureLwMacd = () => {
       const RF_WIDGET_IDS = ['rfTopQuotes', 'rfBottomBanner', 'rfRightForecasts'];
       const rfOptIn = (() => {
         try {
-          return localStorage.getItem('rfWidgetsOptIn') === '1';
+          const v = localStorage.getItem('rfWidgetsOptIn');
+          // Default to ON when unset; user can still hide per-widget.
+          return v === null || v === '1';
         } catch (_) {
-          return false;
+          return true;
         }
       })();
       const teardownRfWidget = (id) => {
