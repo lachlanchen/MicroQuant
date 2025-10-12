@@ -456,7 +456,8 @@
         { value: 'forex_pair_30q_yes_no.json', label: 'FX Pair Yes/No (30)', kinds: ['forex_pair'] },
         { value: 'forex_30q_yes_no.json', label: 'FX Single Yes/No (30)', kinds: ['forex_pair'] },
         { value: 'stocks_30q_health_yes_no.json', label: 'Stocks Yes/No (30)', kinds: ['stock'] },
-        { value: 'tech_snapshot_10q.json', label: 'Tech Snapshot (10)', kinds: ['forex_pair','stock'] },
+        // Intentionally exclude 'tech_snapshot_10q.json' from the Basic dropdown;
+        // it's invoked via the separate Tech+AI button.
       ];
       let techHealthUserOverride = false;
       let healthStrategyUserOverride = false;
@@ -1632,8 +1633,11 @@ const ensureLwMacd = () => {
       if (!modal) return;
       ensureStrategyForKind(kind);
       if (preferredStrategy && healthStrategySelect) {
-        healthStrategyUserOverride = true;
-        healthStrategySelect.value = preferredStrategy;
+        const hasOption = !!healthStrategySelect.querySelector(`option[value="${preferredStrategy}"]`);
+        if (hasOption) {
+          healthStrategyUserOverride = true;
+          healthStrategySelect.value = preferredStrategy;
+        }
       }
       modal.style.display = 'flex';
       const sym = symbolSelect.value.toUpperCase();
@@ -2014,7 +2018,13 @@ const ensureLwMacd = () => {
       const btnTechAiHealth = document.getElementById('btnTechAiHealth');
       const btnTechClose = document.getElementById('btnTechClose');
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
-      if (btnHealthStart) btnHealthStart.addEventListener('click', startHealthRun);
+      if (btnHealthStart) btnHealthStart.addEventListener('click', () => {
+        if (healthState && healthState.strategy === 'tech_snapshot_10q.json') {
+          startTechAiRun();
+        } else {
+          startHealthRun();
+        }
+      });
       if (btnHealthMore) btnHealthMore.addEventListener('click', ()=> { healthState.offset = (healthState.offset||0) + 5; loadHealthHistory(); });
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
       if (btnTechHealth) btnTechHealth.addEventListener('click', openTechHealth);
