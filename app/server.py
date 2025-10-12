@@ -2822,12 +2822,12 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "symbol": symbol,
                     "used_news": items,
                     "answers": ans_struct,
-                        "score": score,
-                        "scores": None,
-                        "signal": signal,
-                        "strategy": strategy_name,
-                        "run_id": ins.get("id"),
-                        "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
+                    "score": score_value,
+                    "scores": scores_payload,
+                    "signal": signal,
+                    "strategy": strategy_name,
+                    "run_id": ins.get("id"),
+                    "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
                     }
                 )
             )
