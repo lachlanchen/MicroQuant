@@ -3120,14 +3120,18 @@ const ensureLwMacd = () => {
           scheduleChartRefresh(`${data.symbol}/${data.timeframe}`);
           // Update Tech+AI freshness (bars outdated)
           refreshTechFreshness();
+          // Re-run top strategy so the Signal pill reflects the new bars
+          try { runStrategyTop(); } catch (e) { /* ignore */ }
         } else if (data.scope === 'symbol_all_tf' && sameSymbol) {
           status(`Background fetch done (${data.symbol} ${data.timeframe})`);
           scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope symbol_all_tf]`);
           refreshTechFreshness();
+          if (data.timeframe === currentTf()) { try { runStrategyTop(); } catch (e) {} }
         } else if (data.scope === 'all_symbols' && data.symbol === symbol) {
           status(`Bulk fetch updated ${data.symbol} ${data.timeframe}`);
           scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope all_symbols]`);
           refreshTechFreshness();
+          if (data.timeframe === currentTf()) { try { runStrategyTop(); } catch (e) {} }
         }
       }
 
