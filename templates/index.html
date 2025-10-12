@@ -455,6 +455,7 @@
         { value: 'forex_pair_30q_yes_no.json', label: 'FX Pair Yes/No (30)', kinds: ['forex_pair'] },
         { value: 'forex_30q_yes_no.json', label: 'FX Single Yes/No (30)', kinds: ['forex_pair'] },
         { value: 'stocks_30q_health_yes_no.json', label: 'Stocks Yes/No (30)', kinds: ['stock'] },
+        { value: 'tech_snapshot_10q.json', label: 'Tech Snapshot (10)', kinds: ['forex_pair','stock'] },
       ];
       let techHealthUserOverride = false;
       let healthStrategyUserOverride = false;
@@ -1876,6 +1877,16 @@ const ensureLwMacd = () => {
         if (strategyName) {
           body.strategy = strategyName;
         }
+        // When running the technical snapshot strategy, attach the snapshot text and timeframe
+        if (strategyName === 'tech_snapshot_10q.json') {
+          try {
+            const snapshot = buildTechSnapshotString();
+            body.tech_snapshot = snapshot;
+            body.timeframe = currentTf();
+          } catch (err) {
+            console.warn('Failed to build tech snapshot', err);
+          }
+        }
         console.log('[Health] using strategy', strategyName || '(auto)');
         const outBox = el('healthResultsBox');
         outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
@@ -1895,6 +1906,56 @@ const ensureLwMacd = () => {
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e}</em>`;
         }
+      }
+
+      function buildTechSnapshotString() {
+        // Build a compact textual snapshot matching the Technical Snapshot modal tables
+        applyTechWindowDefault(false);
+        const rows = Array.isArray(lastPriceRows) ? lastPriceRows : [];
+        const windowSize = Math.max(1, resolveTechWindow());
+        const startIdx = Math.max(rows.length - windowSize, 0);
+        const windowRows = rows.slice(startIdx);
+        const closes = rows.map((r) => Number(r?.close));
+        const volumes = rows.map((r) => {
+          const stack = [r?.real_volume, r?.tick_volume, r?.volume].map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0);
+          return stack.length ? stack[0] : null;
+        });
+        const rsiValues = computeRSI(closes);
+        const macdObj = computeMACD(closes);
+        const { atr, tr } = computeAtrSeries(rows);
+        const adxObj = computeAdxSeries(rows, tr);
+
+        const fmtRow = (ts, vals) => `${formatDateTime(ts)}\t${vals.map((v)=> (Number.isFinite(Number(v)) ? formatTechNumber(Number(v)) : '—')).join('\t')}`;
+        const toBlock = (title, headers, dataRows) => {
+          const lines = [title, 'Time\t' + headers.join('\t')];
+          for (const r of dataRows) lines.push(fmtRow(r.ts, r.values));
+          return lines.join('\n');
+        };
+        const buildSeries = (arr) => windowRows.map((row, offset) => ({ ts: row.ts, values: [arr[startIdx + offset]] }));
+        const buildSeries3 = (a,b,c) => windowRows.map((row, offset) => ({ ts: row.ts, values: [a[startIdx + offset], b[startIdx + offset], c[startIdx + offset]] }));
+        const slicePts = (pts) => {
+          if (!Array.isArray(pts) || !pts.length) return [];
+          const p = pts.slice(Math.max(pts.length - windowSize, 0));
+          return p.map((pt) => ({ ts: (pt.time*1000), values: [pt.value] }));
+        };
+
+        const parts = [];
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const head = `${symbol} • TF ${tf}` + (stlLastMeta && Number.isFinite(Number(stlLastMeta.period)) ? ` • STL period ${Number(stlLastMeta.period)}` : '') + ` • N=${windowSize}`;
+        parts.push(head);
+        parts.push(toBlock(`${tf} Close Price`, ['Value'], buildSeries(closes)));
+        parts.push(toBlock('Volume', ['Value'], buildSeries(volumes)));
+        parts.push(toBlock('STL Trend', ['Value'], slicePts(stlTrendPoints)));
+        parts.push(toBlock('STL Seasonal', ['Value'], slicePts(stlSeasonPoints)));
+        parts.push(toBlock('STL Residual', ['Value'], slicePts(stlResidPoints)));
+        parts.push(toBlock('STL Speed (ΔTrend)', ['Value'], slicePts(stlSpeedPoints)));
+        parts.push(toBlock('STL Acceleration (ΔSpeed)', ['Value'], slicePts(stlAccelPoints)));
+        parts.push(toBlock('RSI (14)', ['Value'], buildSeries(rsiValues)));
+        parts.push(toBlock('MACD (12,26,9)', ['MACD','Signal','Hist'], buildSeries3(macdObj.macd, macdObj.signal, macdObj.histogram)));
+        parts.push(toBlock('ATR (14)', ['Value'], buildSeries(atr)));
+        parts.push(toBlock('ADX (14)', ['ADX','+DI','-DI'], buildSeries3(adxObj.adx, adxObj.plusDI, adxObj.minusDI)));
+        return parts.join('\n\n');
       }
 
       const btnHealthCheck = document.getElementById('btnHealthCheck');
