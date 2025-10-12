@@ -163,7 +163,7 @@
           <label><input type="radio" name="ctype" value="candlestick"{% if default_chart_type != 'line' %} checked{% end %}> Candlestick</label>
         </span>
         <label class="switch" title="Shift end of chart from right border">
-          <input type="checkbox" id="chkChartShift" checked />
+          <input type="checkbox" id="chkChartShift"{% if default_chart_shift != '0' %} checked{% end %} />
           <span>Chart shift</span>
         </label>
       </div>
@@ -438,6 +438,7 @@
       const DEFAULT_BARS = Number("{{ default_count }}") || 500;
       const DEFAULT_STL_AUTO_PERIOD = "{{ default_stl_auto_period }}";
       const DEFAULT_STL_MANUAL_PERIOD = Number("{{ default_stl_manual_period }}") || 30;
+      const DEFAULT_CHART_SHIFT = "{{ default_chart_shift }}";
       const ALL_TFS = ['M1','M5','M15','M30','H1','H4','D1','W1','MN1','Y1'];
       const DEFAULT_TECH_WINDOW = 7;
       const TF_SECONDS = {
@@ -454,8 +455,8 @@
       };
       const techHealthBarsInput = el('techHealthBars');
       const chartShiftInput = el('chkChartShift');
-      let chartShiftOn = true;
-      const getRightOffset = () => (chartShiftOn ? 10 : 0);
+      let chartShiftOn = (DEFAULT_CHART_SHIFT !== '0');
+      const getRightOffset = () => (chartShiftOn ? 20 : 0);
       const healthStrategySelect = el('healthStrategy');
       const HEALTH_STRATEGIES = [
         { value: 'forex_pair_compact_10q.json', label: 'FX Comprehensive (10)', kinds: ['forex_pair'] },
@@ -3439,6 +3440,8 @@ const ensureLwMacd = () => {
             if (lwMacdChart) lwMacdChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
           } catch (e) { /* ignore */ }
+          // persist preference
+          try { queuePrefUpdate('chart_shift', chartShiftOn ? '1' : '0'); } catch (e) {}
         });
       }
       const countSel = document.getElementById('count');

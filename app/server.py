@@ -696,7 +696,18 @@ async def emit_news_event(
 
 
 ALL_TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1", "Y1"]
-PREF_KEYS = ["last_symbol", "last_tf", "last_count", "chart_type", "last_volume", "last_sl", "last_tp", "last_fast", "last_slow"]
+PREF_KEYS = [
+    "last_symbol",
+    "last_tf",
+    "last_count",
+    "chart_type",
+    "last_volume",
+    "last_sl",
+    "last_tp",
+    "last_fast",
+    "last_slow",
+    "chart_shift",
+]
 
 def _default_backfill_days(tf: str) -> int:
     tf = (tf or "").upper()
@@ -1301,7 +1312,18 @@ class MainHandler(tornado.web.RequestHandler):
             try:
                 last_sym = await get_pref(pool, "last_symbol")
                 last_tf = await get_pref(pool, "last_tf")
-                extras = await get_prefs(pool, ["last_count", "chart_type", "last_volume", "last_sl", "last_tp", "last_fast", "last_slow", "stl_auto_period", "stl_manual_period"])
+                extras = await get_prefs(pool, [
+                    "last_count",
+                    "chart_type",
+                    "last_volume",
+                    "last_sl",
+                    "last_tp",
+                    "last_fast",
+                    "last_slow",
+                    "stl_auto_period",
+                    "stl_manual_period",
+                    "chart_shift",
+                ])
             except Exception:
                 extras = {}
                 logger.debug("no prefs yet for last_symbol/last_tf")
@@ -1323,6 +1345,7 @@ class MainHandler(tornado.web.RequestHandler):
         stl_auto_pref = extras.get("stl_auto_period") or "1"
         stl_manual_pref = extras.get("stl_manual_period") or "30"
         auto_news_pref = extras.get("auto_news_backfill") or "1"
+        chart_shift_pref = extras.get("chart_shift") or "1"
 
         logger.debug("Render index with symbols=%s default=%s tf=%s", SUPPORTED_SYMBOLS, sym, tf)
         try:
@@ -1350,6 +1373,7 @@ class MainHandler(tornado.web.RequestHandler):
             news_ai_available=bool(AI_CLIENT),
             default_stl_auto_period=stl_auto_pref,
             default_stl_manual_period=stl_manual_pref,
+            default_chart_shift=chart_shift_pref,
             default_auto_news=auto_news_pref,
         )
 
