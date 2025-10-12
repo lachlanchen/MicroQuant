@@ -222,6 +222,7 @@
               <button class="btn secondary" id="btnNewsFull" style="padding:6px 10px">Full Text</button>
             </div>
           </div>
+          <div id="newsStatus" style="font-size:12px; color:var(--muted); margin:-4px 0 8px 0;"></div>
           <div id="symbolInfoBox" style="font-size:13px; line-height:1.45; color:var(--muted); margin-bottom:8px;">
             <em>Snapshot will appear here…</em>
           </div>
@@ -502,6 +503,23 @@
       
       let lwInitialFitted = false;
 
+      const btnNews = el('btnNews');
+      const btnNewsFull = el('btnNewsFull');
+      const newsStatus = el('newsStatus');
+      let newsRefreshTimer = null;
+      let lastNewsUpdatedAt = null;
+      const NEWS_BUTTON_DEFAULT = btnNews ? btnNews.textContent || 'Refresh News' : 'Refresh News';
+
+      const setNewsStatus = (message, tone = 'info') => {
+        if (!newsStatus) return;
+        let color = 'var(--muted)';
+        if (tone === 'ok') color = 'var(--accent)';
+        if (tone === 'error') color = 'var(--sell)';
+        if (tone === 'warn') color = '#fb8c00';
+        newsStatus.style.color = color;
+        newsStatus.textContent = message || '';
+      };
+
       const currentSymbol = () => (symbolSelect && symbolSelect.value ? symbolSelect.value.trim().toUpperCase() : APP_DEFAULT_SYMBOL);
       const currentTf = () => (tfSelect && tfSelect.value ? tfSelect.value.trim().toUpperCase() : DEFAULT_TF);
       const currentBarsLimit = () => Math.max(10, Number(countInput && countInput.value ? countInput.value : DEFAULT_BARS) || DEFAULT_BARS);
@@ -635,6 +653,21 @@
             debugWarn('[App] Chart refresh failed for', reason, err);
           }
         }, 400);
+      };
+
+      const scheduleNewsRefresh = (reason) => {
+        if (newsRefreshTimer) {
+          clearTimeout(newsRefreshTimer);
+        }
+        newsRefreshTimer = setTimeout(async () => {
+          newsRefreshTimer = null;
+          try {
+            debugLog('[App] Refreshing news due to', reason);
+            await refreshNews({ reason, disableButton: false });
+          } catch (err) {
+            debugWarn('[App] News refresh failed for', reason, err);
+          }
+        }, 350);
       };
 
       const newsAnalysisCache = new Map();
@@ -1710,6 +1743,21 @@
         }
       }
 
+      function handleNewsEvent(data) {
+        if (!data) return;
+        debugLog('[WS] news event', data);
+        const symbol = currentSymbol();
+        const eventSymbol = (data.symbol || '').toUpperCase();
+        if (eventSymbol && eventSymbol !== symbol) {
+          return;
+        }
+        const count = Number.isFinite(Number(data.items)) ? Number(data.items) : null;
+        const scope = data.scope || 'news';
+        const prefix = count != null ? `${count} new item${count === 1 ? '' : 's'}` : 'Background update';
+        setNewsStatus(`${prefix} (${symbol}, ${scope})`, 'warn');
+        scheduleNewsRefresh(data.reason || 'ws_news');
+      }
+
       function handleStlEvent(data) {
         if (!data) return;
         const desc = `${data.symbol} ${data.timeframe}`;
@@ -2357,6 +2405,8 @@
           if (!data || !data.type) return;
           if (data.type === 'fetch_complete') {
             handleFetchEvent(data);
+          } else if (data.type === 'news_update') {
+            handleNewsEvent(data);
           } else if (data.type === 'stl_complete') {
             handleStlEvent(data);
           }
@@ -3335,36 +3385,74 @@
       if (modalCloseEl) modalCloseEl.addEventListener('click', closeNewsModal);
       if (modalEl) modalEl.addEventListener('click', (e) => { if (e.target === modalEl) closeNewsModal(); });
 
-      async function refreshNews() {
+      async function refreshNews(arg = {}) {
+        let opts = {};
+        if (arg && typeof arg.preventDefault === 'function') {
+          arg.preventDefault();
+        } else if (arg && typeof arg === 'object' && arg !== null) {
+          opts = arg;
+        }
         const symbol = currentSymbol();
+        const reason = opts.reason || 'manual';
+        const disableButton = !!opts.disableButton;
+        const silent = !!opts.silent;
+        const newsBox = el('newsBox');
+        debugLog('[App] Refresh news/intel for', symbol, 'reason=', reason);
+        if (!silent) {
+          setNewsStatus(`Refreshing news for ${symbol}…`, 'info');
+        }
+        if (newsBox && !opts.skipPlaceholder) {
+          newsBox.innerHTML = '<em style="color:var(--muted)">Loading latest news…</em>';
+        }
+        if (disableButton && btnNews) {
+          btnNews.disabled = true;
+          btnNews.textContent = 'Refreshing…';
+        }
         try {
-          debugLog('[App] Refresh news/intel for', symbol);
           const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
           const js = await r.json();
           if (js && js.ok) {
-            debugLog(`[App] News result ok=true count=${(js.news||[]).length} snapshot=${!!js.snapshot}`);
+            const items = js.news || [];
             renderSymbolInfo(js.snapshot || {});
-            renderNews(js.news || []);
+            renderNews(items);
+            lastNewsUpdatedAt = new Date();
+            if (!silent) {
+              const ts = lastNewsUpdatedAt.toLocaleTimeString();
+              setNewsStatus(`Updated ${ts} • ${items.length} item${items.length === 1 ? '' : 's'}`, 'ok');
+            }
+            debugLog(`[App] News result ok=true count=${items.length} snapshot=${!!js.snapshot}`);
           } else {
-            debugLog(`[App] News result ok=false for ${symbol}`, js);
             renderSymbolInfo({});
             renderNews([]);
+            if (!silent) {
+              setNewsStatus('News refresh failed (server error).', 'error');
+            }
+            debugWarn(`[App] News result ok=false for ${symbol}`, js);
           }
         } catch (e) {
           debugWarn('News fetch failed', e);
           renderSymbolInfo({});
           renderNews([]);
+          if (!silent) {
+            setNewsStatus(`News refresh failed: ${e.message || e}`, 'error');
+          }
+        } finally {
+          if (disableButton && btnNews) {
+            btnNews.disabled = false;
+            btnNews.textContent = NEWS_BUTTON_DEFAULT;
+          }
         }
       }
-      const btnNews = document.getElementById('btnNews');
-      if (btnNews) btnNews.addEventListener('click', refreshNews);
-      const btnNewsFull = document.getElementById('btnNewsFull');
+      if (btnNews) btnNews.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        refreshNews({ disableButton: true, reason: 'manual_click' });
+      });
       if (btnNewsFull) btnNewsFull.addEventListener('click', () => {
         NEWS_SHOW_FULL = !NEWS_SHOW_FULL;
         btnNewsFull.textContent = NEWS_SHOW_FULL ? 'Summaries' : 'Full Text';
         // Re-render using cached last news list by refetching from DOM cache if available
         // Simpler: just call refreshNews to rebuild with full text toggle
-        refreshNews();
+        refreshNews({ reason: 'toggle_full_text' });
       });
 
       // Trading controls

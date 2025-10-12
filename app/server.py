@@ -333,6 +333,7 @@ async def run_news_backfill(days: int = 7) -> dict:
     total = 0
     stored = 0
     page = 0
+    updated_symbols: dict[str, int] = {}
     logger.info("[news] backfill start days=%d since=%s to=%s", days, since, to)
     while page < 5:
         try:
@@ -344,10 +345,18 @@ async def run_news_backfill(days: int = 7) -> dict:
         if not items:
             break
         total += len(items)
+        symbol_counts: dict[str, int] = {}
+        for it in items:
+            sym = (it.get("symbol") or "").upper()
+            if sym:
+                symbol_counts[sym] = symbol_counts.get(sym, 0) + 1
         try:
             inserted = await upsert_news_articles(GLOBAL_POOL, items)
             stored += inserted
             logger.info("[news] forex-latest page=%d fetched=%d inserted=%d", page, len(items), inserted)
+            if inserted > 0:
+                for sym, cnt in symbol_counts.items():
+                    updated_symbols[sym] = updated_symbols.get(sym, 0) + cnt
         except Exception:
             logger.exception("[news] forex-latest upsert failed (page=%d)", page)
         page += 1
@@ -380,11 +389,23 @@ async def run_news_backfill(days: int = 7) -> dict:
                 inserted = await upsert_news_articles(GLOBAL_POOL, filt)
                 stored += inserted
                 logger.info("[news] equities %s fetched=%d within_%dd=%d inserted=%d", sym, len(items), days, len(filt), inserted)
+                if inserted > 0:
+                    key = sym.upper()
+                    updated_symbols[key] = updated_symbols.get(key, 0) + len(filt)
             except Exception:
                 logger.exception("[news] equities upsert failed for %s", sym)
         await asyncio.sleep(0.05)
-    logger.info("[news] backfill complete fetched=%d inserted=%d days=%d", total, stored, days)
-    return {"ok": True, "fetched": total, "inserted": stored, "days": days}
+    for sym, cnt in updated_symbols.items():
+        await emit_news_event(
+            symbol=sym,
+            status="updated",
+            scope="backfill",
+            background=True,
+            items=cnt,
+            note=f"days={days}",
+        )
+    logger.info("[news] backfill complete fetched=%d inserted=%d days=%d symbols=%s", total, stored, days, sorted(updated_symbols))
+    return {"ok": True, "fetched": total, "inserted": stored, "days": days, "symbols": sorted(updated_symbols)}
 
 
 def _build_pair_prompt_one(question_text: str, base_ccy: str, quote_ccy: str, base_items: list[dict], quote_items: list[dict], timeframe: str | None) -> str:
@@ -534,6 +555,30 @@ async def emit_stl_event(
         event["note"] = note
     if error:
         event["error"] = error
+    await _broadcast_ws(event)
+
+
+async def emit_news_event(
+    *,
+    symbol: str,
+    status: str,
+    scope: str | None = None,
+    background: bool = False,
+    items: int | None = None,
+    note: str | None = None,
+) -> None:
+    event = {
+        "type": "news_update",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "symbol": symbol.upper(),
+        "status": status,
+        "scope": scope,
+        "background": background,
+    }
+    if items is not None:
+        event["items"] = items
+    if note:
+        event["note"] = note
     await _broadcast_ws(event)
 
 
@@ -1943,9 +1988,9 @@ class PreferencesHandler(tornado.web.RequestHandler):
                 val = str(updates.get("auto_news_backfill") or "1").lower() not in ("0", "false", "no", "off")
                 global NEWS_BACKFILL_CB
                 try:
-                    interval_min = int(os.getenv("NEWS_BACKFILL_MIN", "45"))
+                    interval_min = int(os.getenv("NEWS_BACKFILL_MIN", "30"))
                 except Exception:
-                    interval_min = 45
+                    interval_min = 30
                 interval_ms = max(5, interval_min) * 60 * 1000
                 if val and NEWS_BACKFILL_CB is None:
                     def _schedule_backfill():
@@ -2006,6 +2051,15 @@ class NewsHandler(tornado.web.RequestHandler):
                 try:
                     inserted = await upsert_news_articles(self.pool, live)
                     logger.info("[news] live fetched=%d inserted=%d for %s", len(live), inserted, symbol)
+                    if inserted:
+                        await emit_news_event(
+                            symbol=symbol,
+                            status="refreshed",
+                            scope="manual",
+                            background=False,
+                            items=inserted,
+                            note="digest",
+                        )
                 except Exception:
                     logger.exception("[news] upsert live failed for %s", symbol)
                 rows = live
@@ -2490,10 +2544,10 @@ def main():
     # Auto news backfill (default on)
     try:
         news_auto_env = os.getenv("AUTO_NEWS_BACKFILL", "1").lower() not in ("0", "false", "no", "off")
-        interval_min = int(os.getenv("NEWS_BACKFILL_MIN", "45"))
+        interval_min = int(os.getenv("NEWS_BACKFILL_MIN", "30"))
     except Exception:
         news_auto_env = True
-        interval_min = 45
+        interval_min = 30
     def _schedule_news_backfill():
         tornado.ioloop.IOLoop.current().add_callback(run_news_backfill)
     global NEWS_BACKFILL_CB
@@ -2506,11 +2560,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
 
 
 
