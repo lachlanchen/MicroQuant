@@ -835,7 +835,7 @@
       };
 
       const newsAnalysisCache = new Map();
-      let healthState = { kind: null, offset: 0 };
+      let healthState = { kind: null, offset: 0, strategy: null };
       const chartPeriodPluginId = 'periodOverlay';
       if (window.Chart && window.Chart.register && !window.__periodOverlayRegistered) {
         const periodOverlayPlugin = {
@@ -1623,13 +1623,18 @@ const ensureLwMacd = () => {
       }
       function splitPair(sym) { const s=(sym||'').toUpperCase(); return { base: s.slice(0,3), quote: s.slice(3,6) }; }
 
-      function openHealth(kind) {
+      function openHealth(kind, preferredStrategy) {
       healthState.kind = kind;
+      healthState.strategy = preferredStrategy || null;
       healthState.offset = 0;
       healthState.runs = [];
       const modal = el('healthModal');
       if (!modal) return;
       ensureStrategyForKind(kind);
+      if (preferredStrategy && healthStrategySelect) {
+        healthStrategyUserOverride = true;
+        healthStrategySelect.value = preferredStrategy;
+      }
       modal.style.display = 'flex';
       const sym = symbolSelect.value.toUpperCase();
         const info = el('healthInfo');
@@ -1647,7 +1652,7 @@ const ensureLwMacd = () => {
         const sym = symbolSelect.value.toUpperCase();
         const kind = isFxPair(sym) ? 'forex_pair' : 'stock';
         healthState.runs = [];
-        openHealth(kind);
+        openHealth(kind, null);
       }
 
       const buildTechTable = (title, headers, rows) => {
@@ -1848,6 +1853,7 @@ const ensureLwMacd = () => {
           params.set('kind','stock'); params.set('symbol', sym);
         }
         params.set('limit','5'); params.set('offset', String(healthState.offset||0));
+        if (healthState.strategy) { params.set('strategy', healthState.strategy); }
         try {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
@@ -2013,15 +2019,10 @@ const ensureLwMacd = () => {
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
       if (btnTechHealth) btnTechHealth.addEventListener('click', openTechHealth);
       if (btnTechAiHealth) btnTechAiHealth.addEventListener('click', () => {
-        // Open modal and immediately run AI on current snapshot
+        // Open modal filtered to Tech strategy and immediately run AI on current snapshot
         const sym = symbolSelect.value.toUpperCase();
         const kind = isFxPair(sym) ? 'forex_pair' : 'stock';
-        openHealth(kind);
-        // If the dropdown exists, reflect the chosen strategy for transparency
-        if (healthStrategySelect) {
-          healthStrategyUserOverride = true;
-          healthStrategySelect.value = 'tech_snapshot_10q.json';
-        }
+        openHealth(kind, 'tech_snapshot_10q.json');
         startTechAiRun();
       });
       if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });

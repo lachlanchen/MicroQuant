@@ -2296,6 +2296,7 @@ class HealthRunsHandler(tornado.web.RequestHandler):
         quote = self.get_argument("quote", default=None)
         limit = int(self.get_argument("limit", default="5"))
         offset = int(self.get_argument("offset", default="0"))
+        strategy_filter = self.get_argument("strategy", default=None)
 
         # Auto-detect kind if not explicitly provided
         kind = raw_kind
@@ -2318,11 +2319,26 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 self.set_header("Content-Type", "application/json")
                 self.finish(json.dumps({"ok": False, "error": "base/quote required for forex_pair"}))
                 return
-            runs = await list_health_runs(self.pool, kind="forex_pair", base_ccy=base.upper(), quote_ccy=quote.upper(), limit=limit, offset=offset)
+            runs = await list_health_runs(
+                self.pool,
+                kind="forex_pair",
+                base_ccy=base.upper(),
+                quote_ccy=quote.upper(),
+                limit=limit,
+                offset=offset,
+                strategy=(strategy_filter or None) if strategy_filter else None,
+            )
         else:
             if not symbol:
                 symbol = default_symbol()
-            runs = await list_health_runs(self.pool, kind="stock", symbol=str(symbol).upper(), limit=limit, offset=offset)
+            runs = await list_health_runs(
+                self.pool,
+                kind="stock",
+                symbol=str(symbol).upper(),
+                limit=limit,
+                offset=offset,
+                strategy=(strategy_filter or None) if strategy_filter else None,
+            )
 
         def _ser(run: dict) -> dict:
             created_at = run.get("created_at")

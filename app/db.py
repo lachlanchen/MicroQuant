@@ -489,6 +489,8 @@ async def list_health_runs(
     quote_ccy: str | None = None,
     limit: int = 5,
     offset: int = 0,
+    strategy: str | None = None,
+    exclude_strategy: str | None = None,
 ) -> list[dict]:
     if limit <= 0:
         limit = 5
@@ -500,22 +502,26 @@ async def list_health_runs(
             SELECT id, kind, symbol, base_ccy, quote_ccy, news_count, news_ids, answers_json, created_at
             FROM health_runs
             WHERE kind=$1 AND symbol=$2
+              AND ($3::text IS NULL OR answers_json->>'strategy' = $3)
+              AND ($4::text IS NULL OR answers_json->>'strategy' <> $4)
             ORDER BY created_at DESC
-            LIMIT $3 OFFSET $4
+            LIMIT $5 OFFSET $6
             """
         )
-        args = (kind, symbol, limit, offset)
+        args = (kind, symbol, strategy, exclude_strategy, limit, offset)
     else:
         q = (
             """
             SELECT id, kind, symbol, base_ccy, quote_ccy, news_count, news_ids, answers_json, created_at
             FROM health_runs
             WHERE kind=$1 AND base_ccy=$2 AND quote_ccy=$3
+              AND ($4::text IS NULL OR answers_json->>'strategy' = $4)
+              AND ($5::text IS NULL OR answers_json->>'strategy' <> $5)
             ORDER BY created_at DESC
-            LIMIT $4 OFFSET $5
+            LIMIT $6 OFFSET $7
             """
         )
-        args = (kind, base_ccy, quote_ccy, limit, offset)
+        args = (kind, base_ccy, quote_ccy, strategy, exclude_strategy, limit, offset)
     async with pool.acquire() as conn:
         rows = await conn.fetch(q, *args)
     result: list[dict] = []
