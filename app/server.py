@@ -474,9 +474,9 @@ def _build_pair_prompt_one(question_text: str, base_ccy: str, quote_ccy: str, ba
         "You are an FX analyst. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
         "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
         f"Pair: {base_ccy}/{quote_ccy}\n{tf_line}\n\n"
-        f"Question: {question_text}\n\n"
         f"BASE ({base_ccy}) articles:\n---\n{base_blk}\n---\n\n"
-        f"QUOTE ({quote_ccy}) articles:\n---\n{quote_blk}\n---\n"
+        f"QUOTE ({quote_ccy}) articles:\n---\n{quote_blk}\n---\n\n"
+        f"Question: {question_text}\n"
     )
 
 
@@ -497,9 +497,9 @@ def _build_pair_prompt_choice(
         "You are an FX analyst. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
         f"Choose exactly one currency code from this list: {allowed}. Be decisive and cite the strongest evidence.\n\n"
         f"Pair: {base_ccy}/{quote_ccy}\n{tf_line}\n\n"
-        f"Question: {question_text}\n\n"
         f"{base_ccy} articles:\n---\n{base_blk}\n---\n\n"
-        f"{quote_ccy} articles:\n---\n{quote_blk}\n---\n"
+        f"{quote_ccy} articles:\n---\n{quote_blk}\n---\n\n"
+        f"Question: {question_text}\n"
     )
 
 
@@ -510,8 +510,8 @@ def _build_stock_prompt_one(question_text: str, ticker: str, items: list[dict], 
         "You are an equity analyst. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
         "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
-        f"Question: {question_text}\n\n"
-        f"Articles:\n---\n{blk}\n---\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Question: {question_text}\n"
     )
 
 
@@ -2715,7 +2715,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
