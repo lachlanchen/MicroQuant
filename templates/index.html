@@ -235,19 +235,21 @@
         <!-- Analysis panel -->
         <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
           <div style="display:flex; flex-direction:column; gap:10px;">
-            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;">
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-start;">
               <strong style="color:var(--accent)">Analysis</strong>
-              <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-end;">
+              <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-start;">
                 <label style="display:flex; align-items:center; gap:6px;">News to use
                   <input id="healthNewsCount" type="number" min="1" max="20" value="3" style="width:72px;" />
                 </label>
                 <button class="btn secondary" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
               </div>
             </div>
-            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-end;">
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-start;">
               <label style="display:flex; align-items:center; gap:6px;">Template
                 <select id="healthStrategy" style="min-width:220px; padding:4px 6px;"></select>
               </label>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-start;">
               <label style="display:flex; align-items:center; gap:6px;">Bars
                 <input id="techHealthBars" type="number" min="1" max="500" style="width:72px;" />
               </label>
