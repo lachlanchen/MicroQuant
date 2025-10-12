@@ -1775,7 +1775,7 @@ const ensureLwMacd = () => {
         const cssW = lwOverlay.width / dpr;
         const cssH = lwOverlay.height / dpr;
         // Chips are fixed to the top-left corner of the chart area
-        const startY = 8;
+        const startY = 12; // move slightly down from top edge
         const lineH = 18;
         const padX = 6;
         const radius = 6;
@@ -1795,7 +1795,7 @@ const ensureLwMacd = () => {
           else if (sig === 'SELL') { bg = 'rgba(231,76,60,0.18)'; border = '#e74c3c'; }
           const text = `${label}: ${sig || '-'}`;
           const w = Math.min(160, Math.max(60, ctx.measureText(text).width + padX * 2));
-          const x = 10; // left-aligned with 10px margin
+          const x = 24; // left-aligned, pulled further inside
           // rounded rect
           ctx.beginPath();
           ctx.moveTo(x, y);
