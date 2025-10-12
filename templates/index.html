@@ -491,9 +491,9 @@
         const nextSeconds = next ? TF_SECONDS[next] : null;
         if (Number.isFinite(baseSeconds) && Number.isFinite(nextSeconds) && nextSeconds > baseSeconds) {
           const ratio = Math.round(nextSeconds / baseSeconds);
-          if (Number.isFinite(ratio) && ratio > 0) return ratio;
+          if (Number.isFinite(ratio) && ratio > 0) return Math.max(ratio, 10);
         }
-        return DEFAULT_TECH_WINDOW;
+        return Math.max(DEFAULT_TECH_WINDOW, 10);
       };
       const applyTechWindowDefault = (force = false) => {
         if (!techHealthBarsInput) return;
@@ -506,7 +506,7 @@
         if (!techHealthBarsInput) return defaultTechWindow(currentTf());
         const raw = Number(techHealthBarsInput.value);
         if (Number.isFinite(raw) && raw > 0) {
-          const clamped = Math.max(1, Math.min(500, Math.round(raw)));
+          const clamped = Math.max(10, Math.min(500, Math.round(raw)));
           if (techHealthBarsInput.value !== String(clamped)) {
             techHealthBarsInput.value = String(clamped);
           }
@@ -2077,7 +2077,7 @@ const ensureLwMacd = () => {
           if (!Number.isFinite(raw) || raw <= 0) {
             applyTechWindowDefault(true);
           } else {
-            const clamped = Math.max(1, Math.min(500, Math.round(raw)));
+            const clamped = Math.max(10, Math.min(500, Math.round(raw)));
             techHealthBarsInput.value = String(clamped);
           }
         };
