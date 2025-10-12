@@ -3016,6 +3016,45 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     sl = max_sl
                     enforced = True
 
+        # Persist plan as a health_run record (strategy-tagged)
+        try:
+            kind = "forex_pair" if _is_fx_symbol(symbol) else "stock"
+            base_ccy = symbol[:3] if kind == "forex_pair" else None
+            quote_ccy = symbol[3:6] if kind == "forex_pair" else None
+            answers_json = {
+                "strategy": "ai_trade_plan",
+                "plan": {
+                    "position": position,
+                    "stop_loss": sl,
+                    "take_profit": tp,
+                    "explanation": explanation,
+                },
+                "meta": {
+                    "timeframe": timeframe,
+                    "symbol": symbol,
+                    "action": action,
+                    "leverage": leverage,
+                    "ref_price": ref_price,
+                    "max_loss_pct": max_loss_pct,
+                    "enforced": enforced,
+                },
+            }
+            ins = await insert_health_run(
+                self.pool,
+                kind=kind,
+                symbol=(symbol if kind == "stock" else f"{base_ccy}{quote_ccy}"),
+                base_ccy=base_ccy,
+                quote_ccy=quote_ccy,
+                news_count=0,
+                news_ids=[],
+                answers_json=answers_json,
+            )
+            run_id = ins.get("id")
+            created_at = ins.get("created_at").isoformat() if ins.get("created_at") else None
+        except Exception:
+            run_id = None
+            created_at = None
+
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({
@@ -3033,6 +3072,8 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 "take_profit": tp,
                 "explanation": explanation,
             },
+            "run_id": run_id,
+            "created_at": created_at,
         }))
 def main():
     # Load .env automatically if present (handy on Windows)

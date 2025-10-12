@@ -397,6 +397,25 @@
       </div>
     </div>
     </div>
+    <!-- AI Trade Plan Modal -->
+    <div id="tradeModal" style="position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); z-index:1000;">
+      <div style="background:#fff; border-radius:8px; border:1px solid var(--line); padding:12px; width:min(760px, 94vw); max-height:86vh; overflow:auto;">
+        <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; z-index:5; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line);">
+          <strong style="color:var(--accent)">AI Trade Plan</strong>
+          <button class="btn secondary" id="btnTradeClose" style="padding:6px 10px;">Close</button>
+        </div>
+        <div id="tradeInfo" style="color:var(--muted); font-size:13px; margin-top:6px;"></div>
+        <div style="margin-top:8px;">
+          <div style="font-weight:600; color:var(--muted); margin-bottom:4px;">Recent</div>
+          <div id="tradeHistoryBox" style="border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:200px; overflow:auto;"></div>
+          <div class="row" style="gap:8px; margin-top:6px;">
+            <button class="btn secondary" id="btnTradeMore" style="padding:6px 10px;">More</button>
+            <button class="btn" id="btnTradeStart" style="padding:6px 10px;">Start</button>
+          </div>
+        </div>
+        <div id="tradeResultsBox" style="margin-top:10px;"></div>
+      </div>
+    </div>
 
     <!-- Affiliate floating widgets -->
     <div id="rfBottomBanner" class="rf-floating rf-bottom rf-hidden" style="width:728px; height:90px;"
@@ -2064,6 +2083,14 @@ const ensureLwMacd = () => {
       const btnAiSell = document.getElementById('btnAiSell');
       const aiLeverageInput = document.getElementById('aiLeverage');
       const btnTechClose = document.getElementById('btnTechClose');
+      const tradeModal = document.getElementById('tradeModal');
+      const tradeInfo = document.getElementById('tradeInfo');
+      const tradeResultsBox = document.getElementById('tradeResultsBox');
+      const tradeHistoryBox = document.getElementById('tradeHistoryBox');
+      const btnTradeStart = document.getElementById('btnTradeStart');
+      const btnTradeClose = document.getElementById('btnTradeClose');
+      const btnTradeMore = document.getElementById('btnTradeMore');
+      let tradeState = { action: 'BUY', offset: 0 };
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
       if (btnHealthStart) btnHealthStart.addEventListener('click', () => {
         if (healthState && healthState.strategy === 'tech_snapshot_10q.json') {
@@ -2083,6 +2110,74 @@ const ensureLwMacd = () => {
         const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q.json';
         openHealth(kind, techStrat);
       });
+      async function runAiTradePlan(side) {
+        const sym = symbolSelect.value.toUpperCase();
+        const tf = currentTf();
+        const lev = Math.max(1, Math.min(100, Number(aiLeverageInput && aiLeverageInput.value || 10)));
+        const outBox = tradeResultsBox;
+        if (outBox) outBox.textContent = 'Drafting plan…';
+        try {
+          const snapshot = buildTechSnapshotString();
+          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot };
+          const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (!r.ok || !js || js.ok !== true) { if (outBox) outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
+          const p = js.plan || {};
+          const enforced = js.enforced ? ' (risk cap applied)' : '';
+          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};\">${esc(p.position||'')}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
+          tradeState.offset = 0;
+          loadTradeHistory();
+        } catch (e) {
+          if (outBox) outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
+        }
+      }
+      function openTradePlan(action) {
+        tradeState.action = action || 'BUY';
+        tradeState.offset = 0;
+        if (tradeInfo) tradeInfo.textContent = `${currentSymbol()} • TF ${currentTf()} • ${tradeState.action}`;
+        if (tradeResultsBox) tradeResultsBox.innerHTML = '';
+        if (tradeModal) tradeModal.style.display = 'flex';
+        loadTradeHistory();
+      }
+      async function loadTradeHistory() {
+        if (!tradeHistoryBox) return;
+        if ((tradeState.offset||0) === 0) tradeHistoryBox.innerHTML = '<em style="color:var(--muted)">Loading…</em>';
+        const sym = symbolSelect.value.toUpperCase();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) {
+          const pq = splitPair(sym);
+          params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote);
+        } else {
+          params.set('kind','stock'); params.set('symbol', sym);
+        }
+        params.set('limit','5'); params.set('offset', String(tradeState.offset||0));
+        params.set('strategy','ai_trade_plan');
+        try {
+          const res = await fetch(`/api/health/runs?${params.toString()}`);
+          const data = await res.json();
+          const runs = (data && data.runs) || [];
+          if (!runs.length && (tradeState.offset||0) === 0) { tradeHistoryBox.innerHTML = '<em style="color:var(--muted)">No recent plans</em>'; return; }
+          if ((tradeState.offset||0) === 0) { tradeHistoryBox.innerHTML = ''; }
+          const html = runs.map((r) => {
+            const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+            const ans = r.answers || r.answers_json || {};
+            const plan = ans.plan || {};
+            const pos = (plan.position || '').toUpperCase();
+            const sl = plan.stop_loss;
+            const tp = plan.take_profit;
+            const posPill = pos ? `<span class=\"pill\" style=\"background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};\">${pos}</span>` : '';
+            return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:13px; color:var(--muted);\">${t}</span>\n              <span>${posPill} <span style=\"font-size:12px; color:var(--muted);\">SL ${esc(sl)} • TP ${esc(tp)}</span></span>\n            </div>`;
+          }).join('');
+          tradeHistoryBox.insertAdjacentHTML('beforeend', html);
+        } catch (e) {
+          tradeHistoryBox.innerHTML = '<em style="color:var(--muted)">Failed to load</em>';
+        }
+      }
+      if (btnAiBuy) btnAiBuy.addEventListener('click', ()=> openTradePlan('BUY'));
+      if (btnAiSell) btnAiSell.addEventListener('click', ()=> openTradePlan('SELL'));
+      if (btnTradeStart) btnTradeStart.addEventListener('click', ()=> runAiTradePlan(tradeState.action||'BUY'));
+      if (btnTradeClose) btnTradeClose.addEventListener('click', ()=> { if (tradeModal) tradeModal.style.display = 'none'; });
+      if (btnTradeMore) btnTradeMore.addEventListener('click', ()=> { tradeState.offset = (tradeState.offset||0) + 5; loadTradeHistory(); });
       async function runAiTradePlan(side) {
         const sym = symbolSelect.value.toUpperCase();
         const tf = currentTf();
