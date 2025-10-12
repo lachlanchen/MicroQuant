@@ -2568,6 +2568,50 @@ const ensureLwMacd = () => {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         }
       }
+
+      // Load latest existing AI trade plan for current symbol/TF (no new AI call)
+      async function loadLatestAiPlanPreview() {
+        const outBox = el('aiTradePlanBox');
+        if (!outBox) return;
+        const sym = symbolSelect.value.toUpperCase();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) {
+          const pq = splitPair(sym);
+          params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote);
+        } else {
+          params.set('kind','stock'); params.set('symbol', sym);
+        }
+        params.set('limit','1');
+        params.set('strategy','ai_trade_plan');
+        params.set('tf', tf);
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = (js && js.runs) || [];
+          if (!runs.length) {
+            outBox.innerHTML = '<em style="color:var(--muted)">No saved plan for this symbol/TF</em>';
+            return;
+          }
+          const run = runs[0];
+          const ans = run.answers || run.answers_json || {};
+          const plan = ans.plan || {};
+          const pos = (plan.position || '').toUpperCase();
+          const enforced = (ans.meta && ans.meta.enforced) ? ' (risk cap applied)' : '';
+          outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
+            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(sym)} ${esc(tf)}${enforced}</span>
+          </div>
+          <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
+            <span class="pill" style="background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};">${esc(pos || '-')}
+            </span>
+            <span class="pill">SL: ${esc(plan.stop_loss)}</span>
+            <span class="pill">TP: ${esc(plan.take_profit)}</span>
+          </div>
+          <div style="margin-top:6px; color:var(--muted);">${esc(plan.explanation || '')}</div>`;
+        } catch (e) {
+          outBox.innerHTML = '<em style="color:var(--muted)">No saved plan</em>';
+        }
+      }
       async function runAiTradePlan(side) {
         const sym = symbolSelect.value.toUpperCase();
         const tf = currentTf();
@@ -3801,6 +3845,7 @@ const ensureLwMacd = () => {
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
       (async () => { try { await refreshTechFreshness(); } catch {} })();
+      (async () => { try { await loadLatestAiPlanPreview(); } catch {} })();
 
       
       async function refreshChart() {
@@ -4021,6 +4066,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
+          await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on symbol change (run from modal Start)
         }
@@ -4047,6 +4093,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
+          await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on timeframe change (run from modal Start)
         }
