@@ -1713,6 +1713,7 @@ async def make_app():
             (r"/api/positions", PositionsHandler),
             (r"/api/tick", TickHandler),
             (r"/api/health/freshness", HealthFreshnessHandler, dict(pool=pool)),
+            (r"/api/tech/freshness", TechFreshnessHandler, dict(pool=pool)),
             (r"/api/account/balance_series", AccountBalanceHandler, dict(pool=pool)),
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
@@ -2369,6 +2370,83 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
             )
         )
 
+
+class TechFreshnessHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        symbol = str(self.get_argument("symbol", default=default_symbol())).upper()
+        timeframe = str(self.get_argument("tf", default="H1")).upper()
+
+        # Determine kind and get latest tech snapshot run for this symbol
+        if _is_fx_symbol(symbol):
+            kind = "forex_pair"
+            base = symbol[:3]
+            quote = symbol[3:6]
+            runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=1, strategy="tech_snapshot_10q.json")
+        else:
+            kind = "stock"
+            runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=1, strategy="tech_snapshot_10q.json")
+
+        last_run = runs[0] if runs else None
+        last_run_at = last_run.get("created_at").isoformat() if last_run and last_run.get("created_at") else None
+        meta = (last_run.get("answers") or last_run.get("answers_json") or {}).get("meta") if last_run else None
+        last_bar_ts_used = None
+        if isinstance(meta, dict):
+            val = meta.get("last_bar_ts")
+            if isinstance(val, str) and val:
+                last_bar_ts_used = val
+
+        latest_bar_iso = None
+        outdated = None
+        try:
+            async with self.pool.acquire() as conn:
+                latest_ts = await conn.fetchval(
+                    "SELECT MAX(ts) FROM ohlc_bars WHERE symbol=$1 AND timeframe=$2",
+                    symbol,
+                    timeframe,
+                )
+                if latest_ts is not None and hasattr(latest_ts, "isoformat"):
+                    latest_bar_iso = latest_ts.isoformat()
+                if last_bar_ts_used:
+                    from datetime import datetime as _dt
+                    try:
+                        base_ts = _dt.fromisoformat(last_bar_ts_used)
+                    except Exception:
+                        base_ts = None
+                    if base_ts is not None:
+                        cnt = await conn.fetchval(
+                            "SELECT COUNT(*)::INT FROM ohlc_bars WHERE symbol=$1 AND timeframe=$2 AND ts > $3",
+                            symbol,
+                            timeframe,
+                            base_ts,
+                        )
+                        outdated = int(cnt or 0)
+        except Exception:
+            pass
+
+        status = "unknown"
+        if outdated is not None:
+            status = "fresh" if outdated == 0 else "stale"
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            json.dumps(
+                {
+                    "ok": True,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "kind": kind,
+                    "status": status,
+                    "outdated_bars": outdated,
+                    "last_run_at": last_run_at,
+                    "last_bar_ts_used": last_bar_ts_used,
+                    "latest_bar_ts": latest_bar_iso,
+                }
+            )
+        )
 class ConfigHandler(tornado.web.RequestHandler):
     async def get(self):
         enabled = (os.getenv("TRADING_ENABLED", "0").lower() in ("1", "true", "yes"))
@@ -2748,6 +2826,14 @@ class HealthRunHandler(tornado.web.RequestHandler):
             is_fx = _is_fx_symbol(symbol)
             base_ccy = symbol[:3] if is_fx else None
             quote_ccy = symbol[3:6] if is_fx else None
+            # Capture the latest bar timestamp used as reference for freshness
+            last_bar_ts_iso = None
+            try:
+                rows_latest = await fetch_ohlc_bars(self.pool, symbol, timeframe, 1)
+                if rows_latest:
+                    last_bar_ts_iso = rows_latest[-1].get("ts")
+            except Exception:
+                last_bar_ts_iso = None
             ins = await insert_health_run(
                 self.pool,
                 kind="forex_pair" if is_fx else "stock",
@@ -2762,7 +2848,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "signal": signal,
                     "strategy": "tech_snapshot_10q.json",
                     "scores": {"BULLISH": bullish, "BEARISH": bearish, "NET": score_value},
-                    "meta": {"timeframe": timeframe, "symbol": symbol, "source": "snapshot"},
+                    "meta": {"timeframe": timeframe, "symbol": symbol, "source": "snapshot", "last_bar_ts": last_bar_ts_iso},
                 },
             )
 

@@ -273,6 +273,7 @@
                 </select>
               </label>
               <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
+              <span id="techFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
@@ -2069,6 +2070,7 @@ const ensureLwMacd = () => {
           renderHealthOutcome(outBox, data);
           loadHealthHistory();
           refreshHealthFreshness();
+          refreshTechFreshness();
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e}</em>`;
         }
@@ -2220,6 +2222,50 @@ const ensureLwMacd = () => {
           const js = await r.json().catch(() => ({}));
           if (r.ok && js && js.ok) {
             renderHealthFresh(js);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      // Tech+AI freshness (bars outdated)
+      const techFreshEl = document.getElementById('techFreshIndicator');
+      const renderTechFresh = (info) => {
+        if (!techFreshEl) return;
+        let label = '—';
+        let bg = 'rgba(158,158,158,0.12)';
+        let border = '#9e9e9e';
+        let color = '#424242';
+        if (info && info.status === 'fresh') {
+          label = 'Tech up-to-date';
+          bg = 'rgba(46,204,113,0.12)';
+          border = '#2ecc71';
+          color = '#1b5e20';
+        } else if (info && info.status === 'stale') {
+          const n = Number(info.outdated_bars || 0);
+          label = `Outdated +${n}`;
+          bg = 'rgba(231,76,60,0.12)';
+          border = '#e74c3c';
+          color = '#b71c1c';
+        }
+        techFreshEl.textContent = label;
+        techFreshEl.style.background = bg;
+        techFreshEl.style.borderColor = border;
+        techFreshEl.style.color = color;
+        const tip = [];
+        if (info && info.last_bar_ts_used) tip.push(`Last bar used: ${new Date(info.last_bar_ts_used).toLocaleString()}`);
+        if (info && info.latest_bar_ts) tip.push(`Latest bar: ${new Date(info.latest_bar_ts).toLocaleString()}`);
+        techFreshEl.title = tip.join(' \n');
+      };
+      async function refreshTechFreshness() {
+        try {
+          const sym = currentSymbol();
+          const tf = currentTf();
+          const params = new URLSearchParams({ symbol: sym, tf });
+          const r = await fetch(`/api/tech/freshness?${params.toString()}`, { cache: 'no-store' });
+          const js = await r.json().catch(() => ({}));
+          if (r.ok && js && js.ok) {
+            renderTechFresh(js);
           }
         } catch (e) {
           // ignore
@@ -2778,12 +2824,16 @@ const ensureLwMacd = () => {
             status(`Background fetch done (${data.symbol} ${data.timeframe}, +${inserted} bars)`);
           }
           scheduleChartRefresh(`${data.symbol}/${data.timeframe}`);
+          // Update Tech+AI freshness (bars outdated)
+          refreshTechFreshness();
         } else if (data.scope === 'symbol_all_tf' && sameSymbol) {
           status(`Background fetch done (${data.symbol} ${data.timeframe})`);
           scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope symbol_all_tf]`);
+          refreshTechFreshness();
         } else if (data.scope === 'all_symbols' && data.symbol === symbol) {
           status(`Bulk fetch updated ${data.symbol} ${data.timeframe}`);
           scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope all_symbols]`);
+          refreshTechFreshness();
         }
       }
 
@@ -3498,8 +3548,9 @@ const ensureLwMacd = () => {
 
       connectUpdates();
       refreshBalanceSeries();
-      // Initialize Basic Health freshness indicator
+      // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
+      (async () => { try { await refreshTechFreshness(); } catch {} })();
 
       
       async function refreshChart() {
