@@ -1617,6 +1617,7 @@ async def make_app():
             (r"/api/health/runs", HealthRunsHandler, dict(pool=pool)),
             (r"/api/health/run", HealthRunHandler, dict(pool=pool)),
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
+            (r"/api/ai/trade_plan", TradePlanHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
             # Duplicate route removed (was registered twice)
@@ -2852,11 +2853,184 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "strategy": strategy_name,
                     "run_id": ins.get("id"),
                     "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
-                    }
-                )
+                }
             )
+        )
 
 
+class TradePlanHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    def _load_trade_prompts(self) -> dict[str, str]:
+        root = Path(__file__).resolve().parents[1]
+        path = root / "strategies" / "llm" / "ai_trade_plan_prompts.json"
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    async def post(self):
+        global AI_CLIENT
+        if AI_CLIENT is None:
+            self.set_status(503)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "LLM unavailable"}))
+            return
+        try:
+            payload = json.loads(self.request.body or "{}")
+        except Exception:
+            payload = {}
+        symbol = str(payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
+        timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
+        action = str(payload.get("action") or payload.get("side") or "").upper()
+        leverage = float(payload.get("leverage") or 10)
+        snapshot_text = str(payload.get("tech_snapshot") or "").strip()
+        if action not in {"BUY", "SELL"}:
+            self.set_status(400)
+            self.finish(json.dumps({"ok": False, "error": "action must be BUY or SELL"}))
+            return
+        if not snapshot_text:
+            self.set_status(400)
+            self.finish(json.dumps({"ok": False, "error": "tech_snapshot required"}))
+            return
+
+        # Compose Basic and Tech+AI blocks from latest runs
+        kind = "forex_pair" if _is_fx_symbol(symbol) else "stock"
+        base = quote = None
+        if kind == "forex_pair":
+            s = symbol
+            if len(s) >= 6:
+                base, quote = s[:3], s[3:6]
+        # Determine default strategy for basic
+        if kind == "forex_pair":
+            # metals vs non-metals
+            if base in {"XAU", "XAG"}:
+                basic_strategy = "metal_pair_compact_10q.json"
+            else:
+                basic_strategy = "forex_pair_compact_10q.json"
+        else:
+            basic_strategy = "stocks_compact_10q.json"
+
+        async def _latest_run(strategy: str) -> dict | None:
+            if kind == "forex_pair":
+                runs = await list_health_runs(self.pool, kind="forex_pair", base_ccy=base, quote_ccy=quote, limit=1, offset=0, strategy=strategy)
+            else:
+                runs = await list_health_runs(self.pool, kind="stock", symbol=symbol, limit=1, offset=0, strategy=strategy)
+            return runs[0] if runs else None
+
+        basic_run = await _latest_run(basic_strategy)
+        tech_run = await _latest_run("tech_snapshot_10q.json")
+
+        def _format_run_block(run: dict | None) -> str:
+            if not run:
+                return "(no recent run)"
+            ans = run.get("answers_json") or {}
+            score = ans.get("score")
+            signal = ans.get("signal")
+            strategy = ans.get("strategy") or ""
+            scores = ans.get("scores") or {}
+            parts = []
+            parts.append(f"Score: {score}")
+            if signal:
+                parts.append(str(signal))
+            if strategy:
+                parts.append(f"Strategy: {strategy}")
+            # counts line
+            counts = []
+            if "BASE" in scores and "QUOTE" in scores and base and quote:
+                counts.append(f"{base}={scores['BASE']}")
+                counts.append(f"{quote}={scores['QUOTE']}")
+            if "BULLISH" in scores or "BEARISH" in scores:
+                if "BULLISH" in scores:
+                    counts.append(f"BULLISH={scores['BULLISH']}")
+                if "BEARISH" in scores:
+                    counts.append(f"BEARISH={scores['BEARISH']}")
+            if "NET" in scores:
+                counts.append(f"NET={scores['NET']}")
+            if counts:
+                parts.append(" ".join(["•".join(counts)]) if False else " ".join([" • ".join(counts)]))
+            # enumerate answers
+            qlist = ans.get("questions") or []
+            lines = []
+            for i, q in enumerate(qlist, 1):
+                aval = q.get("answer")
+                expl = q.get("explanation") or ""
+                lines.append(f"{i}.\n{str(aval).upper()}\n{expl}")
+            return "\n".join(parts + lines)
+
+        basic_block = _format_run_block(basic_run)
+        tech_block = _format_run_block(tech_run)
+
+        # Build final prompt
+        prompts = self._load_trade_prompts()
+        template_key = "buy_prompt" if action == "BUY" else "sell_prompt"
+        template = prompts.get(template_key) or ""
+        if not template:
+            self.set_status(500)
+            self.finish(json.dumps({"ok": False, "error": "trade prompt template missing"}))
+            return
+        prompt = (
+            template
+            .replace("{{SYMBOL}}", symbol)
+            .replace("{{TF}}", timeframe)
+            .replace("{{BASIC_HEALTH_BLOCK}}", basic_block)
+            .replace("{{TECH_AI_BLOCK}}", tech_block)
+            .replace("{{TECH_SNAPSHOT_BLOCK}}", snapshot_text)
+        )
+
+        # Call AI
+        try:
+            out = await tornado.ioloop.IOLoop.current().run_in_executor(
+                EXECUTOR, lambda: AI_CLIENT.send_request_with_json_schema(prompt, TRADE_PLAN_SCHEMA, system_content="You are a disciplined trading assistant. Reply only with JSON matching the schema.", schema_name="trade_plan")
+            )
+        except Exception as exc:
+            self.set_status(502)
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
+            return
+
+        # Normalize and enforce loss cap
+        plan = out or {}
+        position = str(plan.get("position") or action).upper()
+        sl = float(plan.get("stop_loss") or 0)
+        tp = float(plan.get("take_profit") or 0)
+        explanation = str(plan.get("explanation") or "")
+
+        # Reference price = latest close
+        rows = await fetch_ohlc_bars(self.pool, symbol, timeframe, 1)
+        ref_price = float(rows[-1]["close"]) if rows else 0.0
+        max_loss_pct = 0.20 / max(1.0, float(leverage or 10.0))
+        enforced = False
+        if ref_price > 0 and sl > 0 and max_loss_pct > 0:
+            if position == "BUY":
+                min_sl = ref_price * (1.0 - max_loss_pct)
+                if sl < min_sl:
+                    sl = min_sl
+                    enforced = True
+            elif position == "SELL":
+                max_sl = ref_price * (1.0 + max_loss_pct)
+                if sl > max_sl:
+                    sl = max_sl
+                    enforced = True
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({
+            "ok": True,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "action": action,
+            "leverage": leverage,
+            "ref_price": ref_price,
+            "max_loss_pct": max_loss_pct,
+            "enforced": enforced,
+            "plan": {
+                "position": position,
+                "stop_loss": sl,
+                "take_profit": tp,
+                "explanation": explanation,
+            },
+        }))
 def main():
     # Load .env automatically if present (handy on Windows)
     # Allow .env to override any previously-set variables in this process
@@ -2947,3 +3121,14 @@ def main():
 
 if __name__ == "__main__":
     main()
+TRADE_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "position": {"type": "string", "enum": ["BUY", "SELL"]},
+        "stop_loss": {"type": "number"},
+        "take_profit": {"type": "number"},
+        "explanation": {"type": "string"},
+    },
+    "required": ["position", "stop_loss", "take_profit", "explanation"],
+    "additionalProperties": False,
+}

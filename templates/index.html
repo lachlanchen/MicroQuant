@@ -269,6 +269,15 @@
               </label>
               <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
             </div>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Leverage</span>
+                <input id="aiLeverage" type="number" min="1" max="100" value="10" style="width:80px;" />
+              </label>
+              <button class="btn btn-buy" id="btnAiBuy" style="padding:6px 10px;">AI Buy</button>
+              <button class="btn btn-sell" id="btnAiSell" style="padding:6px 10px;">AI Sell</button>
+            </div>
+            <div id="aiTradePlanBox" style="font-size:13px; color:var(--text);"></div>
           </div>
         </div>
         <!-- STL panel -->
@@ -2046,6 +2055,9 @@ const ensureLwMacd = () => {
       const btnHealthClose = document.getElementById('btnHealthClose');
       const btnTechHealth = document.getElementById('btnTechHealth');
       const btnTechAiHealth = document.getElementById('btnTechAiHealth');
+      const btnAiBuy = document.getElementById('btnAiBuy');
+      const btnAiSell = document.getElementById('btnAiSell');
+      const aiLeverageInput = document.getElementById('aiLeverage');
       const btnTechClose = document.getElementById('btnTechClose');
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
       if (btnHealthStart) btnHealthStart.addEventListener('click', () => {
@@ -2066,6 +2078,35 @@ const ensureLwMacd = () => {
         const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q.json';
         openHealth(kind, techStrat);
       });
+      async function runAiTradePlan(side) {
+        const sym = symbolSelect.value.toUpperCase();
+        const tf = currentTf();
+        const lev = Math.max(1, Math.min(100, Number(aiLeverageInput && aiLeverageInput.value || 10)));
+        const outBox = el('aiTradePlanBox');
+        outBox.textContent = 'Drafting plan…';
+        try {
+          const snapshot = buildTechSnapshotString();
+          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot };
+          const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (!r.ok || !js || js.ok !== true) { outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
+          const p = js.plan || {};
+          const enforced = js.enforced ? ' (risk cap applied)' : '';
+          outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
+            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}</span>
+          </div>
+          <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
+            <span class="pill" style="background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};">${esc(p.position||'')}</span>
+            <span class="pill">SL: ${esc(p.stop_loss)}</span>
+            <span class="pill">TP: ${esc(p.take_profit)}</span>
+          </div>
+          <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
+        } catch (e) {
+          outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
+        }
+      }
+      if (btnAiBuy) btnAiBuy.addEventListener('click', ()=> runAiTradePlan('BUY'));
+      if (btnAiSell) btnAiSell.addEventListener('click', ()=> runAiTradePlan('SELL'));
       if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });
       if (healthStrategySelect) {
         healthStrategySelect.addEventListener('change', () => { healthStrategyUserOverride = true; });
