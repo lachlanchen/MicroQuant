@@ -480,6 +480,11 @@
       </a>
     </div>
 
+    <!-- Simple footer link (bottom-left) -->
+    <div style="position:fixed; bottom:8px; left:12px; z-index:9997; font-size:12px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:4px 8px; box-shadow:0 3px 10px rgba(0,0,0,0.08);">
+      <a href="https://roboforex.com/" class="efx" target="_blank" rel="noopener noreferrer sponsored">RoboForex – Professional services on Forex market</a>
+    </div>
+
     <script>
       const el = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -4815,11 +4820,9 @@ const ensureLwMacd = () => {
         try {
           hidden = localStorage.getItem(key) === '1';
         } catch {}
-        // Allow rendering even if previously hidden; do not remove the flag,
-        // but clear the CSS hidden class so it's visible now.
-        if (hidden) {
-          try { el.classList.remove('rf-hidden'); } catch {}
-        }
+        // Always allow showing now (do not clear the stored flag),
+        // but remove CSS hidden class so widget can render.
+        try { el.classList.remove('rf-hidden'); } catch {}
         if (btn) btn.addEventListener('click', () => setRfHidden(id, key));
         if (rfOptIn) {
           mountRfWidget(id);
