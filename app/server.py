@@ -2310,6 +2310,12 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                 runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=1, strategy=str(strategy) if strategy else None)
             else:
                 runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=1, strategy=str(strategy) if strategy else None)
+            # Fallback: if no run found for the requested strategy, use the latest non-tech run
+            if not runs:
+                if kind == "stock":
+                    runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=1, exclude_strategy="tech_snapshot_10q.json")
+                else:
+                    runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=1, exclude_strategy="tech_snapshot_10q.json")
         except Exception:
             runs = []
         last_run = runs[0] if runs else None
