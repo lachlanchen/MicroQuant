@@ -2580,6 +2580,7 @@ const ensureLwMacd = () => {
 
       // Inline AI trade plan preview (below Buy/Sell buttons)
       let lastAiPlan = null;
+      let aiPlanReqSeq = 0;
       const btnExecutePlan = document.getElementById('btnExecutePlan');
       const updateExecuteBtn = () => {
         if (!btnExecutePlan) return;
@@ -2591,6 +2592,7 @@ const ensureLwMacd = () => {
         if (!outBox) return;
         const sym = symbolSelect.value.toUpperCase();
         const tf = currentTf();
+        const reqId = ++aiPlanReqSeq;
         const lev = Math.max(1, Math.min(100, Number(aiLeverageInput && aiLeverageInput.value || 10)));
         outBox.textContent = 'Drafting plan…';
         try {
@@ -2599,6 +2601,7 @@ const ensureLwMacd = () => {
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
+          if (reqId !== aiPlanReqSeq || currentSymbol() !== sym || currentTf() !== tf) return;
           if (!r.ok || !js || js.ok !== true) { outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
           const p = js.plan || {};
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: js.symbol, timeframe: js.timeframe };
@@ -2614,6 +2617,7 @@ const ensureLwMacd = () => {
           <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
           updateExecuteBtn();
         } catch (e) {
+          if (reqId !== aiPlanReqSeq || currentSymbol() !== sym || currentTf() !== tf) return;
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
           lastAiPlan = null; updateExecuteBtn();
         }
