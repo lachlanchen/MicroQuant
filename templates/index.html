@@ -259,8 +259,15 @@
                 <input id="techHealthBars" type="number" min="1" max="500" style="width:72px;" />
               </label>
               <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Health Check</button>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Tech template</span>
+                <select id="techAiStrategy" style="min-width:220px; padding:4px 6px;">
+                  <option value="tech_snapshot_10q.json">Tech Snapshot (10)</option>
+                </select>
+              </label>
               <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
-              <span id="techAiTemplateBadge" style="margin-left:auto; font-size:12px; color:var(--muted);">Template: tech_snapshot_10q.json</span>
             </div>
           </div>
         </div>
@@ -1959,7 +1966,7 @@ const ensureLwMacd = () => {
           const snapshot = buildTechSnapshotString();
           const body = {
             symbol: sym,
-            strategy: 'tech_snapshot_10q.json',
+            strategy: (document.getElementById('techAiStrategy') && document.getElementById('techAiStrategy').value) ? document.getElementById('techAiStrategy').value : 'tech_snapshot_10q.json',
             timeframe: currentTf(),
             tech_snapshot: snapshot
           };
@@ -2055,7 +2062,9 @@ const ensureLwMacd = () => {
         // Open modal filtered to Tech strategy; wait for user to click Start
         const sym = symbolSelect.value.toUpperCase();
         const kind = isFxPair(sym) ? 'forex_pair' : 'stock';
-        openHealth(kind, 'tech_snapshot_10q.json');
+        const techSel = document.getElementById('techAiStrategy');
+        const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q.json';
+        openHealth(kind, techStrat);
       });
       if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });
       if (healthStrategySelect) {
