@@ -317,7 +317,7 @@ def _articles_to_text(items: list[dict[str, Any]]) -> str:
 
 DEFAULT_STRATEGIES: dict[str, str] = {
     "forex_pair": "forex_pair_compact_10q.json",
-    "stock": "stocks_30q_health_yes_no.json",
+    "stock": "stocks_compact_10q.json",
 }
 
 ALLOWED_STRATEGIES: dict[str, set[str]] = {
@@ -331,6 +331,7 @@ ALLOWED_STRATEGIES: dict[str, set[str]] = {
         "tech_snapshot_10q.json",
     },
     "stock": {
+        "stocks_compact_10q.json",
         "stocks_30q_health_yes_no.json",
         "tech_snapshot_10q.json",
     },
@@ -344,6 +345,8 @@ def _strategy_answer_type(strategy: dict[str, Any]) -> str:
     normalized = {str(opt).strip().upper() for opt in options}
     if normalized.issubset({"YES", "NO"}):
         return "bool"
+    if normalized.issubset({"BULLISH", "BEARISH"}):
+        return "choice"
     lowered = [str(opt).lower() for opt in options]
     if any("${base_currency" in opt or "${quote_currency" in opt for opt in lowered):
         return "choice"
@@ -526,6 +529,18 @@ def _build_stock_prompt_one(question_text: str, ticker: str, items: list[dict], 
     return (
         "You are an equity analyst. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
         "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
+        f"Ticker: {ticker}\n{tf_line}\n\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Question: {question_text}\n"
+    )
+
+def _build_stock_prompt_choice(question_text: str, ticker: str, items: list[dict], timeframe: str | None, options: list[str]) -> str:
+    blk = _articles_to_text(items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    allowed = ", ".join(options)
+    return (
+        "You are an equity analyst. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
+        f"Choose exactly one from: {allowed}. Be decisive and cite the strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
         f"Question: {question_text}\n"
@@ -2696,7 +2711,11 @@ class HealthRunHandler(tornado.web.RequestHandler):
         logger.info("[health] strategy=%s kind=stock symbol=%s news=%d", strategy_name, symbol, news_count)
         questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
-        def _call_one_stock(qobj: dict) -> tuple[str, bool, str]:
+        answer_type = _strategy_answer_type(strat)
+        use_choice = (answer_type == "choice")
+        choice_options = [str(o).strip().upper() for o in (strat.get("answer_options") or ["BULLISH","BEARISH"]) if o]
+
+        def _call_one_stock_bool(qobj: dict) -> tuple[str, bool, str]:
             qid = str(qobj.get("id") or "")
             qtext = str(qobj.get("text") or "")
             prompt = _build_stock_prompt_one(qtext, symbol, items, timeframe)
@@ -2710,22 +2729,65 @@ class HealthRunHandler(tornado.web.RequestHandler):
             expl = str((out or {}).get("explanation") or "").strip()
             return (qid, ans, expl)
 
+        def _call_one_stock_choice(qobj: dict) -> tuple[str, str, str]:
+            qid = str(qobj.get("id") or "")
+            qtext = str(qobj.get("text") or "")
+            prompt = _build_stock_prompt_choice(qtext, symbol, items, timeframe, choice_options)
+            out = AI_CLIENT.send_request_with_json_schema(
+                prompt,
+                _make_choice_schema(choice_options),
+                system_content="You are a decisive analyst. Reply only with JSON that matches the schema.",
+                schema_name="stock_choice_answer",
+            )
+            ans_raw = str((out or {}).get("answer") or "").strip().upper()
+            if ans_raw not in choice_options:
+                ans_raw = choice_options[0]
+            expl = str((out or {}).get("explanation") or "").strip()
+            return (qid, ans_raw, expl)
+
         from concurrent.futures import ThreadPoolExecutor as _TPE
         local_workers = min(8, max(1, len(questions)))
-        answers: list[tuple[str, bool, str]] = []
         if questions:
             with _TPE(max_workers=local_workers) as ex:
-                futs = [loop.run_in_executor(ex, _call_one_stock, q) for q in questions]
+                if use_choice:
+                    futs = [loop.run_in_executor(ex, _call_one_stock_choice, q) for q in questions]
+                else:
+                    futs = [loop.run_in_executor(ex, _call_one_stock_bool, q) for q in questions]
                 answers = await asyncio.gather(*futs, return_exceptions=False)
+        else:
+            answers = []
 
-        a_map: dict[str, tuple[bool, str]] = {qid: (val, expl) for qid, val, expl in answers}
-        ans_struct = [{"id": q["id"], "answer": bool((a_map.get(q["id"]) or (False, ""))[0]), "explanation": str((a_map.get(q["id"]) or (False, ""))[1])} for q in questions]
-        score = sum(1 for a in ans_struct if a["answer"])
-        signal = "HOLD"
+        ans_struct: list[dict[str, Any]] = []
+        scores_payload = None
+        score_value = 0
+        if use_choice:
+            a_map: dict[str, tuple[str, str]] = {qid: (val, expl) for qid, val, expl in answers}  # type: ignore
+            bullish = 0
+            bearish = 0
+            for q in questions:
+                qid = str(q.get("id"))
+                val, expl = a_map.get(qid, (choice_options[0], ""))
+                up = str(val).upper()
+                if up == "BULLISH":
+                    bullish += 1
+                elif up == "BEARISH":
+                    bearish += 1
+                ans_struct.append({"id": qid, "answer": up, "explanation": str(expl)})
+            score_value = bullish - bearish
+            scores_payload = {"BULLISH": bullish, "BEARISH": bearish, "NET": score_value}
+        else:
+            a_map_bool: dict[str, tuple[bool, str]] = {qid: (val, expl) for qid, val, expl in answers}  # type: ignore
+            for q in questions:
+                qid = str(q.get("id"))
+                val, expl = a_map_bool.get(qid, (False, ""))
+                ans_struct.append({"id": qid, "answer": bool(val), "explanation": str(expl)})
+            score_value = sum(1 for a in ans_struct if a.get("answer") is True)
+
+        signal = "NEUTRAL"
         thresholds = strat.get("scoring", {}).get("thresholds", [])
         for th in thresholds:
             try:
-                if int(th.get("min")) <= score <= int(th.get("max")):
+                if int(th.get("min")) <= score_value <= int(th.get("max")):
                     signal = str(th.get("signal") or signal)
                     break
             except Exception:
@@ -2733,10 +2795,10 @@ class HealthRunHandler(tornado.web.RequestHandler):
         news_ids = [it.get("url") for it in items if it.get("url")]
         answers_json = {
             "questions": ans_struct,
-            "score": score,
+            "score": score_value,
             "signal": signal,
             "strategy": strategy_name,
-            "scores": None,
+            "scores": scores_payload,
             "meta": {"timeframe": timeframe, "symbol": symbol, "news_count": news_count},
         }
         ins = await insert_health_run(
