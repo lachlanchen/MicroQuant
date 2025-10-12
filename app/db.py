@@ -451,6 +451,68 @@ async def fetch_news_db(
         out.append(item)
     return out
 
+
+# --- Account balances ---
+
+async def upsert_account_balance(
+    pool: asyncpg.pool.Pool,
+    *,
+    user_name: str,
+    account_id: int,
+    ts,
+    balance: float,
+    equity: float | None = None,
+    margin: float | None = None,
+    free_margin: float | None = None,
+    currency: str | None = None,
+) -> int:
+    q = (
+        """
+        INSERT INTO account_balances (user_name, account_id, ts, balance, equity, margin, free_margin, currency)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (user_name, account_id, ts) DO UPDATE SET
+            balance = EXCLUDED.balance,
+            equity = EXCLUDED.equity,
+            margin = EXCLUDED.margin,
+            free_margin = EXCLUDED.free_margin,
+            currency = EXCLUDED.currency
+        """
+    )
+    async with pool.acquire() as conn:
+        await conn.execute(q, user_name, int(account_id), ts, float(balance), equity, margin, free_margin, currency)
+    return 1
+
+
+async def fetch_account_balances(
+    pool: asyncpg.pool.Pool,
+    *,
+    user_name: str,
+    account_id: int,
+    limit: int = 500,
+) -> list[dict]:
+    q = (
+        """
+        SELECT ts, balance, equity, margin, free_margin, currency
+        FROM account_balances
+        WHERE user_name=$1 AND account_id=$2
+        ORDER BY ts DESC
+        LIMIT $3
+        """
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, user_name, int(account_id), int(limit))
+    out = []
+    for r in reversed(rows):  # return ascending for charting
+        out.append({
+            "ts": r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else str(r["ts"]),
+            "balance": float(r["balance"]) if r["balance"] is not None else None,
+            "equity": float(r["equity"]) if r["equity"] is not None else None,
+            "margin": float(r["margin"]) if r["margin"] is not None else None,
+            "free_margin": float(r["free_margin"]) if r["free_margin"] is not None else None,
+            "currency": r["currency"],
+        })
+    return out
+
 async def insert_health_run(
     pool: asyncpg.pool.Pool,
     *,

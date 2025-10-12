@@ -275,6 +275,21 @@ class MT5Client:
             "time": int(getattr(t, "time", 0)),
         }
 
+    def account_info(self) -> dict:
+        self._ensure_initialized()
+        info = mt5.account_info()
+        if not info:
+            code, msg = mt5.last_error()
+            raise RuntimeError(f"account_info failed: {code} {msg}")
+        # Convert to plain dict with fields we care about
+        return {
+            "login": int(getattr(info, "login", 0)),
+            "balance": float(getattr(info, "balance", 0.0)),
+            "equity": float(getattr(info, "equity", 0.0)),
+            "margin": float(getattr(info, "margin", 0.0)),
+            "margin_free": float(getattr(info, "margin_free", 0.0)),
+            "currency": str(getattr(info, "currency", "")),
+        }
+
 
 client = MT5Client()
-

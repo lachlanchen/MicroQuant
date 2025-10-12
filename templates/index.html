@@ -218,6 +218,10 @@
             <h4>Volume</h4>
             <div id="lwVol" class="lw-pane"></div>
           </div>
+          <div class="indicator-panel">
+            <h4>Account Balance</h4>
+            <div id="lwBalance" class="lw-pane"></div>
+          </div>
         </div>
       </div>
       <div>
@@ -1285,6 +1289,46 @@
         }
       };
 
+      // Account Balance pane
+      let lwBalanceChart = null;
+      let lwBalanceSeries = null;
+      let lwBalanceSubscribed = false;
+      const ensureLwBalance = () => {
+        if (!lwBalanceChart) {
+          const elBal = document.getElementById('lwBalance');
+          if (!elBal) return;
+          lwBalanceChart = LightweightCharts.createChart(elBal, {
+            rightPriceScale: { visible: true },
+            leftPriceScale: { visible: false },
+            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
+            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+          });
+        }
+        if (lwBalanceChart && !lwBalanceSeries) {
+          lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2 });
+        }
+        if (!lwBalanceSubscribed && lwBalanceChart) {
+          lwBalanceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            handleChartRangeChange(lwBalanceChart);
+          });
+          lwBalanceSubscribed = true;
+        }
+      };
+
+      async function refreshBalanceSeries() {
+        try {
+          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000', { cache: 'no-store' });
+          const js = await r.json();
+          if (!r.ok || !js || js.ok !== true) return;
+          ensureLwBalance();
+          if (!lwBalanceSeries) return;
+          const points = (js.rows || []).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.balance) }));
+          lwBalanceSeries.setData(points);
+        } catch (e) {
+          // ignore
+        }
+      }
+
       const ensureLwDeriv = () => {
         if (!lwDerivChart) {
           const elDeriv = document.getElementById('lwDeriv');
@@ -1921,6 +1965,7 @@ const ensureLwMacd = () => {
         params.set('limit','5'); params.set('offset', String(healthState.offset||0));
         if (healthState.strategy) { params.set('strategy', healthState.strategy); }
         if (healthState.excludeStrategy) { params.set('exclude_strategy', healthState.excludeStrategy); }
+        if (healthState.strategy === 'tech_snapshot_10q.json') { params.set('tf', currentTf()); }
         try {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
@@ -2110,6 +2155,37 @@ const ensureLwMacd = () => {
         const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q.json';
         openHealth(kind, techStrat);
       });
+
+      // Inline AI trade plan preview (below Buy/Sell buttons)
+      async function updateAiPlanPreview() {
+        const outBox = el('aiTradePlanBox');
+        if (!outBox) return;
+        const sym = symbolSelect.value.toUpperCase();
+        const tf = currentTf();
+        const lev = Math.max(1, Math.min(100, Number(aiLeverageInput && aiLeverageInput.value || 10)));
+        outBox.textContent = 'Drafting plan…';
+        try {
+          const snapshot = buildTechSnapshotString();
+          const side = (typeof tradeState !== 'undefined' && tradeState && tradeState.action) ? tradeState.action : 'BUY';
+          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot };
+          const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (!r.ok || !js || js.ok !== true) { outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
+          const p = js.plan || {};
+          const enforced = js.enforced ? ' (risk cap applied)' : '';
+          outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
+            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}</span>
+          </div>
+          <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
+            <span class="pill" style="background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};">${esc(p.position||'')}</span>
+            <span class="pill">SL: ${esc(p.stop_loss)}</span>
+            <span class="pill">TP: ${esc(p.take_profit)}</span>
+          </div>
+          <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
+        } catch (e) {
+          outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
+        }
+      }
       async function runAiTradePlan(side) {
         const sym = symbolSelect.value.toUpperCase();
         const tf = currentTf();
@@ -2205,8 +2281,6 @@ const ensureLwMacd = () => {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         }
       }
-      if (btnAiBuy) btnAiBuy.addEventListener('click', ()=> runAiTradePlan('BUY'));
-      if (btnAiSell) btnAiSell.addEventListener('click', ()=> runAiTradePlan('SELL'));
       if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });
       if (healthStrategySelect) {
         healthStrategySelect.addEventListener('change', () => { healthStrategyUserOverride = true; });
@@ -3318,6 +3392,8 @@ const ensureLwMacd = () => {
             handleNewsEvent(data);
           } else if (data.type === 'stl_complete') {
             handleStlEvent(data);
+          } else if (data.type === 'balance_update') {
+            refreshBalanceSeries();
           }
         });
 
@@ -3333,6 +3409,7 @@ const ensureLwMacd = () => {
       }
 
       connectUpdates();
+      refreshBalanceSeries();
 
       
       async function refreshChart() {
@@ -3553,6 +3630,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           if (autoTimer) startAuto({ announce: false });
+          // Inline AI trade plan preview disabled on symbol change (run from modal Start)
         }
       });
       const tfSel = document.getElementById('tf');
@@ -3577,6 +3655,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           if (autoTimer) startAuto({ announce: false });
+          // Inline AI trade plan preview disabled on timeframe change (run from modal Start)
         }
       });
       if (chartShiftInput) {
@@ -3590,6 +3669,7 @@ const ensureLwMacd = () => {
             if (lwRsiChart) lwRsiChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwMacdChart) lwMacdChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
+            if (lwBalanceChart) lwBalanceChart.applyOptions({ timeScale: { rightOffset: ro } });
           } catch (e) { /* ignore */ }
           // persist preference
           try { queuePrefUpdate('chart_shift', chartShiftOn ? '1' : '0'); } catch (e) {}

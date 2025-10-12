@@ -84,3 +84,19 @@ CREATE TABLE IF NOT EXISTS health_runs (
 
 CREATE INDEX IF NOT EXISTS idx_health_runs_kind_symbol_created
     ON health_runs(kind, COALESCE(symbol, base_ccy || quote_ccy), created_at DESC);
+
+-- Account balances over time
+CREATE TABLE IF NOT EXISTS account_balances (
+    user_name    TEXT         NOT NULL,
+    account_id   BIGINT       NOT NULL,
+    ts           TIMESTAMPTZ  NOT NULL,
+    balance      DOUBLE PRECISION NOT NULL,
+    equity       DOUBLE PRECISION,
+    margin       DOUBLE PRECISION,
+    free_margin  DOUBLE PRECISION,
+    currency     TEXT,
+    PRIMARY KEY (user_name, account_id, ts)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_balances_acct_ts
+    ON account_balances(account_id, ts DESC);

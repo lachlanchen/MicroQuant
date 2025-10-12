@@ -37,6 +37,8 @@ from app.db import (
     list_health_runs,
     upsert_news_articles,
     fetch_news_db,
+    upsert_account_balance,
+    fetch_account_balances,
 )
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
@@ -56,6 +58,7 @@ logger = logging.getLogger("mt5app")
 
 WS_CLIENTS: set = set()
 NEWS_BACKFILL_CB = None
+BALANCE_CB = None
 
 
 NEWS_MICRO_QUESTIONS: list[dict[str, str]] = [
@@ -286,6 +289,19 @@ HEALTH_BOOL_SCHEMA: dict[str, Any] = {
         "explanation": {"type": "string"},
     },
     "required": ["answer", "explanation"],
+    "additionalProperties": False,
+}
+
+# Trade plan output schema for AI Buy/Sell planning
+TRADE_PLAN_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "position": {"type": "string", "enum": ["BUY", "SELL"]},
+        "stop_loss": {"type": "number"},
+        "take_profit": {"type": "number"},
+        "explanation": {"type": "string"},
+    },
+    "required": ["position", "stop_loss", "take_profit", "explanation"],
     "additionalProperties": False,
 }
 
@@ -692,6 +708,18 @@ async def emit_news_event(
         event["items"] = items
     if note:
         event["note"] = note
+    await _broadcast_ws(event)
+
+
+async def emit_balance_event(*, user: str, account_id: int, balance: float | None = None) -> None:
+    event = {
+        "type": "balance_update",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "user": user,
+        "account": int(account_id),
+    }
+    if balance is not None:
+        event["balance"] = float(balance)
     await _broadcast_ws(event)
 
 
@@ -1581,6 +1609,31 @@ class UpdatesSocket(WebSocketHandler):
         logger.debug("[ws] client disconnected (total=%d)", len(WS_CLIENTS))
 
 
+async def poll_and_store_account_balance(user: str = "lachlan") -> dict:
+    """Fetch current MT5 account info and store balance snapshot."""
+    if GLOBAL_POOL is None:
+        return {"ok": False, "error": "no_pool"}
+    try:
+        info = mt5_client.account_info()
+    except Exception as exc:
+        logger.warning("[balance] account_info failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+    login = int(info.get("login") or 0)
+    bal = float(info.get("balance") or 0.0)
+    eq = float(info.get("equity") or 0.0)
+    mar = float(info.get("margin") or 0.0)
+    free = float(info.get("margin_free") or 0.0)
+    ccy = str(info.get("currency") or "")
+    now = datetime.now(timezone.utc)
+    try:
+        await upsert_account_balance(GLOBAL_POOL, user_name=user, account_id=login, ts=now, balance=bal, equity=eq, margin=mar, free_margin=free, currency=ccy)
+        await emit_balance_event(user=user, account_id=login, balance=bal)
+        return {"ok": True, "user": user, "account": login, "balance": bal}
+    except Exception as exc:
+        logger.exception("[balance] upsert failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
 GLOBAL_POOL = None
 
 
@@ -1607,6 +1660,7 @@ async def make_app():
             (r"/api/close", CloseHandler),
             (r"/api/positions", PositionsHandler),
             (r"/api/tick", TickHandler),
+            (r"/api/account/balance_series", AccountBalanceHandler, dict(pool=pool)),
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
@@ -1767,6 +1821,38 @@ class TickHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "tick": t}))
+
+
+class AccountBalanceHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
+        acct_arg = self.get_argument("account", default=None)
+        limit = int(self.get_argument("limit", default="500"))
+        # Resolve account id
+        account_id = None
+        if acct_arg:
+            try:
+                account_id = int(acct_arg)
+            except Exception:
+                account_id = None
+        if account_id is None:
+            try:
+                info = mt5_client.account_info()
+                account_id = int(info.get("login") or 0)
+            except Exception:
+                account_id = 0
+        if account_id == 0:
+            self.set_status(503)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "account unavailable"}))
+            return
+        rows = await fetch_account_balances(self.pool, user_name=user, account_id=account_id, limit=limit)
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "user": user, "account": account_id, "rows": rows}))
 
 
 class STLHandler(tornado.web.RequestHandler):
@@ -2340,6 +2426,7 @@ class HealthRunsHandler(tornado.web.RequestHandler):
         offset = int(self.get_argument("offset", default="0"))
         strategy_filter = self.get_argument("strategy", default=None)
         exclude_strategy = self.get_argument("exclude_strategy", default=None)
+        tf_filter = self.get_argument("tf", default=None)
 
         # Auto-detect kind if not explicitly provided
         kind = raw_kind
@@ -2400,6 +2487,21 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 "answers": run.get("answers_json") or {},
                 "created_at": created_at,
             }
+
+        # Optional timeframe filter based on answers_json.meta.timeframe
+        if tf_filter:
+            tf_up = str(tf_filter).upper()
+            filtered = []
+            for r in runs:
+                try:
+                    ans = r.get("answers_json") or {}
+                    meta = ans.get("meta") or {}
+                    tfv = str(meta.get("timeframe") or "").upper()
+                    if tfv == tf_up:
+                        filtered.append(r)
+                except Exception:
+                    continue
+            runs = filtered
 
         payload = {"ok": True, "runs": [_ser(r) for r in runs]}
         self.set_header("Content-Type", "application/json")
@@ -3146,6 +3248,18 @@ def main():
         cb = tornado.ioloop.PeriodicCallback(_schedule_fetch, interval_ms)
         cb.start()
 
+    # Account balance polling (default every 60 min)
+    try:
+        balance_min = int(os.getenv("BALANCE_POLL_MIN", "60"))
+    except Exception:
+        balance_min = 60
+    def _schedule_balance_poll():
+        tornado.ioloop.IOLoop.current().add_callback(poll_and_store_account_balance)
+    global BALANCE_CB
+    if BALANCE_CB is None:
+        BALANCE_CB = tornado.ioloop.PeriodicCallback(_schedule_balance_poll, max(5, balance_min) * 60 * 1000)
+        BALANCE_CB.start()
+
     # Auto news backfill (default on)
     try:
         news_auto_env = os.getenv("AUTO_NEWS_BACKFILL", "1").lower() not in ("0", "false", "no", "off")
@@ -3160,19 +3274,9 @@ def main():
         NEWS_BACKFILL_CB = tornado.ioloop.PeriodicCallback(_schedule_news_backfill, max(5, interval_min) * 60 * 1000)
         NEWS_BACKFILL_CB.start()
 
+    # Start IOLoop (blocking)
     loop.start()
 
 
 if __name__ == "__main__":
     main()
-TRADE_PLAN_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "position": {"type": "string", "enum": ["BUY", "SELL"]},
-        "stop_loss": {"type": "number"},
-        "take_profit": {"type": "number"},
-        "explanation": {"type": "string"},
-    },
-    "required": ["position", "stop_loss", "take_profit", "explanation"],
-    "additionalProperties": False,
-}
