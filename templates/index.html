@@ -418,12 +418,18 @@
       const stlRunsSelect = el('stlRuns');
       const stlDeleteBtn = el('btnStlDelete');
       const stlOverlayControls = el('stlOverlayControls');
-      const STL_OVERLAY_TFS = ['M15', 'H1', 'H4', 'D1'];
+      const STL_OVERLAY_TFS = ['M1','M5','M15','M30','H1','H4','D1','W1','MN1','Y1'];
       const STL_OVERLAY_COLORS = {
+        M1: '#006064',
+        M5: '#00838f',
         M15: '#7e57c2',
+        M30: '#5e35b1',
         H1: '#1e88e5',
         H4: '#fb8c00',
         D1: '#43a047',
+        W1: '#f4511e',
+        MN1: '#6d4c41',
+        Y1: '#8d6e63',
       };
       const stlOverlaySeries = new Map();
       const stlOverlayData = new Map();
@@ -1734,7 +1740,7 @@
       function isStlOverlayEnabled(tf) {
         const input = stlOverlayInputs.get(tf);
         if (!input) return false;
-        if (input.disabled) return true;
+        if (input.disabled) return input.dataset.locked === 'current';
         return !!input.checked;
       }
       function overlayKey(symbol, tf) {
@@ -1842,8 +1848,14 @@
         label.style.fontWeight = '600';
         label.style.color = 'var(--muted)';
         stlOverlayControls.appendChild(label);
-        const tfs = [current, ...STL_OVERLAY_TFS.filter((tf) => tf !== current)];
-        tfs.forEach((tf) => {
+        const order = ALL_TFS.slice();
+        const currentIdx = order.indexOf(current);
+        const overlayList = order.filter((tf) => STL_OVERLAY_TFS.includes(tf) || tf === current);
+        overlayList.forEach((tf) => {
+          const tfIdx = order.indexOf(tf);
+          const isCurrent = tf === current;
+          const isLower = currentIdx !== -1 && tfIdx !== -1 && tfIdx < currentIdx;
+          const unavailable = tfIdx === -1;
           const wrap = document.createElement('label');
           wrap.style.display = 'flex';
           wrap.style.alignItems = 'center';
@@ -1855,9 +1867,26 @@
           input.type = 'checkbox';
           input.value = tf;
           input.dataset.tf = tf;
-          if (tf === current) {
+          if (isCurrent) {
             input.checked = true;
             input.disabled = true;
+            input.dataset.locked = 'current';
+            wrap.style.cursor = 'default';
+            wrap.style.opacity = '0.9';
+          } else if (unavailable) {
+            input.checked = false;
+            input.disabled = true;
+            input.dataset.locked = 'unsupported';
+            wrap.style.cursor = 'not-allowed';
+            wrap.style.opacity = '0.3';
+          } else if (isLower && currentIdx !== -1) {
+            input.checked = false;
+            input.disabled = true;
+            input.dataset.locked = 'lower';
+            wrap.style.cursor = 'not-allowed';
+            wrap.style.opacity = '0.35';
+            wrap.title = 'Enable lower timeframe trends from their own chart.';
+            clearStlOverlaySeries(tf);
           } else {
             const key = overlayKey(symbol, tf);
             if (stlOverlayData.has(key)) {
@@ -2365,20 +2394,55 @@
         }
       }
 
-      async function fetchAndSave() {
+      async function fetchAndSave(opts = {}) {
+        const isEvent = opts && typeof opts === 'object' && typeof opts.preventDefault === 'function';
+        if (isEvent) {
+          opts.preventDefault();
+        }
+        const options = isEvent ? {} : (opts || {});
         const symbol = currentSymbol();
         const tf = currentTf();
         const count = el('count').value;
+        const mode = (options.mode || 'inc').toString();
+        const background = options.background !== false;
+        const refreshFirst = options.refreshFirst !== false;
         queuePrefUpdate('last_symbol', symbol);
         queuePrefUpdate('last_tf', tf);
         queuePrefUpdate('last_count', count);
-        status('Fetching from MT5...');
+        if (refreshFirst) {
+          try {
+            status(`Loading cached data (${symbol} ${tf})...`);
+            await refreshChart();
+          } catch (err) {
+            console.warn('[App] Cached refresh failed', err);
+          }
+        }
+        status(background ? `Scheduling background fetch (${symbol} ${tf})...` : `Fetching from MT5 (${symbol} ${tf})...`);
         try {
-          const r = await fetch(`/api/fetch?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&count=${encodeURIComponent(count)}&mode=inc`, { cache: 'no-store' });
+          const params = new URLSearchParams({
+            symbol,
+            tf,
+            count,
+            mode,
+          });
+          if (background) params.set('background', '1');
+          const r = await fetch(`/api/fetch?${params.toString()}`, { cache: 'no-store' });
           const js = await r.json().catch(() => ({}));
           if (r.ok && js.ok) {
-            status(`Inserted/updated ${js.inserted || 0} bars for ${symbol} ${tf}`);
-            await refreshChart();
+            const note = js.note ? ` ${js.note}` : '';
+            if (background) {
+              if (js.scheduled || (!js.inserted && !js.fetched)) {
+                status(`Background fetch scheduled for ${symbol} ${tf}.${note}`);
+              } else if ((js.inserted || 0) > 0) {
+                status(`Background fetch completed immediately (${symbol} ${tf}, +${js.inserted || 0} bars).`);
+                scheduleChartRefresh(`${symbol}/${tf} immediate`);
+              } else {
+                status(`Background fetch acknowledged for ${symbol} ${tf}.${note}`);
+              }
+            } else {
+              status(`Inserted/updated ${js.inserted || 0} bars for ${symbol} ${tf}`);
+              await refreshChart();
+            }
           } else {
             status(`Fetch error: ${js.error || r.statusText}`);
           }

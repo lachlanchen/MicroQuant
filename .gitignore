@@ -6,3 +6,4 @@ __pycache__/
 # Ignore large installers and logs
 *.exe
 wget-log
+cache/
