@@ -2643,10 +2643,7 @@ const ensureLwMacd = () => {
           const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           const runs = (js && js.runs) || [];
-          if (!runs.length) {
-            outBox.innerHTML = '<em style="color:var(--muted)">No saved plan for this symbol/TF</em>';
-            return;
-          }
+          if (!runs.length) { outBox.innerHTML = ''; return; }
           const run = runs[0];
           const ans = run.answers || run.answers_json || {};
           const plan = ans.plan || {};
@@ -2664,10 +2661,7 @@ const ensureLwMacd = () => {
           </div>
           <div style="margin-top:6px; color:var(--muted);">${esc(plan.explanation || '')}</div>`;
           updateExecuteBtn();
-        } catch (e) {
-          outBox.innerHTML = '<em style="color:var(--muted)">No saved plan</em>';
-          lastAiPlan = null; updateExecuteBtn();
-        }
+        } catch (e) { outBox.innerHTML = ''; lastAiPlan = null; updateExecuteBtn(); }
       }
       async function runAiTradePlan(side) {
         const sym = symbolSelect.value.toUpperCase();
@@ -4161,7 +4155,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
-          await updateAiPlanPreview();
+          await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on symbol change (run from modal Start)
         }
@@ -4188,7 +4182,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
-          await updateAiPlanPreview();
+          await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on timeframe change (run from modal Start)
         }
@@ -4475,7 +4469,7 @@ const ensureLwMacd = () => {
       // initial strategy read
       runStrategyTop();
       // Always fetch latest AI trade plan for current symbol/TF
-      setTimeout(() => { try { updateAiPlanPreview(); } catch (_) {} }, 200);
+      setTimeout(() => { try { loadLatestAiPlanPreview(); } catch (_) {} }, 200);
 
       // Strategy panel actions
       async function runStrategy() {

@@ -1384,12 +1384,21 @@ def refresh_supported_symbols():
 
 class MainHandler(tornado.web.RequestHandler):
     async def get(self):
+        # Optional overrides: reset query flag, or pin defaults via env
+        def _truthy(v: str | None) -> bool:
+            if v is None:
+                return False
+            return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+        reset_flag = _truthy(self.get_argument("reset", default=None))
+        pin_defaults = _truthy(os.getenv("PIN_DEFAULTS_TO_XAU_H1", "0"))
+
         # Read last selection from prefs if available
         pool = self.settings.get("pool")
         last_sym = None
         last_tf = None
         extras = {}
-        if pool is not None:
+        if pool is not None and not reset_flag and not pin_defaults:
             try:
                 last_sym = await get_pref(pool, "last_symbol")
                 last_tf = await get_pref(pool, "last_tf")
@@ -1409,10 +1418,15 @@ class MainHandler(tornado.web.RequestHandler):
                 extras = {}
                 logger.debug("no prefs yet for last_symbol/last_tf")
 
-        sym = (last_sym or default_symbol()).upper()
+        # Determine initial symbol/timeframe
+        if pin_defaults:
+            sym = "XAUUSD"
+            tf = "H1"
+        else:
+            sym = (last_sym or default_symbol()).upper()
+            tf = (last_tf or "H1").upper()
         if sym not in SUPPORTED_SYMBOLS:
             sym = default_symbol()
-        tf = (last_tf or "H1").upper()
         if tf not in ALL_TIMEFRAMES:
             tf = "H1"
         extras = extras or {}
