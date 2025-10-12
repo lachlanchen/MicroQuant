@@ -4815,12 +4815,13 @@ const ensureLwMacd = () => {
         try {
           hidden = localStorage.getItem(key) === '1';
         } catch {}
+        // Allow rendering even if previously hidden; do not remove the flag,
+        // but clear the CSS hidden class so it's visible now.
         if (hidden) {
-          teardownRfWidget(id);
-          el.classList.add('rf-hidden');
+          try { el.classList.remove('rf-hidden'); } catch {}
         }
         if (btn) btn.addEventListener('click', () => setRfHidden(id, key));
-        if (rfOptIn && !hidden) {
+        if (rfOptIn) {
           mountRfWidget(id);
         }
       };
