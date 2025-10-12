@@ -3709,18 +3709,15 @@ const ensureLwMacd = () => {
           const aiBtn = document.createElement('button');
           aiBtn.type = 'button';
           aiBtn.className = 'btn secondary news-ai-btn';
-          aiBtn.textContent = NEWS_AI_AVAILABLE ? 'Ask AI (30 checks)' : 'AI unavailable';
-          aiBtn.disabled = !NEWS_AI_AVAILABLE;
+          // Keep the button visible but disabled per request
+          aiBtn.textContent = 'Ask AI (30 checks)';
+          aiBtn.disabled = true;
           actionsEl.appendChild(readBtn);
           actionsEl.appendChild(aiBtn);
           card.appendChild(actionsEl);
 
           const answersWrap = document.createElement('div');
           answersWrap.className = 'news-answers';
-          if (!NEWS_AI_AVAILABLE) {
-            answersWrap.classList.add('active');
-            answersWrap.innerHTML = '<span class="news-answer unknown">Enable OPENAI_API_KEY for AI checks.</span>';
-          }
           card.appendChild(answersWrap);
 
           const cacheKey = newsArticleKey(item) || fallbackKey || titleText;
