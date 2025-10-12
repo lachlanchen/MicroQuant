@@ -499,7 +499,14 @@
           .join('');
       }
       const findStrategyMeta = (value) => HEALTH_STRATEGIES.find((item) => item.value === value);
-      const defaultStrategyForKind = (kind) => HEALTH_STRATEGIES.find((item) => item.kinds.includes(kind)) || HEALTH_STRATEGIES[0];
+      const defaultStrategyForKind = (kind) => {
+        if (kind === 'forex_pair') {
+          // For non-metals FX pairs, prefer the general FX neutral template
+          const fxDefault = HEALTH_STRATEGIES.find((item) => item.value === 'forex_pair_neutral_30q.json');
+          if (fxDefault) return fxDefault;
+        }
+        return HEALTH_STRATEGIES.find((item) => item.kinds.includes(kind)) || HEALTH_STRATEGIES[0];
+      };
       const isMetalPair = (sym) => {
         const s = (sym || '').toUpperCase();
         if (!/^[A-Z]{6,7}$/.test(s)) return false;
