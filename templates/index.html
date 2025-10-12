@@ -219,6 +219,14 @@
             <div id="lwVol" class="lw-pane"></div>
           </div>
           <div class="indicator-panel">
+            <h4>ATR (14)</h4>
+            <div id="lwAtr" class="lw-pane"></div>
+          </div>
+          <div class="indicator-panel">
+            <h4>ADX (14)</h4>
+            <div id="lwAdx" class="lw-pane"></div>
+          </div>
+          <div class="indicator-panel">
             <h4>Account Balance</h4>
             <div id="lwBalance" class="lw-pane"></div>
           </div>
@@ -692,6 +700,9 @@
 
       let lwMacdChart = null, lwMacdHist = null, lwMacdLine = null, lwMacdSignal = null;
 
+      let lwAtrChart = null, lwAtrSeries = null;
+      let lwAdxChart = null, lwAdxLine = null, lwAdxPlus = null, lwAdxMinus = null;
+
       let lwDerivChart = null, lwDerivSpeedSeries = null, lwDerivAccelSeries = null;
 
       // Overlay canvas for dashed period lines on the candlestick chart
@@ -705,6 +716,14 @@
       let lwDerivSubscribed = false;
       let lwVolHasData = false, lwRsiHasData = false, lwMacdHasData = false;
       let lwDerivHasSpeed = false, lwDerivHasAccel = false;
+
+      // Cached indicators for chip computation
+      let lastRsiValues = [];
+      let lastMacdObj = { macd: [], signal: [], histogram: [] };
+      let lastAtrValues = [];
+      let lastAdxObj = { adx: [], plusDI: [], minusDI: [] };
+      let lastVolumesArr = [];
+      let indicatorSignals = {};
 
       const PREF_ENDPOINT = '/api/preferences';
       let prefQueue = {};
@@ -866,6 +885,41 @@
           indicatorRangeMs = null;
           updateIndicatorDisplay(lastPriceRows);
         }
+        // Compute and cache indicator values for chips
+        try {
+          lastVolumesArr = rows.map((r) => {
+            const cand = [r.real_volume, r.tick_volume, r.volume]
+              .map((v) => Number(v))
+              .filter((v) => Number.isFinite(v) && v > 0);
+            return cand.length ? cand[0] : 0;
+          });
+          const closes = rows.map((r) => Number.isFinite(Number(r.close)) ? Number(r.close) : 0);
+          lastRsiValues = computeRSI(closes) || [];
+          lastMacdObj = computeMACD(closes) || { macd: [], signal: [], histogram: [] };
+          // ATR/ADX
+          ensureLwAtr();
+          ensureLwAdx();
+          const atrObj = computeAtrSeries(rows) || { atr: [], tr: [] };
+          lastAtrValues = atrObj.atr || [];
+          const adxObj = computeAdxSeries(rows, atrObj.tr) || { adx: [], plusDI: [], minusDI: [] };
+          lastAdxObj = adxObj;
+          if (lwAtrSeries) {
+            const pts = rows.map((row, i) => ({ time: Math.floor(new Date(row.ts).getTime() / 1000), value: Number(lastAtrValues[i] || 0) }));
+            lwAtrSeries.setData(pts.filter(p => Number.isFinite(p.value)));
+          }
+          if (lwAdxLine && lwAdxPlus && lwAdxMinus) {
+            const toPts = (arr) => rows.map((row, i) => {
+              const v = Number(arr[i]);
+              return (Number.isFinite(v) ? { time: Math.floor(new Date(row.ts).getTime() / 1000), value: v } : null);
+            }).filter(Boolean);
+            lwAdxLine.setData(toPts(lastAdxObj.adx || []));
+            lwAdxPlus.setData(toPts(lastAdxObj.plusDI || []));
+            lwAdxMinus.setData(toPts(lastAdxObj.minusDI || []));
+          }
+          // Recompute signals and redraw chips
+          computeIndicatorSignals();
+          redrawPeriodLines();
+        } catch (err) { /* ignore signal computation errors */ }
       }
       const flushPrefQueue = async () => {
         if (!Object.keys(prefQueue).length) {
@@ -1455,6 +1509,44 @@ const ensureLwMacd = () => {
   }
 };
 
+      const ensureLwAtr = () => {
+        if (!lwAtrChart) {
+          const el = document.getElementById('lwAtr');
+          if (!el) return;
+          lwAtrChart = LightweightCharts.createChart(el, {
+            rightPriceScale: { visible: true },
+            leftPriceScale: { visible: false },
+            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
+            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+          });
+        }
+        if (!lwAtrSeries && lwAtrChart) {
+          lwAtrSeries = lwAtrChart.addLineSeries({ color: '#455a64', lineWidth: 2 });
+        }
+      };
+
+      const ensureLwAdx = () => {
+        if (!lwAdxChart) {
+          const el = document.getElementById('lwAdx');
+          if (!el) return;
+          lwAdxChart = LightweightCharts.createChart(el, {
+            rightPriceScale: { visible: true },
+            leftPriceScale: { visible: false },
+            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
+            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+          });
+        }
+        if (!lwAdxLine && lwAdxChart) {
+          lwAdxLine = lwAdxChart.addLineSeries({ color: '#1976d2', lineWidth: 2 });
+        }
+        if (!lwAdxPlus && lwAdxChart) {
+          lwAdxPlus = lwAdxChart.addLineSeries({ color: '#2ecc71', lineWidth: 1.5 });
+        }
+        if (!lwAdxMinus && lwAdxChart) {
+          lwAdxMinus = lwAdxChart.addLineSeries({ color: '#e74c3c', lineWidth: 1.5 });
+        }
+      };
+
       function updateStlDerivativeSeries() {
         ensureLwDeriv();
         const showSpeed = !stlDerivativeToggle || !!stlDerivativeToggle.checked;
@@ -1532,6 +1624,8 @@ const ensureLwMacd = () => {
       const drawLwPeriodLines = (period) => {
         if (!showPeriodLines || !usePeriodGrid || !lwChart || !lwOverlayCtx || !lastPriceRows.length || !period || period < 1) {
           clearLwOverlay();
+          // Still draw chips even when lines disabled
+          drawSignalChips();
           return;
         }
         const vis = lwChart.timeScale().getVisibleRange();
@@ -1564,12 +1658,169 @@ const ensureLwMacd = () => {
         }
         ctx.restore();
         ctx.restore();
+        // Draw chips after period lines
+        drawSignalChips();
       };
 
       const redrawPeriodLines = () => {
         const p = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
         drawLwPeriodLines(Number.isFinite(p) ? p : null);
       };
+
+      function computeIndicatorSignals() {
+        const latestIdx = lastPriceRows.length - 1;
+        if (latestIdx < 0) { indicatorSignals = {}; return; }
+        const lastRow = lastPriceRows[latestIdx] || {};
+        const closes = lastPriceRows.map(r => Number(r.close) || 0);
+        const upCandle = Number(lastRow.close) >= Number(lastRow.open);
+        // Helper: SMA
+        const sma = (arr, n) => {
+          const out = new Array(arr.length).fill(null);
+          let sum = 0;
+          for (let i=0;i<arr.length;i++) {
+            sum += arr[i];
+            if (i>=n) sum -= arr[i-n];
+            if (i>=n-1) out[i] = sum / n;
+          }
+          return out;
+        };
+        // Helper: z-score over available values (ignoring nulls)
+        const zscore = (val, arr) => {
+          const x = arr.filter(v => Number.isFinite(v));
+          if (!x.length) return 0;
+          const mu = x.reduce((a,b)=>a+b,0)/x.length;
+          const sd = Math.sqrt(x.reduce((a,b)=>a + Math.pow(b-mu,2),0) / x.length) || 1;
+          return (val - mu) / sd;
+        };
+        // SMA 20/50 crossover
+        const sma20 = sma(closes, 20);
+        const sma50 = sma(closes, 50);
+        let sigSma = '-';
+        if (sma20[latestIdx] != null && sma50[latestIdx] != null) {
+          sigSma = (sma20[latestIdx] > sma50[latestIdx]) ? 'BUY' : (sma20[latestIdx] < sma50[latestIdx]) ? 'SELL' : '-';
+        }
+        // STL residual z-score (contrarian): < -1.96 => BUY, > +1.96 => SELL
+        let sigStl = '-';
+        if (Array.isArray(stlResidPoints) && stlResidPoints.length) {
+          const vals = stlResidPoints.map(p => Number(p.value)||0);
+          const latest = Number(stlResidPoints[stlResidPoints.length-1].value)||0;
+          const z = zscore(latest, vals);
+          sigStl = z <= -1.96 ? 'BUY' : (z >= 1.96 ? 'SELL' : '-');
+        }
+        // STL speed z-score (momentum): > +1.96 => BUY, < -1.96 => SELL
+        let sigStlSpd = '-';
+        if (Array.isArray(stlSpeedPoints) && stlSpeedPoints.length) {
+          const vals = stlSpeedPoints.map(p => Number(p.value)||0);
+          const latest = Number(stlSpeedPoints[stlSpeedPoints.length-1].value)||0;
+          const z = zscore(latest, vals);
+          sigStlSpd = z >= 1.96 ? 'BUY' : (z <= -1.96 ? 'SELL' : '-');
+        }
+        // RSI threshold
+        let sigRsi = '-';
+        const rsi = Number(lastRsiValues[latestIdx]);
+        if (Number.isFinite(rsi)) {
+          sigRsi = rsi <= 30 ? 'BUY' : (rsi >= 70 ? 'SELL' : '-');
+        }
+        // MACD: line vs signal + histogram slope
+        let sigMacd = '-';
+        const m = Number(lastMacdObj.macd[latestIdx]);
+        const s = Number(lastMacdObj.signal[latestIdx]);
+        const h = Number(lastMacdObj.histogram[latestIdx]);
+        const hPrev = Number(lastMacdObj.histogram[latestIdx-1]);
+        if ([m,s,h].every(Number.isFinite)) {
+          const rising = Number.isFinite(hPrev) ? (h > hPrev) : false;
+          if (m > s && rising) sigMacd = 'BUY';
+          else if (m < s && !rising) sigMacd = 'SELL';
+        }
+        // Volume: spike vs mean with candle direction
+        let sigVol = '-';
+        if (lastVolumesArr.length) {
+          const meanV = lastVolumesArr.reduce((a,b)=>a+b,0) / Math.max(1,lastVolumesArr.length);
+          const v = Number(lastVolumesArr[latestIdx]||0);
+          if (Number.isFinite(v) && v >= 1.5 * meanV) {
+            sigVol = upCandle ? 'BUY' : 'SELL';
+          }
+        }
+        // ATR: high volatility breakout with candle direction (weak)
+        let sigAtr = '-';
+        const atr = Number(lastAtrValues[latestIdx]);
+        if (Number.isFinite(atr)) {
+          const avgAtr = lastAtrValues.filter(Number.isFinite).reduce((a,b)=>a+b,0) / Math.max(1,lastAtrValues.filter(Number.isFinite).length);
+          if (Number.isFinite(avgAtr) && atr > 1.25 * avgAtr) sigAtr = upCandle ? 'BUY' : 'SELL';
+        }
+        // ADX: trend strength + direction via +DI / -DI
+        let sigAdx = '-';
+        const adx = Number(lastAdxObj.adx && lastAdxObj.adx[latestIdx]);
+        const pdi = Number(lastAdxObj.plusDI && lastAdxObj.plusDI[latestIdx]);
+        const mdi = Number(lastAdxObj.minusDI && lastAdxObj.minusDI[latestIdx]);
+        if ([adx,pdi,mdi].every(Number.isFinite)) {
+          if (adx >= 25) sigAdx = (pdi > mdi) ? 'BUY' : (pdi < mdi ? 'SELL' : '-');
+        }
+        indicatorSignals = {
+          SMA: sigSma,
+          STL: sigStl,
+          STLSpeed: sigStlSpd,
+          RSI: sigRsi,
+          MACD: sigMacd,
+          VOL: sigVol,
+          ATR: sigAtr,
+          ADX: sigAdx,
+        };
+      }
+
+      function drawSignalChips() {
+        if (!lwOverlay || !lwOverlayCtx || !lwChart) return;
+        const ctx = lwOverlayCtx;
+        const dpr = lwOverlayDpr || (window.devicePixelRatio || 1);
+        const cssW = lwOverlay.width / dpr;
+        const cssH = lwOverlay.height / dpr;
+        // Determine x position near right of the last bar
+        const lastTime = lwLastTimes && lwLastTimes.length ? lwLastTimes[lwLastTimes.length - 1] : null;
+        let x = lastTime != null ? lwChart.timeScale().timeToCoordinate(lastTime) : (cssW - 140);
+        if (!Number.isFinite(x)) x = cssW - 140;
+        x = Math.min(cssW - 140, x + 12);
+        const startY = 8;
+        const lineH = 18;
+        const padX = 6;
+        const radius = 6;
+        // Draw chips stack (SMA at top)
+        const entries = Object.entries(indicatorSignals || {});
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // Background clear in right strip only (avoid wiping period lines)
+        ctx.clearRect(cssW - 150, 0, 150, Math.min(cssH, startY + (entries.length+1)*lineH + 8));
+        let y = startY;
+        const textColor = '#111';
+        ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+        for (const [label, sig] of entries) {
+          let bg = 'rgba(158,158,158,0.18)';
+          let border = '#9e9e9e';
+          if (sig === 'BUY') { bg = 'rgba(46,204,113,0.18)'; border = '#2ecc71'; }
+          else if (sig === 'SELL') { bg = 'rgba(231,76,60,0.18)'; border = '#e74c3c'; }
+          const text = `${label}: ${sig || '-'}`;
+          const w = Math.min(140, Math.max(60, ctx.measureText(text).width + padX * 2));
+          // rounded rect
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + w - radius, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+          ctx.lineTo(x + w, y + lineH - radius);
+          ctx.quadraticCurveTo(x + w, y + lineH, x + w - radius, y + lineH);
+          ctx.lineTo(x + radius, y + lineH);
+          ctx.quadraticCurveTo(x, y + lineH, x, y + lineH - radius);
+          ctx.lineTo(x, y + radius);
+          ctx.quadraticCurveTo(x, y, x + radius, y);
+          ctx.fillStyle = bg;
+          ctx.fill();
+          ctx.strokeStyle = border;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.fillStyle = textColor;
+          ctx.fillText(text, x + padX, y + 12);
+          y += lineH + 4;
+        }
+        ctx.restore();
+      }
 
       const computePeriodBoundaryTimes = (period) => {
         periodBoundaryTimes = [];
@@ -2796,6 +3047,8 @@ const ensureLwMacd = () => {
           if (lwRsiChart) lwRsiChart.applyOptions({ timeScale: { rightOffset: ro } });
           if (lwMacdChart) lwMacdChart.applyOptions({ timeScale: { rightOffset: ro } });
           if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
+          if (lwAtrChart) lwAtrChart.applyOptions({ timeScale: { rightOffset: ro } });
+          if (lwAdxChart) lwAdxChart.applyOptions({ timeScale: { rightOffset: ro } });
         } catch (e) { /* noop */ }
         if (stlLastRows.length && stlLastMeta) {
           applyStlData(stlLastRows.slice(), stlLastMeta).catch((err) => console.warn('STL overlay restore failed', err));
@@ -3812,6 +4065,8 @@ const ensureLwMacd = () => {
             if (lwRsiChart) lwRsiChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwMacdChart) lwMacdChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
+            if (lwAtrChart) lwAtrChart.applyOptions({ timeScale: { rightOffset: ro } });
+            if (lwAdxChart) lwAdxChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwBalanceChart) lwBalanceChart.applyOptions({ timeScale: { rightOffset: ro } });
           } catch (e) { /* ignore */ }
           // persist preference
