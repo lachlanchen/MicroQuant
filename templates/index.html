@@ -1775,7 +1775,7 @@ const ensureLwMacd = () => {
         const cssW = lwOverlay.width / dpr;
         const cssH = lwOverlay.height / dpr;
         // Chips are fixed to the top-left corner of the chart area
-        const startY = 18; // move further down from top edge
+        const startY = 26; // move further down from top edge
         const lineH = 18;
         const padX = 6;
         const radius = 6;
@@ -1784,7 +1784,7 @@ const ensureLwMacd = () => {
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         // Background clear in a left strip only (avoid wiping the whole overlay)
-        ctx.clearRect(0, 0, 220, Math.min(cssH, startY + (entries.length+1)*lineH + 8));
+        ctx.clearRect(0, 0, 260, Math.min(cssH, startY + (entries.length+1)*lineH + 8));
         let y = startY;
         const textColor = '#111';
         ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
@@ -1795,7 +1795,7 @@ const ensureLwMacd = () => {
           else if (sig === 'SELL') { bg = 'rgba(231,76,60,0.18)'; border = '#e74c3c'; }
           const text = `${label}: ${sig || '-'}`;
           const w = Math.min(180, Math.max(60, ctx.measureText(text).width + padX * 2));
-          const x = 40; // left-aligned, pulled fully inside
+          const x = 60; // left-aligned, pulled fully inside the plot area
           // rounded rect
           ctx.beginPath();
           ctx.moveTo(x, y);
