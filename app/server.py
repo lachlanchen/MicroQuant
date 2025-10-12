@@ -502,6 +502,57 @@ async def run_news_backfill(days: int = 7) -> dict:
     return {"ok": True, "fetched": total, "inserted": stored, "days": days, "symbols": sorted(updated_symbols)}
 
 
+def _seconds_until_next_boundary_minutes(interval_min: int, *, use_utc: bool = True) -> float:
+    """Seconds until the next wall-clock boundary for the given minute interval.
+
+    Example: interval_min=30 → schedule at HH:00 and HH:30, aligned to real time
+    rather than relative to when the app started.
+    """
+    if interval_min <= 0:
+        interval_min = 30
+    now = datetime.now(timezone.utc) if use_utc else datetime.now()
+    rem = now.minute % interval_min
+    add_min = (interval_min - rem) % interval_min
+    # If we're exactly on a boundary (second==0), jump to the next boundary
+    if add_min == 0:
+        add_min = interval_min
+    target = (now.replace(second=0, microsecond=0) + timedelta(minutes=add_min))
+    delta = (target - now).total_seconds()
+    if delta <= 0:
+        delta = float(interval_min * 60)
+    return float(delta)
+
+
+def schedule_news_backfill_aligned(interval_min: int = 30):
+    """Schedule news backfill aligned to wall clock (e.g., at :00 and :30)."""
+    global NEWS_BACKFILL_CB
+    loop = tornado.ioloop.IOLoop.current()
+
+    async def _tick():
+        try:
+            await run_news_backfill()
+        finally:
+            # Schedule the next aligned run
+            delay = _seconds_until_next_boundary_minutes(max(1, int(interval_min)))
+            try:
+                if NEWS_BACKFILL_CB is not None:
+                    loop.remove_timeout(NEWS_BACKFILL_CB)
+            except Exception:
+                pass
+            # Store the timeout handle so we can cancel later if needed
+            globals()['NEWS_BACKFILL_CB'] = loop.call_later(delay, lambda: loop.add_callback(_tick))
+
+    # Cancel any previously scheduled timeout
+    try:
+        if NEWS_BACKFILL_CB is not None:
+            loop.remove_timeout(NEWS_BACKFILL_CB)
+    except Exception:
+        pass
+    # Schedule initial run at the next boundary
+    initial_delay = _seconds_until_next_boundary_minutes(max(1, int(interval_min)))
+    NEWS_BACKFILL_CB = loop.call_later(initial_delay, lambda: loop.add_callback(_tick))
+
+
 def _build_pair_prompt_one(question_text: str, base_ccy: str, quote_ccy: str, base_items: list[dict], quote_items: list[dict], timeframe: str | None) -> str:
     base_blk = _articles_to_text(base_items)
     quote_blk = _articles_to_text(quote_items)
@@ -2217,15 +2268,13 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     interval_min = int(os.getenv("NEWS_BACKFILL_MIN", "30"))
                 except Exception:
                     interval_min = 30
-                interval_ms = max(5, interval_min) * 60 * 1000
-                if val and NEWS_BACKFILL_CB is None:
-                    def _schedule_backfill():
-                        tornado.ioloop.IOLoop.current().add_callback(run_news_backfill)
-                    NEWS_BACKFILL_CB = tornado.ioloop.PeriodicCallback(_schedule_backfill, interval_ms)
-                    NEWS_BACKFILL_CB.start()
-                elif not val and NEWS_BACKFILL_CB is not None:
+                loop = tornado.ioloop.IOLoop.current()
+                if val:
+                    schedule_news_backfill_aligned(max(1, interval_min))
+                else:
                     try:
-                        NEWS_BACKFILL_CB.stop()
+                        if NEWS_BACKFILL_CB is not None:
+                            loop.remove_timeout(NEWS_BACKFILL_CB)
                     except Exception:
                         pass
                     NEWS_BACKFILL_CB = None
@@ -3383,9 +3432,9 @@ def main():
     def _schedule_news_backfill():
         tornado.ioloop.IOLoop.current().add_callback(run_news_backfill)
     global NEWS_BACKFILL_CB
-    if news_auto_env and NEWS_BACKFILL_CB is None:
-        NEWS_BACKFILL_CB = tornado.ioloop.PeriodicCallback(_schedule_news_backfill, max(5, interval_min) * 60 * 1000)
-        NEWS_BACKFILL_CB.start()
+    if news_auto_env:
+        # Align to real time (:00 and :30 when interval=30)
+        schedule_news_backfill_aligned(max(1, interval_min))
 
     # Start IOLoop (blocking)
     loop.start()
