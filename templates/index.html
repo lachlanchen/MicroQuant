@@ -162,6 +162,10 @@
           <label><input type="radio" name="ctype" value="line"{% if default_chart_type == 'line' %} checked{% end %}> Line</label>
           <label><input type="radio" name="ctype" value="candlestick"{% if default_chart_type != 'line' %} checked{% end %}> Candlestick</label>
         </span>
+        <label class="switch" title="Shift end of chart from right border">
+          <input type="checkbox" id="chkChartShift" checked />
+          <span>Chart shift</span>
+        </label>
       </div>
       <div class="control-group">
         <button class="btn" id="btnFetch">Fetch + Save</button>
@@ -449,6 +453,9 @@
         Y1: 31556952,
       };
       const techHealthBarsInput = el('techHealthBars');
+      const chartShiftInput = el('chkChartShift');
+      let chartShiftOn = true;
+      const getRightOffset = () => (chartShiftOn ? 10 : 0);
       const healthStrategySelect = el('healthStrategy');
       const HEALTH_STRATEGIES = [
         { value: 'forex_pair_compact_10q.json', label: 'FX Comprehensive (10)', kinds: ['forex_pair'] },
@@ -1220,7 +1227,7 @@
           lwVolChart = LightweightCharts.createChart(elVol, {
             rightPriceScale: { visible: true },
             leftPriceScale: { visible: false },
-            timeScale: { rightOffset: 10, fixRightEdge: false },
+            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
           });
         }
@@ -1246,7 +1253,7 @@
           lwDerivChart = LightweightCharts.createChart(elDeriv, {
             rightPriceScale: { visible: true, scaleMargins: { top: 0.2, bottom: 0.2 } },
             leftPriceScale: { visible: false },
-            timeScale: { rightOffset: 10, fixRightEdge: false },
+            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
           });
         }
@@ -1285,7 +1292,7 @@
           lwRsiChart = LightweightCharts.createChart(elRsi, {
             rightPriceScale: { visible: true },
             leftPriceScale: { visible: false },
-            timeScale: { rightOffset: 10, fixRightEdge: false },
+            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
           });
         }
@@ -1307,7 +1314,7 @@ const ensureLwMacd = () => {
           lwMacdChart = LightweightCharts.createChart(elMacd, {
             rightPriceScale: { visible: true },
             leftPriceScale: { visible: false },
-            timeScale: { rightOffset: 10, fixRightEdge: false },
+            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
           });
         }
@@ -2366,7 +2373,7 @@ const ensureLwMacd = () => {
             grid: { vertLines: { color: '#e0e6ef' }, horzLines: { color: '#e0e6ef' } },
             crosshair: { mode: LightweightCharts.CrosshairMode.Magnet },
             rightPriceScale: { borderColor: '#e0e6ef' },
-            timeScale: { borderColor: '#e0e6ef' },
+            timeScale: { borderColor: '#e0e6ef', rightOffset: getRightOffset(), fixRightEdge: false },
           });
           lwSeries = lwChart.addCandlestickSeries({
             upColor: '#2ecc71',
@@ -2421,6 +2428,15 @@ const ensureLwMacd = () => {
             lwTimeRangeSubscribed = true;
           }
         }
+        // Apply current chart shift offset to all panes
+        try {
+          const ro = getRightOffset();
+          if (lwChart) lwChart.applyOptions({ timeScale: { rightOffset: ro } });
+          if (lwVolChart) lwVolChart.applyOptions({ timeScale: { rightOffset: ro } });
+          if (lwRsiChart) lwRsiChart.applyOptions({ timeScale: { rightOffset: ro } });
+          if (lwMacdChart) lwMacdChart.applyOptions({ timeScale: { rightOffset: ro } });
+          if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
+        } catch (e) { /* noop */ }
         if (stlLastRows.length && stlLastMeta) {
           applyStlData(stlLastRows.slice(), stlLastMeta).catch((err) => console.warn('STL overlay restore failed', err));
         }
@@ -3411,6 +3427,20 @@ const ensureLwMacd = () => {
           if (autoTimer) startAuto({ announce: false });
         }
       });
+      if (chartShiftInput) {
+        chartShiftOn = !!chartShiftInput.checked;
+        chartShiftInput.addEventListener('change', () => {
+          chartShiftOn = !!chartShiftInput.checked;
+          const ro = getRightOffset();
+          try {
+            if (lwChart) lwChart.applyOptions({ timeScale: { rightOffset: ro } });
+            if (lwVolChart) lwVolChart.applyOptions({ timeScale: { rightOffset: ro } });
+            if (lwRsiChart) lwRsiChart.applyOptions({ timeScale: { rightOffset: ro } });
+            if (lwMacdChart) lwMacdChart.applyOptions({ timeScale: { rightOffset: ro } });
+            if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
+          } catch (e) { /* ignore */ }
+        });
+      }
       const countSel = document.getElementById('count');
       if (countSel) countSel.addEventListener('change', async () => {
         queuePrefUpdate('last_count', el('count').value);
