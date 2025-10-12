@@ -322,6 +322,7 @@ DEFAULT_STRATEGIES: dict[str, str] = {
 
 ALLOWED_STRATEGIES: dict[str, set[str]] = {
     "forex_pair": {
+        "metal_pair_neutral_30q.json",
         "forex_pair_neutral_30q.json",
         "forex_pair_30q_yes_no.json",
         "forex_30q_yes_no.json",
@@ -2385,7 +2386,14 @@ class HealthRunHandler(tornado.web.RequestHandler):
             quote_items = quote_items[:news_count]
 
             allowed = ALLOWED_STRATEGIES.get("forex_pair", set())
-            strategy_name = strategy_override if strategy_override and strategy_override in allowed else DEFAULT_STRATEGIES["forex_pair"]
+            # Auto-pick metals template for XAU/XAG when no override provided
+            prefer_metals = base in {"XAU", "XAG"}
+            if strategy_override and strategy_override in allowed:
+                strategy_name = strategy_override
+            elif prefer_metals and "metal_pair_neutral_30q.json" in allowed:
+                strategy_name = "metal_pair_neutral_30q.json"
+            else:
+                strategy_name = DEFAULT_STRATEGIES["forex_pair"]
             if strategy_override and strategy_override not in allowed:
                 logger.warning("[health] unsupported forex strategy override %s, using default", strategy_override)
             strat = _load_strategy_json(strategy_name)
@@ -2715,6 +2723,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 

@@ -450,6 +450,7 @@
       const techHealthBarsInput = el('techHealthBars');
       const healthStrategySelect = el('healthStrategy');
       const HEALTH_STRATEGIES = [
+        { value: 'metal_pair_neutral_30q.json', label: 'Metals Neutral (30)', kinds: ['forex_pair'] },
         { value: 'forex_pair_neutral_30q.json', label: 'FX Neutral (30)', kinds: ['forex_pair'] },
         { value: 'forex_pair_30q_yes_no.json', label: 'FX Pair Yes/No (30)', kinds: ['forex_pair'] },
         { value: 'forex_30q_yes_no.json', label: 'FX Single Yes/No (30)', kinds: ['forex_pair'] },
@@ -499,15 +500,24 @@
       }
       const findStrategyMeta = (value) => HEALTH_STRATEGIES.find((item) => item.value === value);
       const defaultStrategyForKind = (kind) => HEALTH_STRATEGIES.find((item) => item.kinds.includes(kind)) || HEALTH_STRATEGIES[0];
+      const isMetalPair = (sym) => {
+        const s = (sym || '').toUpperCase();
+        if (!/^[A-Z]{6,7}$/.test(s)) return false;
+        const base = s.slice(0,3);
+        return base === 'XAU' || base === 'XAG';
+      };
       const ensureStrategyForKind = (kind) => {
         if (!healthStrategySelect) return;
         const currentValue = healthStrategySelect.value;
         const currentMeta = findStrategyMeta(currentValue);
-        if (!healthStrategyUserOverride || !currentMeta || !currentMeta.kinds.includes(kind)) {
-          const def = defaultStrategyForKind(kind);
-          if (def) {
+        // Prefer metals template for XAU/XAG pairs when user hasn't chosen explicitly
+        const sym = (typeof currentSymbol === 'function') ? currentSymbol() : (symbolSelect && symbolSelect.value) || '';
+        const preferMetal = kind === 'forex_pair' && isMetalPair(sym);
+        const desiredValue = preferMetal ? 'metal_pair_neutral_30q.json' : (defaultStrategyForKind(kind)?.value);
+        if (!healthStrategyUserOverride || !currentMeta || !currentMeta.kinds.includes(kind) || (preferMetal && currentValue !== desiredValue)) {
+          if (desiredValue) {
             healthStrategyUserOverride = false;
-            healthStrategySelect.value = def.value;
+            healthStrategySelect.value = desiredValue;
           }
         }
       };
