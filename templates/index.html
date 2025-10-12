@@ -2705,6 +2705,7 @@ const ensureLwMacd = () => {
         if (!tradeHistoryBox) return;
         if ((tradeState.offset||0) === 0) tradeHistoryBox.innerHTML = '<em style="color:var(--muted)">Loading…</em>';
         const sym = symbolSelect.value.toUpperCase();
+        const tf = currentTf();
         const params = new URLSearchParams();
         if (isFxPair(sym)) {
           const pq = splitPair(sym);
@@ -2714,6 +2715,7 @@ const ensureLwMacd = () => {
         }
         params.set('limit','5'); params.set('offset', String(tradeState.offset||0));
         params.set('strategy','ai_trade_plan');
+        params.set('tf', tf);
         try {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
