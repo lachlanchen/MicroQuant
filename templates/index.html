@@ -1774,11 +1774,7 @@ const ensureLwMacd = () => {
         const dpr = lwOverlayDpr || (window.devicePixelRatio || 1);
         const cssW = lwOverlay.width / dpr;
         const cssH = lwOverlay.height / dpr;
-        // Determine x position near right of the last bar
-        const lastTime = lwLastTimes && lwLastTimes.length ? lwLastTimes[lwLastTimes.length - 1] : null;
-        let x = lastTime != null ? lwChart.timeScale().timeToCoordinate(lastTime) : (cssW - 140);
-        if (!Number.isFinite(x)) x = cssW - 140;
-        x = Math.min(cssW - 140, x + 12);
+        // Chips are fixed against the right edge of the chart area (not tied to bar position)
         const startY = 8;
         const lineH = 18;
         const padX = 6;
@@ -1799,6 +1795,7 @@ const ensureLwMacd = () => {
           else if (sig === 'SELL') { bg = 'rgba(231,76,60,0.18)'; border = '#e74c3c'; }
           const text = `${label}: ${sig || '-'}`;
           const w = Math.min(140, Math.max(60, ctx.measureText(text).width + padX * 2));
+          const x = cssW - 10 - w; // right-aligned with 10px margin
           // rounded rect
           ctx.beginPath();
           ctx.moveTo(x, y);
