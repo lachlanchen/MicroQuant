@@ -1774,7 +1774,7 @@ const ensureLwMacd = () => {
         const dpr = lwOverlayDpr || (window.devicePixelRatio || 1);
         const cssW = lwOverlay.width / dpr;
         const cssH = lwOverlay.height / dpr;
-        // Chips are fixed against the right edge of the chart area (not tied to bar position)
+        // Chips are fixed to the top-left corner of the chart area
         const startY = 8;
         const lineH = 18;
         const padX = 6;
@@ -1783,8 +1783,8 @@ const ensureLwMacd = () => {
         const entries = Object.entries(indicatorSignals || {});
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        // Background clear in right strip only (avoid wiping period lines)
-        ctx.clearRect(cssW - 150, 0, 150, Math.min(cssH, startY + (entries.length+1)*lineH + 8));
+        // Background clear in a left strip only (avoid wiping the whole overlay)
+        ctx.clearRect(0, 0, 180, Math.min(cssH, startY + (entries.length+1)*lineH + 8));
         let y = startY;
         const textColor = '#111';
         ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
@@ -1794,8 +1794,8 @@ const ensureLwMacd = () => {
           if (sig === 'BUY') { bg = 'rgba(46,204,113,0.18)'; border = '#2ecc71'; }
           else if (sig === 'SELL') { bg = 'rgba(231,76,60,0.18)'; border = '#e74c3c'; }
           const text = `${label}: ${sig || '-'}`;
-          const w = Math.min(140, Math.max(60, ctx.measureText(text).width + padX * 2));
-          const x = cssW - 10 - w; // right-aligned with 10px margin
+          const w = Math.min(160, Math.max(60, ctx.measureText(text).width + padX * 2));
+          const x = 10; // left-aligned with 10px margin
           // rounded rect
           ctx.beginPath();
           ctx.moveTo(x, y);
