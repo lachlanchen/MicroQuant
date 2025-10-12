@@ -2194,27 +2194,18 @@ const ensureLwMacd = () => {
         if (residData.length && stlResidSeries) stlResidSeries.setData(residData);
         if (trendData.length > 2) {
           const trendValues = trendData.map((pt) => Number(pt.value) || 0);
-          const minVal = Math.min(...trendValues);
-          const maxVal = Math.max(...trendValues);
-          const range = Math.max(1, Math.abs(maxVal - minVal) || 1);
 
           stlSpeedPoints = [];
           for (let i = 1; i < trendValues.length; i += 1) {
-            const speedVal = (trendValues[i] - trendValues[i - 1]) / range;
+            const speedVal = trendValues[i] - trendValues[i - 1];
             stlSpeedPoints.push({ time: trendData[i].time, value: speedVal });
           }
-          const meanSpeed = stlSpeedPoints.reduce((acc, pt) => acc + (pt.value ?? 0), 0) / stlSpeedPoints.length;
-          stlSpeedPoints = stlSpeedPoints.map((pt) => ({ time: pt.time, value: (pt.value ?? 0) - meanSpeed }));
 
           stlAccelPoints = [];
           for (let i = 1; i < stlSpeedPoints.length; i += 1) {
             const accelVal = (stlSpeedPoints[i].value ?? 0) - (stlSpeedPoints[i - 1].value ?? 0);
             stlAccelPoints.push({ time: stlSpeedPoints[i].time, value: accelVal });
           }
-          const meanAccel = stlAccelPoints.length
-            ? stlAccelPoints.reduce((acc, pt) => acc + (pt.value ?? 0), 0) / stlAccelPoints.length
-            : 0;
-          stlAccelPoints = stlAccelPoints.map((pt) => ({ time: pt.time, value: (pt.value ?? 0) - meanAccel }));
         } else {
           stlSpeedPoints = [];
           stlAccelPoints = [];
