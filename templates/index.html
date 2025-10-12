@@ -255,6 +255,7 @@
                 <input id="techHealthBars" type="number" min="1" max="500" style="width:72px;" />
               </label>
               <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Health Check</button>
+              <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
             </div>
           </div>
         </div>
@@ -1811,12 +1812,22 @@ const ensureLwMacd = () => {
         const strategyLine = `<div style="font-size:12px; color:var(--muted); margin-top:4px;">Strategy: ${esc(strategyUsed || '—')}</div>`;
         let countsLine = '';
         if (scoresObj && typeof scoresObj === 'object') {
-          const baseCount = baseCode && Object.prototype.hasOwnProperty.call(scoresObj, 'BASE') ? scoresObj.BASE : null;
-          const quoteCount = quoteCode && Object.prototype.hasOwnProperty.call(scoresObj, 'QUOTE') ? scoresObj.QUOTE : null;
+          const hasBaseQuote = Object.prototype.hasOwnProperty.call(scoresObj, 'BASE') || Object.prototype.hasOwnProperty.call(scoresObj, 'QUOTE');
+          const hasBullBear = Object.prototype.hasOwnProperty.call(scoresObj, 'BULLISH') || Object.prototype.hasOwnProperty.call(scoresObj, 'BEARISH');
           const netVal = Object.prototype.hasOwnProperty.call(scoresObj, 'NET') ? scoresObj.NET : null;
           const segments = [];
-          if (baseCode != null && baseCount != null) segments.push(`${esc(baseCode)}=${baseCount}`);
-          if (quoteCode != null && quoteCount != null) segments.push(`${esc(quoteCode)}=${quoteCount}`);
+          if (hasBaseQuote) {
+            const baseCount = baseCode && Object.prototype.hasOwnProperty.call(scoresObj, 'BASE') ? scoresObj.BASE : null;
+            const quoteCount = quoteCode && Object.prototype.hasOwnProperty.call(scoresObj, 'QUOTE') ? scoresObj.QUOTE : null;
+            if (baseCode != null && baseCount != null) segments.push(`${esc(baseCode)}=${baseCount}`);
+            if (quoteCode != null && quoteCount != null) segments.push(`${esc(quoteCode)}=${quoteCount}`);
+          }
+          if (hasBullBear) {
+            const bull = Object.prototype.hasOwnProperty.call(scoresObj, 'BULLISH') ? scoresObj.BULLISH : null;
+            const bear = Object.prototype.hasOwnProperty.call(scoresObj, 'BEARISH') ? scoresObj.BEARISH : null;
+            if (bull != null) segments.push(`BULLISH=${bull}`);
+            if (bear != null) segments.push(`BEARISH=${bear}`);
+          }
           if (netVal != null) segments.push(`NET=${netVal}`);
           if (segments.length) {
             countsLine = `<div style="font-size:12px; color:var(--muted); margin-top:2px;">${segments.join(' • ')}</div>`;
@@ -1908,6 +1919,37 @@ const ensureLwMacd = () => {
         }
       }
 
+      async function startTechAiRun() {
+        const sym = symbolSelect.value.toUpperCase();
+        const outBox = el('healthResultsBox');
+        try {
+          const snapshot = buildTechSnapshotString();
+          const body = {
+            symbol: sym,
+            strategy: 'tech_snapshot_10q.json',
+            timeframe: currentTf(),
+            tech_snapshot: snapshot
+          };
+          console.log('[Health][TechAI] running tech snapshot for', sym, currentTf());
+          outBox.innerHTML = '<div style="color:var(--muted)">Running Tech+AI…</div>';
+          const res = await fetch('/api/health/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify(body)
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data || data.ok !== true) {
+            outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(data && data.error) || res.statusText || 'unknown'}</em>`;
+            return;
+          }
+          renderHealthOutcome(outBox, data);
+          loadHealthHistory();
+        } catch (e) {
+          outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
+        }
+      }
+
       function buildTechSnapshotString() {
         // Build a compact textual snapshot matching the Technical Snapshot modal tables
         applyTechWindowDefault(false);
@@ -1963,12 +2005,25 @@ const ensureLwMacd = () => {
       const btnHealthMore = document.getElementById('btnHealthMore');
       const btnHealthClose = document.getElementById('btnHealthClose');
       const btnTechHealth = document.getElementById('btnTechHealth');
+      const btnTechAiHealth = document.getElementById('btnTechAiHealth');
       const btnTechClose = document.getElementById('btnTechClose');
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
       if (btnHealthStart) btnHealthStart.addEventListener('click', startHealthRun);
       if (btnHealthMore) btnHealthMore.addEventListener('click', ()=> { healthState.offset = (healthState.offset||0) + 5; loadHealthHistory(); });
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
       if (btnTechHealth) btnTechHealth.addEventListener('click', openTechHealth);
+      if (btnTechAiHealth) btnTechAiHealth.addEventListener('click', () => {
+        // Open modal and immediately run AI on current snapshot
+        const sym = symbolSelect.value.toUpperCase();
+        const kind = isFxPair(sym) ? 'forex_pair' : 'stock';
+        openHealth(kind);
+        // If the dropdown exists, reflect the chosen strategy for transparency
+        if (healthStrategySelect) {
+          healthStrategyUserOverride = true;
+          healthStrategySelect.value = 'tech_snapshot_10q.json';
+        }
+        startTechAiRun();
+      });
       if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });
       if (healthStrategySelect) {
         healthStrategySelect.addEventListener('change', () => { healthStrategyUserOverride = true; });
