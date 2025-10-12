@@ -1545,6 +1545,28 @@
         }
       };
 
+      const applyIndicatorViewport = (range, logicalRange) => {
+        if (range && range.from != null && range.to != null) {
+          currentTimeRange = range;
+          const fromMs = Number(range.from) * 1000;
+          const toMs = Number(range.to) * 1000;
+          indicatorRangeMs = (Number.isFinite(fromMs) && Number.isFinite(toMs))
+            ? { min: fromMs, max: toMs }
+            : null;
+          if (logicalRange && curType === 'candlestick') {
+            enforceIndicatorRange(range, logicalRange);
+          }
+        } else {
+          currentTimeRange = null;
+          indicatorRangeMs = null;
+        }
+        updateIndicatorDisplay(lastPriceRows);
+        if (chart && curType === 'line') {
+          applyScaleBounds(chart);
+          chart.update('none');
+        }
+      };
+
       function makeChart(type) {
         curType = type;
         if (type === 'line') {
