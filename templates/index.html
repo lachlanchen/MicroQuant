@@ -2019,11 +2019,10 @@ const ensureLwMacd = () => {
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
       if (btnTechHealth) btnTechHealth.addEventListener('click', openTechHealth);
       if (btnTechAiHealth) btnTechAiHealth.addEventListener('click', () => {
-        // Open modal filtered to Tech strategy and immediately run AI on current snapshot
+        // Open modal filtered to Tech strategy; wait for user to click Start
         const sym = symbolSelect.value.toUpperCase();
         const kind = isFxPair(sym) ? 'forex_pair' : 'stock';
         openHealth(kind, 'tech_snapshot_10q.json');
-        startTechAiRun();
       });
       if (btnTechClose) btnTechClose.addEventListener('click', ()=> { const modal = el('techModal'); if (modal) modal.style.display = 'none'; });
       if (healthStrategySelect) {
