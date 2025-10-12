@@ -1812,13 +1812,9 @@
       function ensureStlOverlaySeries(tf) {
         if (!lwChart) return null;
         if (stlOverlaySeries.has(tf)) return stlOverlaySeries.get(tf);
-        const dashed = (typeof LightweightCharts !== 'undefined' && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dashed !== undefined)
-          ? LightweightCharts.LineStyle.Dashed
-          : (LightweightCharts && LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 2);
         const series = lwChart.addLineSeries({
           color: STL_OVERLAY_COLORS[tf] || '#607d8b',
           lineWidth: 1.5,
-          lineStyle: dashed,
           priceScaleId: 'right',
           title: `Trend ${tf}`,
         });
