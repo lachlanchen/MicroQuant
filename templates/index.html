@@ -199,6 +199,10 @@
         </div>
         <div id="indicator-wrap">
           <div class="indicator-panel">
+            <h4>STL Speed / Accel</h4>
+            <div id="lwDeriv" class="lw-pane"></div>
+          </div>
+          <div class="indicator-panel">
             <h4>RSI (14)</h4>
             <div id="lwRsi" class="lw-pane"></div>
           </div>
@@ -255,6 +259,14 @@
             <label class="switch">
               <input type="checkbox" id="chkStlAutoPeriod"{% if default_stl_auto_period != '0' %} checked{% end %} />
               <span>Auto period</span>
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="chkStlDerivative" checked />
+              <span>Show STL speed</span>
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="chkStlAcceleration" />
+              <span>Show STL accel</span>
             </label>
             <label>Period
               <input type="number" id="stlPeriodInput" min="3" value="{{ default_stl_manual_period }}" disabled />
@@ -433,6 +445,8 @@
       let stlTargetStart = null;
       let stlTargetEnd = null;
       let stlLastPeriod = null;
+      let stlSpeedPoints = [];
+      let stlAccelPoints = [];
       const stlAllToggle = el('chkStlAllData');
       const stlAutoToggle = el('chkStlAutoPeriod');
       const stlPeriodInput = el('stlPeriodInput');
@@ -462,6 +476,8 @@
       let stlAutoPeriod = !(DEFAULT_STL_AUTO_PERIOD === '0' || DEFAULT_STL_AUTO_PERIOD === 'false');
       let stlManualPeriod = DEFAULT_STL_MANUAL_PERIOD;
       const stlPeriodLinesToggle = el('chkStlPeriodLines');
+      const stlDerivativeToggle = el('chkStlDerivative');
+      const stlAccelerationToggle = el('chkStlAcceleration');
       let showPeriodLines = false;
 
       const volumeCanvas = document.getElementById('volChart');
@@ -486,6 +502,8 @@
 
       let lwMacdChart = null, lwMacdHist = null, lwMacdLine = null, lwMacdSignal = null;
 
+      let lwDerivChart = null, lwDerivSpeedSeries = null, lwDerivAccelSeries = null;
+
       // Overlay canvas for dashed period lines on the candlestick chart
       let lwOverlay = null, lwOverlayCtx = null;
       let chartPeriodWindows = [];
@@ -494,7 +512,9 @@
       let lwRangeTimer = null;
       let lwSubscriptionsEnabled = false;
       let lwVolSubscribed = false, lwRsiSubscribed = false, lwMacdSubscribed = false; // sync disabled
+      let lwDerivSubscribed = false;
       let lwVolHasData = false, lwRsiHasData = false, lwMacdHasData = false;
+      let lwDerivHasSpeed = false, lwDerivHasAccel = false;
 
       const PREF_ENDPOINT = '/api/preferences';
       let prefQueue = {};
@@ -965,6 +985,45 @@
         }
       };
 
+      const ensureLwDeriv = () => {
+        if (!lwDerivChart) {
+          const elDeriv = document.getElementById('lwDeriv');
+          if (!elDeriv) return;
+          lwDerivChart = LightweightCharts.createChart(elDeriv, {
+            rightPriceScale: { visible: true },
+            leftPriceScale: { visible: false },
+            timeScale: { rightOffset: 10, fixRightEdge: false },
+            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+          });
+        }
+        if (lwDerivChart && !lwDerivSpeedSeries) {
+          const dashed = (LightweightCharts && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dashed !== undefined)
+            ? LightweightCharts.LineStyle.Dashed
+            : (LightweightCharts && LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 2);
+          lwDerivSpeedSeries = lwDerivChart.addLineSeries({
+            color: '#d84315',
+            lineWidth: 2,
+            lineStyle: dashed,
+          });
+        }
+        if (lwDerivChart && !lwDerivAccelSeries) {
+          const dotted = (LightweightCharts && LightweightCharts.LineStyle && LightweightCharts.LineStyle.Dotted !== undefined)
+            ? LightweightCharts.LineStyle.Dotted
+            : (LightweightCharts && LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Solid : 3);
+          lwDerivAccelSeries = lwDerivChart.addLineSeries({
+            color: '#8e24aa',
+            lineWidth: 1.5,
+            lineStyle: dotted,
+          });
+        }
+        if (!lwDerivSubscribed && lwDerivChart) {
+          lwDerivChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+            handleChartRangeChange(lwDerivChart);
+          });
+          lwDerivSubscribed = true;
+        }
+      };
+
       const ensureLwRsi = () => {
         if (!lwRsiChart) {
           const elRsi = document.getElementById('lwRsi');
@@ -987,8 +1046,8 @@
         }
       };
 
-      const ensureLwMacd = () => {
-        if (!lwMacdChart) {
+const ensureLwMacd = () => {
+  if (!lwMacdChart) {
           const elMacd = document.getElementById('lwMacd');
           if (!elMacd) return;
           lwMacdChart = LightweightCharts.createChart(elMacd, {
@@ -1012,8 +1071,22 @@
             handleChartRangeChange(lwMacdChart);
           });
           lwMacdSubscribed = true;
+  }
+};
+
+      function updateStlDerivativeSeries() {
+        ensureLwDeriv();
+        const showSpeed = !stlDerivativeToggle || !!stlDerivativeToggle.checked;
+        const showAccel = !stlAccelerationToggle || !!stlAccelerationToggle.checked;
+        if (lwDerivSpeedSeries) {
+          lwDerivSpeedSeries.setData(showSpeed ? stlSpeedPoints : []);
         }
-      };
+        if (lwDerivAccelSeries) {
+          lwDerivAccelSeries.setData(showAccel ? stlAccelPoints : []);
+        }
+        lwDerivHasSpeed = showSpeed && stlSpeedPoints.length > 0;
+        lwDerivHasAccel = showAccel && stlAccelPoints.length > 0;
+      }
 
       const ensureLwOverlay = () => {
         if (!lwContainer) return;
@@ -1236,6 +1309,9 @@
           }
           if (lwMacdChart && lwMacdHasData && sourceChart !== lwMacdChart) {
             setLogicalRangeIfNeeded(lwMacdChart, logicalRange);
+          }
+          if (lwDerivChart && (lwDerivHasSpeed || lwDerivHasAccel) && sourceChart !== lwDerivChart) {
+            setLogicalRangeIfNeeded(lwDerivChart, logicalRange);
           }
         } finally {
           lwSyncing = false;
@@ -1477,6 +1553,9 @@
           lwVolHasData = false;
           lwRsiHasData = false;
           lwMacdHasData = false;
+          stlSpeedPoints = [];
+          stlAccelPoints = [];
+          updateStlDerivativeSeries();
           if (chart && curType === 'line') {
             chart.data.labels = [];
             chart.data.datasets.forEach((ds) => { ds.data = []; });
@@ -1496,6 +1575,7 @@
         ensureLwVol();
         ensureLwRsi();
         ensureLwMacd();
+        ensureLwDeriv();
         // Volume histogram
         if (lwVolSeries) {
           const volPoints = rows.map((row, idx) => {
@@ -1567,6 +1647,9 @@
           }
           if (lwMacdChart && lwMacdHasData) {
             lwMacdChart.timeScale().setVisibleRange(range);
+          }
+          if (lwDerivChart && (lwDerivHasSpeed || lwDerivHasAccel)) {
+            lwDerivChart.timeScale().setVisibleRange(range);
           }
           if (logicalRange && logicalRange.from != null && logicalRange.to != null) {
             currentLogicalRange = logicalRange;
@@ -2109,6 +2192,37 @@
         if (trendData.length && stlTrendSeries) stlTrendSeries.setData(trendData);
         if (seasonalData.length && stlSeasonSeries) stlSeasonSeries.setData(seasonalData);
         if (residData.length && stlResidSeries) stlResidSeries.setData(residData);
+        if (trendData.length > 1) {
+          const speedRaw = [];
+          for (let i = 1; i < trendData.length; i += 1) {
+            const prev = trendData[i - 1];
+            const curr = trendData[i];
+            const dt = (curr.time ?? 0) - (prev.time ?? 0);
+            if (!dt) continue;
+            const dv = (curr.value ?? 0) - (prev.value ?? 0);
+            speedRaw.push({ time: curr.time, value: dv / dt });
+          }
+          const maxAbsSpeed = speedRaw.reduce((acc, p) => Math.max(acc, Math.abs(p.value ?? 0)), 0);
+          const speedScale = maxAbsSpeed > 0 ? maxAbsSpeed : 1;
+          stlSpeedPoints = speedRaw.map((p) => ({ time: p.time, value: (p.value ?? 0) / speedScale }));
+
+          const accelRaw = [];
+          for (let i = 1; i < speedRaw.length; i += 1) {
+            const prev = speedRaw[i - 1];
+            const curr = speedRaw[i];
+            const dt = (curr.time ?? 0) - (prev.time ?? 0);
+            if (!dt) continue;
+            const dv = (curr.value ?? 0) - (prev.value ?? 0);
+            accelRaw.push({ time: curr.time, value: dv / dt });
+          }
+          const maxAbsAccel = accelRaw.reduce((acc, p) => Math.max(acc, Math.abs(p.value ?? 0)), 0);
+          const accelScale = maxAbsAccel > 0 ? maxAbsAccel : 1;
+          stlAccelPoints = accelRaw.map((p) => ({ time: p.time, value: (p.value ?? 0) / accelScale }));
+        } else {
+          stlSpeedPoints = [];
+          stlAccelPoints = [];
+        }
+        updateStlDerivativeSeries();
         const overlayPeriod = periodValue && Number.isFinite(periodValue)
           ? periodValue
           : (stlAutoPeriod ? stlLastPeriod : stlManualPeriod);
@@ -2175,6 +2289,9 @@
           }
           updatePeriodOverlays(stlLastPeriod);
         }
+        stlSpeedPoints = [];
+        stlAccelPoints = [];
+        updateStlDerivativeSeries();
         updateStlInputsFromState();
         if (lwChart) {
           lwChart.priceScale('left').applyOptions({ visible: false });
@@ -2687,6 +2804,12 @@
         if (effPeriod) computePeriodBoundaryTimes(effPeriod);
         updatePeriodOverlays(effPeriod);
         redrawPeriodLines();
+      });
+      if (stlDerivativeToggle) stlDerivativeToggle.addEventListener('change', () => {
+        updateStlDerivativeSeries();
+      });
+      if (stlAccelerationToggle) stlAccelerationToggle.addEventListener('change', () => {
+        updateStlDerivativeSeries();
       });
       const btnStlSymbolAll = el('btnStlSymbolAll');
       if (btnStlSymbolAll) btnStlSymbolAll.addEventListener('click', () => triggerStl('symbol_all_tf'));
@@ -3499,6 +3622,7 @@
       // Initial loads
       buildStlOverlayControls();
       updateStlInputsFromState();
+      updateStlDerivativeSeries();
       refreshChart();
       refreshNews();
       refreshPositions();
