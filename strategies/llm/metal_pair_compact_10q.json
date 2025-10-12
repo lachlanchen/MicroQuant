@@ -1,0 +1,46 @@
+{
+  "name": "metal_pair_compact_10q",
+  "title": "10 Comprehensive Metals Pair Questions (Binary Choice)",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-12T00:00:00Z",
+  "description": "Condensed, metals-aware assessment for pairs like XAU/USD or XAG/USD. Each question forces a binary choice between the metal and USD.
+    Focuses on real rates, safe-haven flows, physical demand/supply, and market flows.",
+  "input": {
+    "variables": [
+      { "name": "base_currency", "type": "string", "example": "XAU" },
+      { "name": "quote_currency", "type": "string", "example": "USD" },
+      { "name": "texts", "type": "array<string>", "description": "Recent headlines, summaries, reports, and commentary relevant to both the metal and USD." },
+      { "name": "timeframe", "type": "string", "example": "72h" }
+    ]
+  },
+  "questions": [
+    { "id": "mp_01", "category": "monetary", "weight": 1, "text": "Considering Federal Reserve policy stance, balance sheet policy, and real rates - which is more favored currently: ${base_currency} or ${quote_currency}?" },
+    { "id": "mp_02", "category": "monetary", "weight": 1, "text": "Looking at interest-rate expectations and the opportunity cost of holding non‑yielding assets - which benefits more now: ${base_currency} or ${quote_currency}?" },
+    { "id": "mp_03", "category": "monetary", "weight": 1, "text": "Evaluating real interest rates (nominal minus inflation) and liquidity conditions - which has the advantage: ${base_currency} or ${quote_currency}?" },
+
+    { "id": "ih_04", "category": "inflation_hedge", "weight": 1, "text": "From recent commentary on inflation expectations and currency debasement concerns - which is described as the better hedge now: ${base_currency} or ${quote_currency}?" },
+    { "id": "sh_05", "category": "safe_haven", "weight": 1, "text": "Given current geopolitical tensions and market volatility - which attracts stronger safe‑haven flows: ${base_currency} or ${quote_currency}?" },
+    { "id": "ps_06", "category": "physical_supply", "weight": 1, "text": "Considering physical demand (investment, jewelry, industrial) and supply constraints or production issues - which has more supportive demand/supply backdrop: ${base_currency} or ${quote_currency}?" },
+
+    { "id": "cb_07", "category": "central_banks", "weight": 1, "text": "Reviewing central bank reserve activity and institutional buying - which is more supported: ${base_currency} or ${quote_currency}?" },
+    { "id": "mf_08", "category": "market_flows", "weight": 1, "text": "Evaluating ETF/investment product flows, futures positioning, and fund demand - which sees stronger investor inflows: ${base_currency} or ${quote_currency}?" },
+
+    { "id": "tech_09", "category": "technicals", "weight": 1, "text": "Based on recent technical commentary (breakouts, momentum) - which shows the stronger technical setup: ${base_currency} or ${quote_currency}?" },
+    { "id": "sent_10", "category": "sentiment", "weight": 1, "text": "Looking at analyst views and sentiment surveys - which has more bullish consensus right now: ${base_currency} or ${quote_currency}?" }
+  ],
+  "answer_options": ["${base_currency}", "${quote_currency}"],
+  "scoring": {
+    "thresholds": [
+      { "min": 7,  "max": 10, "signal": "BUY_BASE" },
+      { "min": 5,  "max": 6,  "signal": "BUY_BASE" },
+      { "min": 3,  "max": 4,  "signal": "BUY_BASE" },
+      { "min": -2, "max": 2,  "signal": "NEUTRAL" },
+      { "min": -4, "max": -3, "signal": "SELL_BASE" },
+      { "min": -6, "max": -5, "signal": "SELL_BASE" },
+      { "min": -10,"max": -7, "signal": "SELL_BASE" }
+    ]
+  }
+}
+

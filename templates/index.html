@@ -452,6 +452,7 @@
       const healthStrategySelect = el('healthStrategy');
       const HEALTH_STRATEGIES = [
         { value: 'forex_pair_compact_10q.json', label: 'FX Comprehensive (10)', kinds: ['forex_pair'] },
+        { value: 'metal_pair_compact_10q.json', label: 'Metals Comprehensive (10)', kinds: ['forex_pair'] },
         { value: 'metal_pair_neutral_30q.json', label: 'Metals Neutral (30)', kinds: ['forex_pair'] },
         { value: 'forex_pair_neutral_30q.json', label: 'FX Neutral (30)', kinds: ['forex_pair'] },
         { value: 'forex_pair_30q_yes_no.json', label: 'FX Pair Yes/No (30)', kinds: ['forex_pair'] },
@@ -524,7 +525,7 @@
         // Prefer metals template for XAU/XAG pairs when user hasn't chosen explicitly
         const sym = (typeof currentSymbol === 'function') ? currentSymbol() : (symbolSelect && symbolSelect.value) || '';
         const preferMetal = kind === 'forex_pair' && isMetalPair(sym);
-        const desiredValue = preferMetal ? 'metal_pair_neutral_30q.json' : (defaultStrategyForKind(kind)?.value);
+        const desiredValue = preferMetal ? 'metal_pair_compact_10q.json' : (defaultStrategyForKind(kind)?.value);
         if (!healthStrategyUserOverride || !currentMeta || !currentMeta.kinds.includes(kind) || (preferMetal && currentValue !== desiredValue)) {
           if (desiredValue) {
             healthStrategyUserOverride = false;

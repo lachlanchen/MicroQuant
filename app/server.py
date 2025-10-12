@@ -322,6 +322,7 @@ DEFAULT_STRATEGIES: dict[str, str] = {
 
 ALLOWED_STRATEGIES: dict[str, set[str]] = {
     "forex_pair": {
+        "metal_pair_compact_10q.json",
         "forex_pair_compact_10q.json",
         "metal_pair_neutral_30q.json",
         "forex_pair_neutral_30q.json",
@@ -2523,12 +2524,12 @@ class HealthRunHandler(tornado.web.RequestHandler):
             quote_items = quote_items[:news_count]
 
             allowed = ALLOWED_STRATEGIES.get("forex_pair", set())
-            # Auto-pick metals template for XAU/XAG when no override provided
+            # Auto-pick metals compact template for XAU/XAG when no override provided
             prefer_metals = base in {"XAU", "XAG"}
             if strategy_override and strategy_override in allowed:
                 strategy_name = strategy_override
-            elif prefer_metals and "metal_pair_neutral_30q.json" in allowed:
-                strategy_name = "metal_pair_neutral_30q.json"
+            elif prefer_metals and "metal_pair_compact_10q.json" in allowed:
+                strategy_name = "metal_pair_compact_10q.json"
             else:
                 strategy_name = DEFAULT_STRATEGIES["forex_pair"]
             if strategy_override and strategy_override not in allowed:
