@@ -1511,6 +1511,8 @@
       let lwBalanceSeries = null;
       let lwClosedCumSeries = null;
       let lwBalanceSubscribed = false;
+      let fetchingBalance = false;
+      let fetchingClosed = false;
       const ensureLwBalance = () => {
         if (!lwBalanceChart) {
           const elBal = document.getElementById('lwBalance');
@@ -1537,8 +1539,10 @@
       };
 
       async function refreshBalanceSeries() {
+        if (fetchingBalance) return;
+        fetchingBalance = true;
         try {
-          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000&refresh=1', { cache: 'no-store' });
+          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000', { cache: 'no-store' });
           const js = await r.json();
           if (!r.ok || !js || js.ok !== true) return;
           ensureLwBalance();
@@ -1552,13 +1556,19 @@
               return { time: Math.floor(tsMs / 1000), value: numVal };
             })
             .filter(Boolean);
-          lwBalanceSeries.setData(points);
+          try {
+            lwBalanceSeries.setData(points);
+          } catch (err) {
+            console.warn('[Balance] setData failed', err, { pointsCount: points.length });
+          }
         } catch (e) {
           // ignore
-        }
+        } finally { fetchingBalance = false; }
       }
 
       async function refreshClosedDealsSeries() {
+        if (fetchingClosed) return;
+        fetchingClosed = true;
         // Button visual feedback
         const btn = document.getElementById('btnFetchClosed');
         const prevText = btn ? btn.textContent : '';
@@ -1579,21 +1589,34 @@
               return { time: Math.floor(tsMs / 1000), value: numVal };
             })
             .filter(Boolean);
-          lwClosedCumSeries.setData(cum);
+          try {
+            lwClosedCumSeries.setData(cum);
+          } catch (err) {
+            console.warn('[Closed] setData failed', err, { pointsCount: cum.length });
+          }
           // Markers at each deal time
           const deals = js.deals || [];
-          const markers = deals.map(d => {
-            const t = Math.floor(new Date(d.ts).getTime()/1000);
-            const profit = Number(d.profit || 0) + Number(d.commission || 0) + Number(d.swap || 0);
-            return {
-              time: t,
-              position: 'aboveBar',
-              color: profit >= 0 ? '#2ecc71' : '#e74c3c',
-              shape: 'circle',
-              text: `${profit>=0?'+':''}${profit.toFixed(2)}`,
-            };
-          });
-          lwClosedCumSeries.setMarkers(markers);
+          const markers = deals
+            .map(d => {
+              const tsMs = Date.parse(d.ts);
+              if (!Number.isFinite(tsMs)) return null;
+              const t = Math.floor(tsMs/1000);
+              const profit = Number(d.profit || 0) + Number(d.commission || 0) + Number(d.swap || 0);
+              if (!Number.isFinite(profit)) return null;
+              return {
+                time: t,
+                position: 'aboveBar',
+                color: profit >= 0 ? '#2ecc71' : '#e74c3c',
+                shape: 'circle',
+                text: `${profit>=0?'+':''}${profit.toFixed(2)}`,
+              };
+            })
+            .filter(Boolean);
+          try {
+            lwClosedCumSeries.setMarkers(markers);
+          } catch (err) {
+            console.warn('[Closed] setMarkers failed', err, { markersCount: markers.length });
+          }
           const msg = `Closed orders: deals=${(js.deals_count||deals.length)} points=${(js.cum_count||cum.length)}`;
           console.log('[Closed]', msg);
           status(cum.length ? `Loaded ${cum.length} point(s) from ${deals.length} deal(s).` : 'No closed orders found in window.');
@@ -1602,6 +1625,7 @@
           status('Closed deals fetch failed.');
         } finally {
           if (btn) { btn.disabled = false; btn.textContent = prevText || 'Fetch Closed'; }
+          fetchingClosed = false;
         }
       }
 
