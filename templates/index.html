@@ -3490,6 +3490,14 @@ const ensureLwMacd = () => {
         const current = currentTf();
         stlOverlayControls.innerHTML = '';
         stlOverlayInputs.clear();
+        // Symbol • Timeframe label then Auto STL switch (per symbol × timeframe)
+        const stlCtx = document.createElement('span');
+        stlCtx.style.fontSize = '12px';
+        stlCtx.style.color = 'var(--muted)';
+        stlCtx.style.marginRight = '8px';
+        stlCtx.textContent = `${symbol} • ${current}`;
+        stlOverlayControls.appendChild(stlCtx);
+
         // Auto STL switch (per symbol × timeframe)
         const getAutoKey = () => `stl_auto_compute:${symbol}:${current}`;
         const readAuto = () => { try { return (localStorage.getItem(getAutoKey()) === '1'); } catch { return false; } };
@@ -3501,12 +3509,32 @@ const ensureLwMacd = () => {
         autoChk.type = 'checkbox';
         autoChk.id = 'chkStlAutoCompute';
         autoChk.checked = !!readAuto();
-        autoChk.addEventListener('change', () => { writeAuto(!!autoChk.checked); });
+        autoChk.addEventListener('change', () => {
+          const val = !!autoChk.checked;
+          writeAuto(val);
+          // Persist to DB preferences under per-symbol×tf key
+          try { queuePrefUpdate(getAutoKey(), val ? '1' : '0'); } catch {}
+        });
         const autoText = document.createElement('span');
         autoText.textContent = 'Auto STL';
         autoWrap.appendChild(autoChk);
         autoWrap.appendChild(autoText);
         stlOverlayControls.appendChild(autoWrap);
+
+        // Read server preference (override localStorage if present)
+        (async () => {
+          try {
+            const key = getAutoKey();
+            const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(key)}`, { cache: 'no-store' });
+            const js = await r.json().catch(() => ({}));
+            const serverVal = js && js.prefs && js.prefs[key];
+            if (serverVal === '1' || serverVal === '0') {
+              const checked = serverVal === '1';
+              autoChk.checked = checked;
+              writeAuto(checked);
+            }
+          } catch { /* ignore */ }
+        })();
 
         const label = document.createElement('span');
         label.textContent = 'Overlay STL';

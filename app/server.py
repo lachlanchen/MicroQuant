@@ -2286,7 +2286,15 @@ class PreferencesHandler(tornado.web.RequestHandler):
         updates = {}
         if isinstance(payload, dict):
             for key, value in payload.items():
-                if key in PREF_KEYS and value is not None:
+                if value is None:
+                    continue
+                allowed = False
+                if key in PREF_KEYS:
+                    allowed = True
+                # Allow per-symbol×timeframe STL auto compute preferences
+                elif isinstance(key, str) and key.startswith("stl_auto_compute:"):
+                    allowed = True
+                if allowed:
                     updates[key] = str(value)
         if updates:
             await set_prefs(self.pool, updates)
