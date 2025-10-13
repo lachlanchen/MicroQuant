@@ -2039,6 +2039,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         if not start_dt:
             start_dt = end_dt - timedelta(days=max(1, days))
         try:
+            logger.info("/api/account/closed_deals from=%s to=%s days=%s", start_dt, end_dt, days)
             deals = mt5_client.closed_deals(start_dt, end_dt)
         except Exception as e:
             self.set_status(500)
@@ -2055,9 +2056,21 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             s = float(d.get("swap") or 0.0)
             cum += (p + c + s)
             cum_points.append({"ts": d.get("ts"), "value": cum})
+        try:
+            logger.info("/api/account/closed_deals ok deals=%d cum_points=%d", len(deals), len(cum_points))
+        except Exception:
+            pass
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
-        self.finish(json.dumps({"ok": True, "from": start_dt.isoformat(), "to": end_dt.isoformat(), "deals": deals, "cum": cum_points}))
+        self.finish(json.dumps({
+            "ok": True,
+            "from": start_dt.isoformat(),
+            "to": end_dt.isoformat(),
+            "deals": deals,
+            "deals_count": len(deals),
+            "cum": cum_points,
+            "cum_count": len(cum_points),
+        }))
 
 
 class STLHandler(tornado.web.RequestHandler):

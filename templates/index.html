@@ -1549,6 +1549,10 @@
       }
 
       async function refreshClosedDealsSeries() {
+        // Button visual feedback
+        const btn = document.getElementById('btnFetchClosed');
+        const prevText = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
         try {
           const r = await fetch('/api/account/closed_deals?days=180', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
@@ -1570,9 +1574,14 @@
             };
           });
           lwClosedPnlSeries.setMarkers(markers);
-          if (!cum.length) { try { status('No closed orders found in window.'); } catch(_) {} }
+          const msg = `Closed orders: deals=${(js.deals_count||deals.length)} points=${(js.cum_count||cum.length)}`;
+          console.log('[Closed]', msg);
+          status(cum.length ? `Loaded ${cum.length} PnL point(s) from ${deals.length} deal(s).` : 'No closed orders found in window.');
         } catch (e) {
           console.warn('Closed deals fetch failed', e);
+          status('Closed deals fetch failed.');
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = prevText || 'Fetch Closed'; }
         }
       }
 
