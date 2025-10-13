@@ -2937,10 +2937,15 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
             kind = "forex_pair"
             base = symbol[:3]
             quote = symbol[3:6]
-            runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q.json")
+            # Consider both tech strategies (position and plain)
+            runs_pos = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q_position.json")
+            runs_plain = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q.json")
+            runs = (runs_pos or []) + (runs_plain or [])
         else:
             kind = "stock"
-            runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q.json")
+            runs_pos = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q_position.json")
+            runs_plain = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q.json")
+            runs = (runs_pos or []) + (runs_plain or [])
 
         # Prefer a run that matches the requested timeframe in its meta
         def _match_tf(run: dict) -> bool:
@@ -2952,8 +2957,15 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
             except Exception:
                 return False
         matching = [r for r in runs if _match_tf(r)]
-        # Prefer matching timeframe; otherwise fall back to most recent tech run
-        runs = (matching or runs)[:1]
+        # Prefer matching timeframe; otherwise fall back to most recent tech run (by created_at)
+        if matching:
+            runs = matching[:1]
+        else:
+            # sort combined list by created_at desc
+            try:
+                runs = sorted(runs, key=lambda r: r.get("created_at") or 0, reverse=True)[:1]
+            except Exception:
+                runs = runs[:1]
 
         last_run = runs[0] if runs else None
         last_run_at = last_run.get("created_at").isoformat() if last_run and last_run.get("created_at") else None

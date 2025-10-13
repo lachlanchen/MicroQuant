@@ -2685,7 +2685,9 @@ const ensureLwMacd = () => {
             healthState.offset = 0;
           }
           loadHealthHistory();
-          refreshHealthFreshness();
+          // Update freshness badges now that the Tech run completed
+          try { await refreshTechFreshness(); } catch {}
+          try { await refreshHealthFreshness(); } catch {}
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         }
