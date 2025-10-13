@@ -1146,7 +1146,7 @@
       };
 
       const newsAnalysisCache = new Map();
-      let healthState = { kind: null, offset: 0, strategy: null, excludeStrategy: null };
+      let healthState = { kind: null, offset: 0, strategy: null, group: null, excludeStrategy: null };
       const chartPeriodPluginId = 'periodOverlay';
       if (window.Chart && window.Chart.register && !window.__periodOverlayRegistered) {
         const periodOverlayPlugin = {
@@ -2250,8 +2250,11 @@ const ensureLwMacd = () => {
           healthStrategySelect.value = preferredStrategy;
         }
         healthState.strategy = preferredStrategy;
+        healthState.group = null;
       } else {
-        healthState.strategy = healthStrategySelect ? healthStrategySelect.value : null;
+        // Default to grouping by 'basic' so history shows all basic templates
+        healthState.strategy = null;
+        healthState.group = 'basic';
       }
       // No exclude filter needed once strategy is explicit
       healthState.excludeStrategy = null;
@@ -2485,6 +2488,7 @@ const ensureLwMacd = () => {
         }
         params.set('limit','5'); params.set('offset', String(healthState.offset||0));
         if (healthState.strategy) { params.set('strategy', healthState.strategy); }
+        if (healthState.group) { params.set('group', healthState.group); }
         if (healthState.excludeStrategy) { params.set('exclude_strategy', healthState.excludeStrategy); }
         if (healthState.strategy === 'tech_snapshot_10q.json') { params.set('tf', currentTf()); }
         try {

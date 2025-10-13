@@ -3068,6 +3068,7 @@ class HealthRunsHandler(tornado.web.RequestHandler):
         strategy_filter = self.get_argument("strategy", default=None)
         exclude_strategy = self.get_argument("exclude_strategy", default=None)
         tf_filter = self.get_argument("tf", default=None)
+        group_filter = self.get_argument("group", default=None)
 
         # Auto-detect kind if not explicitly provided
         kind = raw_kind
@@ -3090,28 +3091,54 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 self.set_header("Content-Type", "application/json")
                 self.finish(json.dumps({"ok": False, "error": "base/quote required for forex_pair"}))
                 return
-            runs = await list_health_runs(
-                self.pool,
-                kind="forex_pair",
-                base_ccy=base.upper(),
-                quote_ccy=quote.upper(),
-                limit=limit,
-                offset=offset,
-                strategy=(strategy_filter or None) if strategy_filter else None,
-                exclude_strategy=(exclude_strategy or None) if exclude_strategy else None,
-            )
+            # When grouping, fetch a larger pool then filter in-memory
+            if group_filter:
+                fetch_limit = max(40, limit * 6)
+                runs = await list_health_runs(
+                    self.pool,
+                    kind="forex_pair",
+                    base_ccy=base.upper(),
+                    quote_ccy=quote.upper(),
+                    limit=fetch_limit,
+                    offset=0,
+                    strategy=None,
+                    exclude_strategy=None,
+                )
+            else:
+                runs = await list_health_runs(
+                    self.pool,
+                    kind="forex_pair",
+                    base_ccy=base.upper(),
+                    quote_ccy=quote.upper(),
+                    limit=limit,
+                    offset=offset,
+                    strategy=(strategy_filter or None) if strategy_filter else None,
+                    exclude_strategy=(exclude_strategy or None) if exclude_strategy else None,
+                )
         else:
             if not symbol:
                 symbol = default_symbol()
-            runs = await list_health_runs(
-                self.pool,
-                kind="stock",
-                symbol=str(symbol).upper(),
-                limit=limit,
-                offset=offset,
-                strategy=(strategy_filter or None) if strategy_filter else None,
-                exclude_strategy=(exclude_strategy or None) if exclude_strategy else None,
-            )
+            if group_filter:
+                fetch_limit = max(40, limit * 6)
+                runs = await list_health_runs(
+                    self.pool,
+                    kind="stock",
+                    symbol=str(symbol).upper(),
+                    limit=fetch_limit,
+                    offset=0,
+                    strategy=None,
+                    exclude_strategy=None,
+                )
+            else:
+                runs = await list_health_runs(
+                    self.pool,
+                    kind="stock",
+                    symbol=str(symbol).upper(),
+                    limit=limit,
+                    offset=offset,
+                    strategy=(strategy_filter or None) if strategy_filter else None,
+                    exclude_strategy=(exclude_strategy or None) if exclude_strategy else None,
+                )
 
         def _ser(run: dict) -> dict:
             created_at = run.get("created_at")
@@ -3143,6 +3170,27 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 except Exception:
                     continue
             runs = filtered
+
+        # Optional group filter. Newer runs carry answers_json.group.
+        # Backfill for older rows using strategy name.
+        if group_filter:
+            g = str(group_filter).lower()
+            def derive_group(r: dict) -> str:
+                ans = r.get("answers_json") or {}
+                grp = str((ans.get("group") or "")).lower()
+                if grp:
+                    return grp
+                strat = str((ans.get("strategy") or "")).lower()
+                if strat == "tech_snapshot_10q.json":
+                    return "tech"
+                if strat == "ai_trade_plan":
+                    return "plan"
+                return "basic"
+            grouped = [r for r in runs if derive_group(r) == g]
+            # Apply offset/limit after grouping
+            start = max(0, offset)
+            end = start + max(1, limit)
+            runs = grouped[start:end]
 
         payload = {"ok": True, "runs": [_ser(r) for r in runs]}
         self.set_header("Content-Type", "application/json")
@@ -3276,6 +3324,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "score": score_value,
                     "signal": signal,
                     "strategy": "tech_snapshot_10q.json",
+                    "group": "tech",
                     "scores": {"BULLISH": bullish, "BEARISH": bearish, "NET": score_value},
                     "meta": {"timeframe": timeframe, "symbol": symbol, "source": "snapshot", "last_bar_ts": last_bar_ts_iso},
                 },
@@ -3441,6 +3490,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 "score": score_value,
                 "signal": signal,
                 "strategy": strategy_name,
+                "group": "basic",
                 "scores": scores_payload,
                 "meta": {"timeframe": timeframe, "base": base, "quote": quote, "news_count": news_count},
             }
@@ -3584,6 +3634,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             "score": score_value,
             "signal": signal,
             "strategy": strategy_name,
+            "group": "basic",
             "scores": scores_payload,
             "meta": {"timeframe": timeframe, "symbol": symbol, "news_count": news_count},
         }
@@ -3840,6 +3891,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
             quote_ccy = symbol[3:6] if kind == "forex_pair" else None
             answers_json = {
                 "strategy": "ai_trade_plan",
+                "group": "plan",
                 "plan": {
                     "position": position,
                     "stop_loss": sl,

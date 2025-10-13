@@ -5,8 +5,7 @@
   "schema_version": 1,
   "type": "llm_strategy",
   "created_at": "2025-10-12T00:00:00Z",
-  "description": "Condensed, metals-aware assessment for pairs like XAU/USD or XAG/USD. Each question forces a binary choice between the metal and USD.
-    Focuses on real rates, safe-haven flows, physical demand/supply, and market flows.",
+  "description": "Condensed, metals-aware assessment for pairs like XAU/USD or XAG/USD. Each question forces a binary choice between the metal and USD. Focuses on real rates, safe-haven flows, physical demand/supply, and market flows.",
   "input": {
     "variables": [
       { "name": "base_currency", "type": "string", "example": "XAU" },
@@ -43,4 +42,3 @@
     ]
   }
 }
-
