@@ -1574,7 +1574,8 @@ class MainHandler(tornado.web.RequestHandler):
         auto_news_pref = extras.get("auto_news_backfill") or "1"
         chart_shift_pref = extras.get("chart_shift") or "1"
         closed_orders_poll_pref = extras.get("closed_orders_poll_min") or os.getenv("CLOSED_ORDERS_POLL_MIN", "30")
-        balance_poll_pref = extras.get("balance_poll_min") or os.getenv("BALANCE_POLL_MIN", "60")
+        # Default balance polling to 1 day (1440 minutes)
+        balance_poll_pref = extras.get("balance_poll_min") or os.getenv("BALANCE_POLL_MIN", "1440")
 
         logger.debug("Render index with symbols=%s default=%s tf=%s", SUPPORTED_SYMBOLS, sym, tf)
         try:
@@ -2717,9 +2718,9 @@ class PreferencesHandler(tornado.web.RequestHandler):
             # Handle balance snapshot polling interval
             if "balance_poll_min" in updates:
                 try:
-                    minutes = int(str(updates.get("balance_poll_min") or "60"))
+                    minutes = int(str(updates.get("balance_poll_min") or "1440"))
                 except Exception:
-                    minutes = 60
+                    minutes = 1440
                 minutes = max(1, minutes)
                 from tornado.ioloop import PeriodicCallback
                 global BALANCE_CB
@@ -4509,11 +4510,11 @@ def main():
         cb = tornado.ioloop.PeriodicCallback(_schedule_fetch, interval_ms)
         cb.start()
 
-    # Account balance polling (default every 60 min)
+    # Account balance polling (default every 1440 min = 1 day)
     try:
-        balance_min = int(os.getenv("BALANCE_POLL_MIN", "60"))
+        balance_min = int(os.getenv("BALANCE_POLL_MIN", "1440"))
     except Exception:
-        balance_min = 60
+        balance_min = 1440
     def _schedule_balance_poll():
         tornado.ioloop.IOLoop.current().add_callback(poll_and_store_account_balance)
     global BALANCE_CB
