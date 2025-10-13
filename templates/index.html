@@ -1538,12 +1538,20 @@
 
       async function refreshBalanceSeries() {
         try {
-          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000', { cache: 'no-store' });
+          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000&refresh=1', { cache: 'no-store' });
           const js = await r.json();
           if (!r.ok || !js || js.ok !== true) return;
           ensureLwBalance();
           if (!lwBalanceSeries) return;
-          const points = (js.rows || []).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.balance) }));
+          const points = (js.rows || [])
+            .map(row => {
+              const tsMs = Date.parse(row.ts);
+              if (!Number.isFinite(tsMs)) return null;
+              const numVal = Number(row.balance);
+              if (!Number.isFinite(numVal)) return null;
+              return { time: Math.floor(tsMs / 1000), value: numVal };
+            })
+            .filter(Boolean);
           lwBalanceSeries.setData(points);
         } catch (e) {
           // ignore
@@ -1562,7 +1570,15 @@
           ensureLwBalance();
           if (!lwClosedCumSeries || !lwBalanceSeries) return;
           // Cumulative realized PnL line
-          const cum = (js.cum || []).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.value||0) }));
+          const cum = (js.cum || [])
+            .map(row => {
+              const tsMs = Date.parse(row.ts);
+              if (!Number.isFinite(tsMs)) return null;
+              const numVal = Number(row.value ?? 0);
+              if (!Number.isFinite(numVal)) return null;
+              return { time: Math.floor(tsMs / 1000), value: numVal };
+            })
+            .filter(Boolean);
           lwClosedCumSeries.setData(cum);
           // Markers at each deal time
           const deals = js.deals || [];
