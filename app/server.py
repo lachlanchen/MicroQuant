@@ -2802,10 +2802,8 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
             except Exception:
                 return False
         matching = [r for r in runs if _match_tf(r)]
-        if matching:
-            runs = matching
-        # Keep most recent
-        runs = runs[:1]
+        # Prefer matching timeframe; otherwise fall back to most recent tech run
+        runs = (matching or runs)[:1]
 
         last_run = runs[0] if runs else None
         last_run_at = last_run.get("created_at").isoformat() if last_run and last_run.get("created_at") else None
@@ -2827,20 +2825,25 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
                 )
                 if latest_ts is not None and hasattr(latest_ts, "isoformat"):
                     latest_bar_iso = latest_ts.isoformat()
+                # Count bars in requested timeframe strictly after the bar used by the last Tech+AI run
+                from datetime import datetime as _dt
+                base_ts = None
                 if last_bar_ts_used:
-                    from datetime import datetime as _dt
                     try:
                         base_ts = _dt.fromisoformat(last_bar_ts_used)
                     except Exception:
                         base_ts = None
-                    if base_ts is not None:
-                        cnt = await conn.fetchval(
-                            "SELECT COUNT(*)::INT FROM ohlc_bars WHERE symbol=$1 AND timeframe=$2 AND ts > $3",
-                            symbol,
-                            timeframe,
-                            base_ts,
-                        )
-                        outdated = int(cnt or 0)
+                # Fallback to the run's created_at time if meta is missing (older runs)
+                if base_ts is None and last_run and last_run.get("created_at"):
+                    base_ts = last_run.get("created_at")
+                if base_ts is not None:
+                    cnt = await conn.fetchval(
+                        "SELECT COUNT(*)::INT FROM ohlc_bars WHERE symbol=$1 AND timeframe=$2 AND ts > $3",
+                        symbol,
+                        timeframe,
+                        base_ts,
+                    )
+                    outdated = int(cnt or 0)
         except Exception:
             pass
 
