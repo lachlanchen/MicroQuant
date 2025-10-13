@@ -69,6 +69,13 @@
     .news-answer.no { border-color:#e74c3c; color:#b71c1c; background:rgba(231, 76, 60, 0.12); }
     .news-answer.unknown { border-color:#b0bec5; color:#546e7a; background:rgba(84, 110, 122, 0.12); }
     .news-answer span { font-weight:500; }
+    /* Subtle pulse when strategy result updates */
+    @keyframes pulse {
+      0% { transform: scale(1); box-shadow: 0 0 0 rgba(0,0,0,0); }
+      40% { transform: scale(1.15); box-shadow: 0 0 0 rgba(0,0,0,0.0); }
+      100% { transform: scale(1); box-shadow: 0 0 0 rgba(0,0,0,0); }
+    }
+    .pulse { animation: pulse 480ms ease-out 1; }
     /* Simple modal for full news text */
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 9999; }
     .modal-box { background:#fff; max-width: 920px; width: min(92vw, 920px); max-height: 82vh; overflow:auto; border-radius:10px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
@@ -4805,12 +4812,20 @@ const ensureLwMacd = () => {
         const symbol = currentSymbol();
         const tf = currentTf();
         const fast = 20, slow = 50;
+        const btn = document.getElementById('btnRunStratTop');
+        const dot = document.getElementById('signalDot');
+        const prev = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
         try {
           const r = await fetch(`/api/strategy/run?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&fast=${fast}&slow=${slow}`, { cache:'no-store' });
           const js = await r.json();
           const sig = js && js.signal ? (js.signal.signal || js.signal) : 'hold';
           lastSignal = sig;
           updateSignalUI(sig, js.signal && js.signal.reason);
+          // brief visual feedback
+          if (dot) { dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
+          if (btn) { btn.textContent = `Run ✓ ${sig.toString().toUpperCase()}`; }
+          setTimeout(() => { if (btn) { btn.textContent = prev || 'Run'; btn.disabled = false; } }, 900);
           if (typeof tradeState !== 'undefined' && tradeState) {
             if (sig === 'buy') tradeState.action = 'BUY';
             else if (sig === 'sell') tradeState.action = 'SELL';
@@ -4818,6 +4833,7 @@ const ensureLwMacd = () => {
         } catch (e) {
           console.error('Strategy fetch failed', e);
           updateSignalUI('hold', 'error');
+          if (btn) { btn.textContent = 'Run ✕ Error'; setTimeout(()=>{ btn.textContent = prev || 'Run'; btn.disabled = false; }, 1200); }
         }
       }
       document.getElementById('btnRunStratTop').addEventListener('click', runStrategyTop);
