@@ -2679,29 +2679,14 @@ const ensureLwMacd = () => {
       const healthFreshEl = document.getElementById('healthFreshIndicator');
       const renderHealthFresh = (info) => {
         if (!healthFreshEl) return;
-        let label = '—';
-        let bg = 'rgba(158,158,158,0.12)';
-        let border = '#9e9e9e';
-        let color = '#424242';
-        if (info && info.status === 'fresh') {
-          const n = Number(info.last_run_news_count || 0);
-          label = `Latest (${n})`;
-          bg = 'rgba(46,204,113,0.12)';
-          border = '#2ecc71';
-          color = '#1b5e20';
-        } else if (info && info.status === 'stale') {
-          const m = Number(info.new_count || 0);
-          label = `New news (${m})`;
-          bg = 'rgba(231,76,60,0.12)';
-          border = '#e74c3c';
-          color = '#b71c1c';
-        } else if (info && info.status === 'unknown') {
-          const m = Number(info.new_count || 0);
-          label = m > 0 ? `New news (${m})` : 'No checks yet';
-          bg = m > 0 ? 'rgba(231,76,60,0.12)' : 'rgba(158,158,158,0.12)';
-          border = m > 0 ? '#e74c3c' : '#9e9e9e';
-          color = m > 0 ? '#b71c1c' : '#424242';
-        }
+        const freshCount = Number((info && info.new_count) || 0);
+        const lastUsed = Number((info && info.last_run_news_count) || 0);
+        // Always show how many new items since the last Basic run
+        const label = `Outdated +${freshCount}`;
+        const isFresh = (info && info.status === 'fresh') || freshCount === 0;
+        const bg = isFresh ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
+        const border = isFresh ? '#2ecc71' : '#e74c3c';
+        const color = isFresh ? '#1b5e20' : '#b71c1c';
         healthFreshEl.textContent = label;
         healthFreshEl.style.background = bg;
         healthFreshEl.style.borderColor = border;
@@ -2709,6 +2694,8 @@ const ensureLwMacd = () => {
         const tip = [];
         if (info && info.last_run_at) tip.push(`Last check: ${new Date(info.last_run_at).toLocaleString()}`);
         if (info && info.latest_news_at) tip.push(`Latest news: ${new Date(info.latest_news_at).toLocaleString()}`);
+        tip.push(`Used in last run: ${lastUsed}`);
+        tip.push(`New since: ${freshCount}`);
         healthFreshEl.title = tip.join(' \n');
       };
       async function refreshHealthFreshness() {
