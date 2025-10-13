@@ -238,20 +238,22 @@
           </div>
           <div class="indicator-panel">
             <h4>Account Balance</h4>
-            <div class="row" style="gap:8px; align-items:center; margin:4px 0 8px 0;">
+            <!-- Row 1: actions -->
+            <div class="row" style="gap:8px; align-items:center; margin:4px 0 4px 0;">
               <button class="btn secondary" id="btnFetchClosed" style="padding:4px 8px;">Fetch Closed</button>
               <button class="btn secondary" id="btnSyncClosed" style="padding:4px 8px;">Sync</button>
+            </div>
+            <!-- Row 2: intervals (grouped clearly) -->
+            <div class="row" style="gap:16px; align-items:center; margin:0 0 8px 0;">
               <label style="display:flex; align-items:center; gap:6px;">
-                <span style="font-size:12px; color:var(--muted);">Interval (min)</span>
+                <span style="font-size:12px; color:var(--muted);">Closed PnL refresh (min)</span>
                 <input id="closedPollMin" type="number" min="1" value="{{ default_closed_orders_poll_min }}" style="width:72px;" />
               </label>
-              <button class="btn secondary" id="btnUpdateClosed" style="padding:4px 8px;">Update</button>
-              <span style="flex:1 1 auto"></span>
               <label style="display:flex; align-items:center; gap:6px;">
-                <span style="font-size:12px; color:var(--muted);">Snapshot (min)</span>
+                <span style="font-size:12px; color:var(--muted);">Balance snapshot (min)</span>
                 <input id="balancePollMin" type="number" min="1" value="{{ default_balance_poll_min }}" style="width:72px;" />
               </label>
-              <button class="btn secondary" id="btnUpdateBalancePoll" style="padding:4px 8px;">Save</button>
+              <button class="btn secondary" id="btnSaveIntervals" style="padding:4px 8px;">Save</button>
             </div>
             <div style="width:100%">
               <canvas id="balanceChartCanvas" height="190"></canvas>
@@ -4868,16 +4870,31 @@ const ensureLwMacd = () => {
         } catch (e) { status('Closed sync error'); }
         finally { btnSyncClosed.disabled = false; btnSyncClosed.textContent = prev; }
       });
-      const btnUpdateClosed = document.getElementById('btnUpdateClosed');
-      if (btnUpdateClosed) btnUpdateClosed.addEventListener('click', async () => {
-        const min = Number(document.getElementById('closedPollMin').value || 30);
+      // Unified Save for both intervals
+      const btnSaveIntervals = document.getElementById('btnSaveIntervals');
+      if (btnSaveIntervals) btnSaveIntervals.addEventListener('click', async () => {
+        const closedMin = Math.max(1, Math.floor(Number(document.getElementById('closedPollMin').value || 30)));
+        const balanceMin = Math.max(1, Math.floor(Number(document.getElementById('balancePollMin').value || 60)));
+        const prev = btnSaveIntervals.textContent;
+        btnSaveIntervals.disabled = true; btnSaveIntervals.textContent = 'Saving…';
         try {
-          const r = await fetch('/api/preferences', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ closed_orders_poll_min: String(Math.max(1, Math.floor(min))) }) });
-          await r.json().catch(()=>({}));
-          status('Closed orders interval updated. Refreshing…');
+          await fetch('/api/preferences', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              closed_orders_poll_min: String(closedMin),
+              balance_poll_min: String(balanceMin),
+            }),
+          }).then(r=>r.json()).catch(()=>({}));
+          // Kick immediate updates
+          try { await fetch('/api/account/balance_series?user=lachlan&limit=1000&refresh=1', { cache: 'no-store' }); } catch {}
+          await refreshBalanceSeries();
           await refreshClosedDealsSeries();
+          status('Intervals saved.');
         } catch (e) {
-          status('Failed to update closed orders interval');
+          status('Failed to save intervals.');
+        } finally {
+          btnSaveIntervals.disabled = false; btnSaveIntervals.textContent = prev || 'Save';
         }
       });
 
@@ -5458,34 +5475,7 @@ const ensureLwMacd = () => {
       if (btnCloseAllEl) btnCloseAllEl.addEventListener('click', () => openCloseModal('all'));
       if (btnPosEl) btnPosEl.addEventListener('click', refreshPositions);
 
-      // Balance poll interval wiring
-      const btnUpdateBalancePoll = document.getElementById('btnUpdateBalancePoll');
-      const balancePollInput = document.getElementById('balancePollMin');
-      if (btnUpdateBalancePoll && balancePollInput) {
-        btnUpdateBalancePoll.addEventListener('click', async () => {
-          const minutes = Math.max(1, parseInt(balancePollInput.value || '60', 10));
-          btnUpdateBalancePoll.disabled = true;
-          const prev = btnUpdateBalancePoll.textContent;
-          btnUpdateBalancePoll.textContent = 'Saving…';
-          try {
-            // Persist preference and restart server-side scheduler
-            await fetch('/api/preferences', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ balance_poll_min: String(minutes) }),
-            });
-            // Take an immediate snapshot and refresh the chart
-            try { await fetch('/api/account/balance_series?user=lachlan&limit=1000&refresh=1', { cache: 'no-store' }); } catch {}
-            await refreshBalanceSeries();
-            status(`Balance snapshot interval set to ${minutes} min.`);
-          } catch (e) {
-            status('Failed to update balance interval.');
-          } finally {
-            btnUpdateBalancePoll.disabled = false;
-            btnUpdateBalancePoll.textContent = prev || 'Save';
-          }
-        });
-      }
+      // (Old per-interval save removed; unified Save handles both)
 
       // Close modal actions
       const btnCloseModalX = document.getElementById('btnCloseModalX');
