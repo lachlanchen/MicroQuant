@@ -97,7 +97,7 @@
     .grid { display:grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items:start; }
     .control-top { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0 16px; }
     .control-group { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-    .control-group.trade { margin-left:auto; }
+    .control-group.trade { margin-left:auto; justify-content:flex-end; flex: 1 1 100%; }
     pre { margin:0; }
     .switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; user-select:none; }
     .switch input[type="checkbox"] { width:18px; height:18px; accent-color: var(--accent); cursor:pointer; }
@@ -182,8 +182,10 @@
         <button class="btn secondary" id="btnFetchSymbolAll">Symbol × TFs</button>
         <button class="btn secondary" id="btnFetchAll">All Symbols</button>
       </div>
-      <div class="control-group trade">
-        <div id="stlOverlayControls" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-right:auto;"></div>
+      <div class="control-group" id="stlOverlayRow">
+        <div id="stlOverlayControls" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"></div>
+      </div>
+      <div class="control-group trade" id="tradeControls">
         <label style="display:flex; align-items:center; gap:6px;">Vol
           <input id="volume" type="number" step="0.01" min="0.01" value="{{ default_volume }}" style="width:100px;" />
         </label>
