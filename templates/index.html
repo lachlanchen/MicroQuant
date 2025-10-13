@@ -482,7 +482,7 @@
     <div id="healthModal" style="position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); z-index:1000;">
       <div style="background:#fff; border-radius:8px; border:1px solid var(--line); padding:12px; width:min(760px, 94vw); max-height:86vh; overflow:auto;">
         <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; z-index:5; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line);">
-          <strong style="color:var(--accent)">Health Check</strong>
+          <strong id="healthModalTitle" style="color:var(--accent)">Health Check</strong>
           <button class="btn secondary" id="btnHealthClose" style="padding:6px 10px;">Close</button>
         </div>
         <div id="healthInfo" style="color:var(--muted); font-size:13px; margin-top:6px;"></div>
@@ -2262,6 +2262,15 @@ const ensureLwMacd = () => {
       healthState.runs = [];
       const modal = el('healthModal');
       if (!modal) return;
+      // Title: use Tech+AI Health Check when Tech snapshot strategy is in use
+      const titleEl = el('healthModalTitle');
+      if (titleEl) {
+        if (preferredStrategy === 'tech_snapshot_10q.json' || preferredStrategy === 'tech_snapshot_10q_position.json') {
+          titleEl.textContent = 'Tech+AI Health Check';
+        } else {
+          titleEl.textContent = 'Health Check';
+        }
+      }
       // Ensure the dropdown reflects a sane default for this kind/symbol
       ensureStrategyForKind(kind);
       // Resolve the strategy to use for history explicitly to avoid leakage (e.g. ai_trade_plan)
