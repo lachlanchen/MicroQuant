@@ -1391,7 +1391,8 @@ class MainHandler(tornado.web.RequestHandler):
             return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
 
         reset_flag = _truthy(self.get_argument("reset", default=None))
-        pin_defaults = _truthy(os.getenv("PIN_DEFAULTS_TO_XAU_H1", "0"))
+        # Default to pinning XAUUSD/H1 unless explicitly disabled via env
+        pin_defaults = _truthy(os.getenv("PIN_DEFAULTS_TO_XAU_H1", "1"))
 
         # Read last selection from prefs if available
         pool = self.settings.get("pool")
@@ -1429,6 +1430,13 @@ class MainHandler(tornado.web.RequestHandler):
             sym = default_symbol()
         if tf not in ALL_TIMEFRAMES:
             tf = "H1"
+
+        # If we are pinning defaults or using reset flag, persist the chosen defaults to DB
+        if (pin_defaults or reset_flag) and pool is not None:
+            try:
+                await set_prefs(pool, {"last_symbol": sym, "last_tf": tf})
+            except Exception:
+                logger.debug("failed to persist pinned defaults")
         extras = extras or {}
         count_pref = extras.get("last_count") or "500"
         chart_pref = (extras.get("chart_type") or "candlestick").lower()
