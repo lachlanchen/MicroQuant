@@ -2674,6 +2674,12 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     key.startswith("auto_check_tech:")
                 ):
                     allowed = True
+                # Allow per-symbol×timeframe leverage and safe lots
+                elif isinstance(key, str) and (
+                    key.startswith("ai_leverage:") or
+                    key.startswith("safe_max_lots:")
+                ):
+                    allowed = True
                 if allowed:
                     updates[key] = str(value)
         if updates:
