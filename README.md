@@ -62,10 +62,17 @@ Notes:
 - Default DB env var is `DATABASE_URL`. If not set, the app tries `DATABASE_MT_URL` then `DATABASE_QT_URL`.
 
 ## Endpoints
-- `GET /api/fetch?symbol=XAUUSD&tf=H1&count=500` — fetch from MT5 and upsert to DB
+- `GET /api/fetch?symbol=XAUUSD&tf=H1&count=500[&mode=inc|full][&persist=1]`
+  - Fetch from MT5 and upsert to DB. If `persist=1` the server also saves `last_symbol/last_tf/last_count` as the new defaults; background/bulk fetches omit this to avoid overwriting your selection.
 - `GET /api/data?symbol=XAUUSD&tf=H1&limit=500` — read from DB for charting
-- `GET /api/strategy/run?symbol=XAUUSD&tf=H1&fast=20&slow=50` — run SMA crossover; if `TRADING_ENABLED=1` places trade
-- `GET /` — simple UI with a line chart of closes
+- `GET /api/strategy/run?symbol=XAUUSD&tf=H1&fast=20&slow=50`
+  - Run SMA(20/50) crossover. If `TRADING_ENABLED=1` the server will place a market order (very basic demo logic). The UI’s header “Auto” just schedules calls to this endpoint; actual order placement is still gated by `TRADING_ENABLED`.
+- `POST /api/trade` — manual Buy/Sell from the UI (also gated by `TRADING_ENABLED`).
+- `POST /api/close` — flatten positions (works even when `TRADING_ENABLED=0`):
+  - Current symbol: form body `symbol=...`; optional `side=long|short|both` (default `both`).
+  - All symbols: `?scope=all` and optional `&side=...`.
+  - Response contains `closed_count` and a `closed` array with per-ticket results (retcodes).
+- `GET /` — full UI (candles, indicators, STL, news/AI panels, trading controls)
 
 ## Schema
 See `sql/schema.sql`. Primary key on `(symbol, timeframe, ts)` prevents duplicate bars; inserts use `ON CONFLICT ... DO UPDATE`.
@@ -75,6 +82,24 @@ See `sql/schema.sql`. Primary key on `(symbol, timeframe, ts)` prevents duplicat
 - Login failed: specify `MT5_SERVER` exactly as shown in the MT5 terminal or omit and rely on the existing session.
 - No data for symbol: make sure the symbol exists with your broker and is visible in Market Watch; you can adjust the symbol (e.g., `XAUUSD`, `XAUUSD.a`, `GOLD` depending on broker).
 - Postgres connection: ensure `DATABASE_URL` is correct; test with `psql "$DATABASE_URL" -c 'select 1;'`.
+
+## Trading controls & safety
+- Environment guard: export `TRADING_ENABLED=0` (default) to disable any auto/place orders originating from `/api/strategy/run` and the manual Buy/Sell buttons. Set `TRADING_ENABLED=1` only for demo environments.
+- Header “Auto” button: re-runs the strategy periodically; it never bypasses `TRADING_ENABLED`.
+- Close positions (always allowed): the UI has “Close Current” and “Close ALL” with a confirmation modal. Toggle which sides to close (Long/Short). The backend closes by ticket so it works for both netting and hedging accounts.
+
+## STL auto-compute toggle
+- STL auto-compute is now controlled per symbol×timeframe via the “Auto STL” switch in the STL panel. Default is OFF (helps avoid UI lag). When ON for a pair/TF, missing/stale STL runs auto-compute; otherwise use the Recalculate buttons.
+- The state persists in the DB via `/api/preferences` using keys like `stl_auto_compute:SYMBOL:TF` and also in `localStorage` for fast startup.
+
+## Remembering your last selection
+- The server remembers `last_symbol/last_tf/last_count` preferences and injects them into the page.
+- The UI also writes `localStorage(last_symbol/last_tf)` on selection so refreshes snap back immediately.
+- `?reset=1` on `/` ignores stored prefs for that load only.
+- To force a specific default at startup, set `PIN_DEFAULTS_TO_XAU_H1=1` (optional; off by default).
+
+## AI Trade Plan prompt context
+- When you request an AI trade plan, the server ensures the latest Basic Health and Tech Snapshot runs exist for the current symbol/TF (creating them if missing) and then builds the prompt with: Basic + Tech + live Technical Snapshot.
 
 ## Dev tips
 - The UI supports both Line and Candlestick (via `chartjs-chart-financial`).

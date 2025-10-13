@@ -4602,6 +4602,14 @@ const ensureLwMacd = () => {
           if (r.ok && js && js.ok) {
             const n = Number.isFinite(Number(js.closed_count)) ? Number(js.closed_count) : (Array.isArray(js.closed) ? js.closed.length : 0);
             status(`Closed ${n} position(s) [${js.scope||effScope}]`);
+            try { console.log('[Close] response', js); } catch {}
+            // If detailed closed array present, log a compact summary of retcodes
+            try {
+              if (Array.isArray(js.closed)) {
+                const codes = js.closed.map(x => (x && typeof x === 'object' ? x.retcode : null)).filter(x => x != null);
+                console.log('[Close] retcodes', codes);
+              }
+            } catch {}
             await refreshChart();
             await refreshPositions();
           } else {

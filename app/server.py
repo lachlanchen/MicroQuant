@@ -1872,7 +1872,13 @@ class CloseHandler(tornado.web.RequestHandler):
             closed_count = len(res) if isinstance(res, list) else 0
         except Exception:
             closed_count = 0
-        logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d", scope, symbol, side, closed_count)
+        # Log retcodes summary
+        try:
+            codes = [int(x.get("retcode", -1)) for x in (res or []) if isinstance(x, dict)]
+            ok = sum(1 for c in codes if c == getattr(mt5_client.mt5, "TRADE_RETCODE_DONE", 10009)) if hasattr(mt5_client, 'mt5') else sum(1 for c in codes if c == 10009)
+            logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d ok=%d/%d codes=%s", scope, symbol, side, closed_count, ok, len(codes), codes[:10])
+        except Exception:
+            logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d", scope, symbol, side, closed_count)
         self.finish(json.dumps({"ok": True, "closed": res, "closed_count": closed_count, "scope": scope, "side": side}))
 
     async def post(self):

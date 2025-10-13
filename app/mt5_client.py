@@ -250,6 +250,63 @@ class MT5Client:
             "comment": getattr(result, "comment", ""),
         }
 
+    def close_position(self, position, deviation: int = 20) -> dict:
+        """Attempt to close a single position by ticket (hedging-safe)."""
+        self._ensure_initialized()
+        try:
+            ticket = int(getattr(position, "ticket", 0))
+            symbol = str(getattr(position, "symbol", ""))
+            ptype = int(getattr(position, "type", 0))
+            volume = float(getattr(position, "volume", 0.0))
+        except Exception:
+            return {"ok": False, "error": "invalid_position"}
+        if not ticket or not symbol or volume <= 0:
+            return {"ok": False, "error": "invalid_position_fields"}
+        opp = "sell" if ptype == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
+        price = self._current_price(symbol, opp)
+        info = self.symbol_info(symbol)
+        req = {
+            "action": getattr(mt5, "TRADE_ACTION_DEAL", 1),
+            "symbol": symbol,
+            "position": ticket,
+            "volume": float(volume),
+            "type": getattr(mt5, "ORDER_TYPE_SELL", 1) if opp == "sell" else getattr(mt5, "ORDER_TYPE_BUY", 0),
+            "price": price,
+            "deviation": int(deviation),
+            "magic": 734001,
+            "comment": "auto-quant-close",
+            "type_time": getattr(mt5, "ORDER_TIME_GTC", 0),
+            "type_filling": self._pick_filling(info),
+        }
+        result = mt5.order_send(req)
+        if result is None:
+            code, msg = mt5.last_error()
+            return {"ok": False, "retcode": code, "error": f"order_send failed: {code} {msg}"}
+        if result.retcode != getattr(mt5, "TRADE_RETCODE_DONE", 10009):
+            # Try IOC if needed
+            req["type_filling"] = getattr(mt5, "ORDER_FILLING_IOC", 1)
+            result2 = mt5.order_send(req)
+            if result2 and result2.retcode == getattr(mt5, "TRADE_RETCODE_DONE", 10009):
+                return {
+                    "ok": True,
+                    "retcode": int(result2.retcode),
+                    "order": int(getattr(result2, "order", 0)),
+                    "deal": int(getattr(result2, "deal", 0)),
+                }
+            return {
+                "ok": False,
+                "retcode": int(getattr(result, "retcode", 0)),
+                "order": int(getattr(result, "order", 0)),
+                "deal": int(getattr(result, "deal", 0)),
+                "comment": getattr(result, "comment", ""),
+            }
+        return {
+            "ok": True,
+            "retcode": int(result.retcode),
+            "order": int(getattr(result, "order", 0)),
+            "deal": int(getattr(result, "deal", 0)),
+        }
+
     def close_all_for(self, symbol: str, deviation: int = 20, side: str | None = None) -> list[dict]:
         # In netting accounts, sending the opposite market order with same volume reduces/closes
         pos = self.positions_for(symbol)
@@ -262,8 +319,7 @@ class MT5Client:
                 continue
             if side == "short" and ptype != getattr(mt5, "POSITION_TYPE_SELL", 1):
                 continue
-            opp = "sell" if ptype == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
-            out.append(self.place_market(symbol, opp, float(getattr(p, "volume", 0.0)), deviation, comment="auto-quant-close"))
+            out.append(self.close_position(p, deviation))
         return out
 
     def close_all(self, deviation: int = 20, side: str | None = None) -> list[dict]:
@@ -284,11 +340,7 @@ class MT5Client:
                     continue
                 if side == "short" and ptype != getattr(mt5, "POSITION_TYPE_SELL", 1):
                     continue
-                opp = "sell" if ptype == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
-                vol = float(getattr(p, "volume", 0.0))
-                if vol <= 0:
-                    continue
-                out.append(self.place_market(sym, opp, vol, deviation, comment="auto-quant-close"))
+                out.append(self.close_position(p, deviation))
             except Exception:
                 continue
         return out
