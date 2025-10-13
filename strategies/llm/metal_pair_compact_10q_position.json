@@ -44,14 +44,12 @@
   "position_response_schema": {
     "type": "object",
     "properties": {
-      "answer": { "type": "string", "description": "BUY or SELL (uppercase)" },
-      "position": { "type": "string", "enum": ["buy", "sell"], "description": "lowercase position keyword" },
+      "position": { "type": "string", "enum": ["BUY", "SELL"], "description": "uppercase position keyword" },
       "sl": { "type": "number", "description": "stop loss level (numeric)" },
       "tp": { "type": "number", "description": "take profit level (numeric)" },
       "explanation": { "type": "string", "description": "one concise sentence citing strongest evidence" }
     },
-    "required": ["answer", "position", "sl", "tp", "explanation"],
+    "required": ["position", "sl", "tp", "explanation"],
     "additionalProperties": false
   }
 }
-
