@@ -802,6 +802,7 @@ PREF_KEYS = [
     "last_slow",
     "chart_shift",
     "trade_ai_model",
+    "balance_poll_min",
     "closed_orders_poll_min",
 ]
 
@@ -1465,6 +1466,7 @@ class MainHandler(tornado.web.RequestHandler):
         auto_news_pref = extras.get("auto_news_backfill") or "1"
         chart_shift_pref = extras.get("chart_shift") or "1"
         closed_orders_poll_pref = extras.get("closed_orders_poll_min") or os.getenv("CLOSED_ORDERS_POLL_MIN", "30")
+        balance_poll_pref = extras.get("balance_poll_min") or os.getenv("BALANCE_POLL_MIN", "60")
 
         logger.debug("Render index with symbols=%s default=%s tf=%s", SUPPORTED_SYMBOLS, sym, tf)
         try:
@@ -1494,6 +1496,7 @@ class MainHandler(tornado.web.RequestHandler):
             default_stl_manual_period=stl_manual_pref,
             default_chart_shift=chart_shift_pref,
             default_auto_news=auto_news_pref,
+            default_balance_poll_min=balance_poll_pref,
             default_closed_orders_poll_min=closed_orders_poll_pref,
         )
 
@@ -2577,6 +2580,25 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     CLOSED_ORDERS_CB.start()
                 except Exception:
                     CLOSED_ORDERS_CB = None
+            # Handle balance snapshot polling interval
+            if "balance_poll_min" in updates:
+                try:
+                    minutes = int(str(updates.get("balance_poll_min") or "60"))
+                except Exception:
+                    minutes = 60
+                minutes = max(1, minutes)
+                from tornado.ioloop import PeriodicCallback
+                global BALANCE_CB
+                try:
+                    if BALANCE_CB is not None:
+                        BALANCE_CB.stop()
+                except Exception:
+                    pass
+                try:
+                    BALANCE_CB = PeriodicCallback(lambda: tornado.ioloop.IOLoop.current().add_callback(poll_and_store_account_balance), minutes * 60 * 1000)
+                    BALANCE_CB.start()
+                except Exception:
+                    BALANCE_CB = None
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "updated": sorted(updates.keys())}))

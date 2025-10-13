@@ -54,6 +54,8 @@
     .indicator-panel { background: var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
     .indicator-panel h4 { margin:0 0 6px; font-size:13px; color:var(--muted); font-weight:600; letter-spacing:0.4px; text-transform:uppercase; }
     #indicator-wrap canvas { width: 100% !important; height: 190px !important; }
+    /* Extra safety for balance pane sizing to avoid LW charts null errors */
+    #lwBalance { min-height: 180px; width: 100%; display: block; }
     .news-card { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:#fff; margin:10px 0; box-shadow:0 1px 2px rgba(0,0,0,0.04); display:flex; flex-direction:column; gap:8px; }
     .news-card h4 { margin:0; font-size:15px; color:var(--text); font-weight:600; }
     .news-meta { font-size:12px; color:var(--muted); display:flex; gap:8px; flex-wrap:wrap; }
@@ -244,6 +246,12 @@
                 <input id="closedPollMin" type="number" min="1" value="{{ default_closed_orders_poll_min }}" style="width:72px;" />
               </label>
               <button class="btn secondary" id="btnUpdateClosed" style="padding:4px 8px;">Update</button>
+              <span style="flex:1 1 auto"></span>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="font-size:12px; color:var(--muted);">Snapshot (min)</span>
+                <input id="balancePollMin" type="number" min="1" value="{{ default_balance_poll_min }}" style="width:72px;" />
+              </label>
+              <button class="btn secondary" id="btnUpdateBalancePoll" style="padding:4px 8px;">Save</button>
             </div>
             <div id="lwBalance" class="lw-pane"></div>
           </div>
@@ -1516,7 +1524,7 @@
       const ensureLwBalance = () => {
         if (!lwBalanceChart) {
           const elBal = document.getElementById('lwBalance');
-          if (!elBal) return;
+          if (!elBal) return false;
           // Pre-size and compute initial dimensions before createChart
           try { elBal.style.minHeight = elBal.style.minHeight || '180px'; } catch (e) {}
           const preRect = elBal.getBoundingClientRect();
@@ -1535,7 +1543,7 @@
           } catch (err) {
             console.warn('[Balance] createChart failed, will retry', err, { initW, initH });
             setTimeout(() => { try { ensureLwBalance(); } catch {} }, 150);
-            return;
+            return false;
           }
           // Keep chart sized on container changes
           try {
@@ -1556,6 +1564,7 @@
         }
         // Do not sync balance pane with other charts
         lwBalanceSubscribed = true;
+        return !!(lwBalanceChart && lwBalanceSeries);
       };
 
       async function refreshBalanceSeries() {
@@ -1565,8 +1574,7 @@
           const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000', { cache: 'no-store' });
           const js = await r.json();
           if (!r.ok || !js || js.ok !== true) return;
-          ensureLwBalance();
-          if (!lwBalanceSeries) { setTimeout(refreshBalanceSeries, 250); return; }
+          if (!ensureLwBalance()) { setTimeout(refreshBalanceSeries, 250); return; }
           const points = (js.rows || [])
             .map(row => {
               const tsMs = Date.parse(row.ts);
@@ -1597,8 +1605,7 @@
           // Fetch a long window to approximate all history after a full sync
           const r = await fetch('/api/account/closed_deals?days=5000&source=mt5&debug=1&comment=auto-quant', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
-          ensureLwBalance();
-          if (!lwClosedCumSeries || !lwBalanceSeries) { setTimeout(refreshClosedDealsSeries, 250); return; }
+          if (!ensureLwBalance() || !lwClosedCumSeries || !lwBalanceSeries) { setTimeout(refreshClosedDealsSeries, 250); return; }
           // Cumulative realized PnL line
           const cum = (js.cum || [])
             .map(row => {
@@ -4208,9 +4215,17 @@ const ensureLwMacd = () => {
           } else if (data.type === 'stl_complete') {
             handleStlEvent(data);
           } else if (data.type === 'balance_update') {
-            refreshBalanceSeries();
+            if (ensureLwBalance()) {
+              refreshBalanceSeries();
+            } else {
+              setTimeout(() => { if (ensureLwBalance()) refreshBalanceSeries(); }, 200);
+            }
           } else if (data.type === 'closed_deals_update') {
-            refreshClosedDealsSeries();
+            if (ensureLwBalance()) {
+              refreshClosedDealsSeries();
+            } else {
+              setTimeout(() => { if (ensureLwBalance()) refreshClosedDealsSeries(); }, 250);
+            }
           }
         });
 
@@ -4227,8 +4242,14 @@ const ensureLwMacd = () => {
 
       connectUpdates();
       window.addEventListener('load', () => {
-        refreshBalanceSeries();
-        (async () => { try { await refreshClosedDealsSeries(); } catch {} })();
+        // Defer initial build slightly to ensure layout stabilizes
+        requestAnimationFrame(() => {
+          if (ensureLwBalance()) {
+            refreshBalanceSeries();
+          } else {
+            setTimeout(() => { if (ensureLwBalance()) refreshBalanceSeries(); }, 200);
+          }
+        });
       });
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
@@ -5489,6 +5510,35 @@ const ensureLwMacd = () => {
       if (btnCloseEl) btnCloseEl.addEventListener('click', () => openCloseModal('current'));
       if (btnCloseAllEl) btnCloseAllEl.addEventListener('click', () => openCloseModal('all'));
       if (btnPosEl) btnPosEl.addEventListener('click', refreshPositions);
+
+      // Balance poll interval wiring
+      const btnUpdateBalancePoll = document.getElementById('btnUpdateBalancePoll');
+      const balancePollInput = document.getElementById('balancePollMin');
+      if (btnUpdateBalancePoll && balancePollInput) {
+        btnUpdateBalancePoll.addEventListener('click', async () => {
+          const minutes = Math.max(1, parseInt(balancePollInput.value || '60', 10));
+          btnUpdateBalancePoll.disabled = true;
+          const prev = btnUpdateBalancePoll.textContent;
+          btnUpdateBalancePoll.textContent = 'Saving…';
+          try {
+            // Persist preference and restart server-side scheduler
+            await fetch('/api/preferences', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ balance_poll_min: String(minutes) }),
+            });
+            // Take an immediate snapshot and refresh the chart
+            try { await fetch('/api/account/balance_series?user=lachlan&limit=1000&refresh=1', { cache: 'no-store' }); } catch {}
+            await refreshBalanceSeries();
+            status(`Balance snapshot interval set to ${minutes} min.`);
+          } catch (e) {
+            status('Failed to update balance interval.');
+          } finally {
+            btnUpdateBalancePoll.disabled = false;
+            btnUpdateBalancePoll.textContent = prev || 'Save';
+          }
+        });
+      }
 
       // Close modal actions
       const btnCloseModalX = document.getElementById('btnCloseModalX');
