@@ -3767,6 +3767,22 @@ const ensureLwMacd = () => {
           if (autoLogBox) autoLogBox.innerHTML = '';
           tradeState.autoSteps = [];
           appendAutoLog(`Auto AI Trade started for ${sym} ${tf}`);
+          // Freshness snapshots
+          try {
+            const hf = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+            const hj = await hf.json().catch(()=>({}));
+            if (hf.ok && hj && hj.ok) {
+              appendAutoLog(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`);
+            }
+          } catch {}
+          try {
+            const tfq = new URLSearchParams({ symbol: sym, tf });
+            const tfres = await fetch(`/api/tech/freshness?${tfq.toString()}`, { cache:'no-store' });
+            const tfj = await tfres.json().catch(()=>({}));
+            if (tfres.ok && tfj && tfj.ok) {
+              appendAutoLog(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`);
+            }
+          } catch {}
           appendAutoLog('Trigger Basic check…');
           appendAutoLog('Trigger Tech+AI check…');
           const [basicId, techId] = await Promise.all([ newBasicCheckForTrade(), newTechCheckForTrade() ]);
