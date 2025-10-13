@@ -2707,51 +2707,31 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
             baseline_ts = last_run_at_dt
             baseline_iso = last_run_at
 
-        # Latest news timestamp and count since last run
+        # Latest news timestamp and count since last run (match the News panel: per current symbol)
         latest_news_iso = None
         new_count = None
         try:
             async with self.pool.acquire() as conn:
-                # Latest overall ts among relevant symbols
-                if used_symbols:
-                    latest_ts = await conn.fetchval(
-                        "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE symbol = ANY($1::text[])",
-                        list(used_symbols),
-                    )
-                else:
-                    latest_ts = await conn.fetchval(
-                        "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE symbol=$1",
-                        symbol,
-                    )
+                latest_ts = await conn.fetchval(
+                    "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE symbol=$1",
+                    symbol,
+                )
                 if latest_ts is not None and hasattr(latest_ts, "isoformat"):
                     latest_news_iso = latest_ts.isoformat()
                 # Count newer items strictly after the baseline used for that run
                 if 'baseline_ts' in locals() and baseline_ts is not None:
-                    if used_symbols:
-                        new_count_val = await conn.fetchval(
-                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol = ANY($1::text[]) AND COALESCE(published_at, created_at) > $2",
-                            list(used_symbols),
-                            baseline_ts,
-                        )
-                    else:
-                        new_count_val = await conn.fetchval(
-                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1 AND COALESCE(published_at, created_at) > $2",
-                            symbol,
-                            baseline_ts,
-                        )
+                    new_count_val = await conn.fetchval(
+                        "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1 AND COALESCE(published_at, created_at) > $2",
+                        symbol,
+                        baseline_ts,
+                    )
                     new_count = int(new_count_val or 0)
                 else:
                     # If never ran, report total as 'new'
-                    if used_symbols:
-                        new_count_val = await conn.fetchval(
-                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol = ANY($1::text[])",
-                            list(used_symbols),
-                        )
-                    else:
-                        new_count_val = await conn.fetchval(
-                            "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1",
-                            symbol,
-                        )
+                    new_count_val = await conn.fetchval(
+                        "SELECT COUNT(*)::INT FROM news_articles WHERE symbol=$1",
+                        symbol,
+                    )
                     new_count = int(new_count_val or 0)
         except Exception:
             pass
