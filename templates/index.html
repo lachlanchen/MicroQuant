@@ -563,12 +563,6 @@
           <select id="selectPlanRun" style="flex:1; min-width:260px;"></select>
           <button class="btn secondary" id="btnPlanMore" style="padding:6px 10px;">More</button>
         </div>
-        <!-- Auto AI Trade logs/history -->
-        <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
-          <span style="min-width:110px; color:var(--muted);">Auto</span>
-          <select id="selectAutoRun" style="flex:1; min-width:260px;"></select>
-          <button class="btn secondary" id="btnAutoMore" style="padding:6px 10px;">More</button>
-        </div>
         <!-- Plan JSON hint/selector (moved below Tech+AI row) -->
         <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
           <span style="min-width:110px; color:var(--muted);">Plan JSON</span>
@@ -2875,7 +2869,6 @@ const ensureLwMacd = () => {
       const tradeInfo = document.getElementById('tradeInfo');
       const tradeResultsBox = document.getElementById('tradeResultsBox');
       const autoLogBox = document.getElementById('autoAiLogBox');
-      const autoSelect = document.getElementById('selectAutoRun');
       const btnAutoMore = document.getElementById('btnAutoMore');
       const tradeHistoryBox = document.getElementById('tradeHistoryBox');
       const btnTradeStartBuy = document.getElementById('btnTradeStartBuy');
@@ -3655,8 +3648,6 @@ const ensureLwMacd = () => {
         loadTradeSourceDropdowns();
         planSelectOffset = 0;
         loadPlanDropdown({ append: false });
-        autoSelectOffset = 0;
-        loadAutoDropdown({ append: false });
         loadTradeHistory();
       }
       async function loadTradeHistory() {
@@ -3710,8 +3701,6 @@ const ensureLwMacd = () => {
       if (btnAutoClose) btnAutoClose.addEventListener('click', () => { if (autoModal) autoModal.style.display = 'none'; });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
-      if (autoSelect) autoSelect.addEventListener('change', () => { const v = Number(autoSelect.value); if (Number.isFinite(v)) renderSelectedAuto(v); });
-      if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoSelectOffset += 5; loadAutoDropdown({ append: true }); });
       async function executeAiPlan() {
         if (!lastAiPlan) return;
         const side = (lastAiPlan.position || '').toLowerCase();
@@ -3741,57 +3730,6 @@ const ensureLwMacd = () => {
         }
       }
       if (btnExecutePlan) btnExecutePlan.addEventListener('click', executeAiPlan);
-      async function loadAutoDropdown({ append = false, selectRunId = null } = {}) {
-        if (!autoSelect) return;
-        const sym = currentSymbol();
-        const tf = currentTf();
-        const params = new URLSearchParams();
-        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
-        else { params.set('kind','stock'); params.set('symbol', sym); }
-        params.set('strategy','auto_ai_trade'); params.set('tf', tf); params.set('limit','5'); params.set('offset', String(autoSelectOffset));
-        try {
-          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
-          const js = await r.json().catch(()=>({}));
-          const runs = Array.isArray(js.runs) ? js.runs : [];
-          if (!append) autoSelect.innerHTML = '';
-          if (!runs.length && !append) { autoSelect.innerHTML = '<option value="">(no auto logs)</option>'; return; }
-          const opts = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
-          autoSelect.insertAdjacentHTML('beforeend', opts);
-          if (!append) {
-            const defVal = selectRunId ? String(selectRunId) : (runs.length ? String(runs[0].id) : '');
-            if (defVal) autoSelect.value = defVal;
-          } else if (selectRunId) {
-            autoSelect.value = String(selectRunId);
-          }
-          if (autoSelect.value) {
-            await renderSelectedAuto(Number(autoSelect.value));
-          }
-        } catch {}
-      }
-      async function renderSelectedAuto(runId) {
-        const sym = currentSymbol();
-        const tf = currentTf();
-        const params = new URLSearchParams();
-        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
-        else { params.set('kind','stock'); params.set('symbol', sym); }
-        params.set('strategy','auto_ai_trade'); params.set('tf', tf); params.set('limit', String(autoSelectOffset + 5)); params.set('offset','0');
-        try {
-          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
-          const js = await r.json().catch(()=>({}));
-          const all = Array.isArray(js.runs) ? js.runs : [];
-          const run = all.find(x => Number(x.id) === Number(runId));
-          if (!run) return;
-          const ans = run.answers || run.answers_json || {};
-          const steps = Array.isArray(ans.log) ? ans.log : [];
-          if (autoLogBox) {
-            autoLogBox.innerHTML = steps.map(s => {
-              const ts = s.ts ? new Date(s.ts).toLocaleString() : '';
-              const color = (s.level === 'error') ? '#e74c3c' : (s.level === 'warn' ? '#ff9800' : 'var(--muted)');
-              return `<div><span style=\"color:${color};\">[${esc(ts)}]</span> ${esc(s.message||'')}</div>`;
-            }).join('');
-          }
-        } catch {}
-      }
       async function autoAiTrade() {
         try {
           const sym = currentSymbol();
