@@ -1581,7 +1581,7 @@
         if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
         try {
           // Prefer DB to avoid noisy MT5 calls during normal refresh
-          const r = await fetch('/api/account/closed_deals?days=5000&source=db&comment=auto-quant', { cache: 'no-store' });
+          const r = await fetch('/api/account/closed_deals?days=5000&source=db&comment=auto-quant-close', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!ensureBalanceChart()) return;
           const cum = (js.cum || [])
@@ -4851,7 +4851,7 @@ const ensureLwMacd = () => {
         btnFetchClosed.disabled = true; btnFetchClosed.textContent = 'Fetching…';
         try {
           // Hit MT5 to upsert latest into DB, then reload from DB for plotting
-          await fetch('/api/account/closed_deals?days=5000&source=mt5&comment=auto-quant', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
+          await fetch('/api/account/closed_deals?days=5000&source=mt5&comment=auto-quant-close', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
         finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }
