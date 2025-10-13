@@ -1516,15 +1516,15 @@
           if (!elBal) return;
           lwBalanceChart = LightweightCharts.createChart(elBal, {
             rightPriceScale: { visible: true },
-            leftPriceScale: { visible: false },
+            leftPriceScale: { visible: true },
             timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
           });
         }
         if (lwBalanceChart && !lwBalanceSeries) {
-          lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2 });
+          lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2, priceScaleId: 'right' });
           const LS = (LightweightCharts && LightweightCharts.LineStyle) ? LightweightCharts.LineStyle : {};
-          lwClosedPnlSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0) });
+          lwClosedPnlSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0), priceScaleId: 'left' });
         }
         if (!lwBalanceSubscribed && lwBalanceChart) {
           lwBalanceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -1569,7 +1569,8 @@
               text: `${profit>=0?'+':''}${profit.toFixed(2)}`,
             };
           });
-          lwBalanceSeries.setMarkers(markers);
+          lwClosedPnlSeries.setMarkers(markers);
+          if (!cum.length) { try { status('No closed orders found in window.'); } catch(_) {} }
         } catch (e) {
           console.warn('Closed deals fetch failed', e);
         }
