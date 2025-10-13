@@ -3697,7 +3697,31 @@ const ensureLwMacd = () => {
       if (btnTradeStartSell) btnTradeStartSell.addEventListener('click', ()=> runAiTradePlan('SELL'));
       if (btnTradeClose) btnTradeClose.addEventListener('click', ()=> { if (tradeModal) tradeModal.style.display = 'none'; });
       if (btnTradeMore) btnTradeMore.addEventListener('click', ()=> { tradeState.offset = (tradeState.offset||0) + 5; loadTradeHistory(); });
-      if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', () => { try { if (typeof openAutoModal === 'function') openAutoModal(); } catch {} });
+      // Auto AI Trade entry — add visible logs and a safe fallback opener
+      function openAutoModalSafe() {
+        try {
+          status('Opening Auto AI Trade…');
+          if (typeof openAutoModal === 'function') {
+            openAutoModal();
+            return;
+          }
+        } catch (e) {
+          debugWarn('[Auto] openAutoModal threw before open:', e);
+        }
+        // Fallback: minimally show the modal if helper is not yet defined
+        try {
+          const m = document.getElementById('autoModal');
+          if (m) {
+            m.style.display = 'flex';
+            const logBox = document.getElementById('autoLogBoxModal');
+            if (logBox) {
+              logBox.innerHTML = '';
+              logBox.insertAdjacentHTML('beforeend', '<div>[Auto] Modal opened (fallback)</div>');
+            }
+          }
+        } catch {}
+      }
+      if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', openAutoModalSafe);
       if (btnAutoClose) btnAutoClose.addEventListener('click', () => { if (autoModal) autoModal.style.display = 'none'; });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
@@ -3732,12 +3756,14 @@ const ensureLwMacd = () => {
       if (btnExecutePlan) btnExecutePlan.addEventListener('click', executeAiPlan);
       async function autoAiTrade() {
         try {
+          if (btnAutoStart) { btnAutoStart.disabled = true; btnAutoStart.textContent = 'Running…'; }
           const sym = currentSymbol();
           const tf = currentTf();
           if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
           if (autoLogBox) autoLogBox.innerHTML = '';
           tradeState.autoSteps = [];
           appendAutoLog(`Auto AI Trade started for ${sym} ${tf}`);
+          status(`Auto AI Trade running: ${sym} ${tf}`);
           // Freshness snapshots
           try {
             const hf = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
@@ -3822,55 +3848,17 @@ const ensureLwMacd = () => {
           } catch {}
           try { await refreshChart(); } catch {}
           try { await refreshPositions(); } catch {}
+          status('Auto AI Trade finished.');
         } catch (e) {
           status(`Auto AI Trade failed: ${e && e.message || e}`);
           appendAutoLog(`Auto AI Trade failed: ${e && e.message || e}`, 'error');
         } finally {
+          if (btnAutoStart) { btnAutoStart.disabled = false; btnAutoStart.textContent = 'Start'; }
           try { await refreshTechFreshness(); } catch {}
           try { await refreshHealthFreshness(); } catch {}
         }
       }
-      async function autoAiTrade() {
-        try {
-          const sym = currentSymbol();
-          const tf = currentTf();
-          if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
-          // Kick off fresh Basic and Tech+AI checks in parallel
-          await Promise.all([ newBasicCheckForTrade(), newTechCheckForTrade() ]);
-          // Fetch latest Tech+AI run (position variant preferred) for current TF
-          const params = new URLSearchParams();
-          if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
-          else { params.set('kind','stock'); params.set('symbol', sym); }
-          params.set('strategy','tech_snapshot_10q_position.json');
-          params.set('tf', tf);
-          params.set('limit','1');
-          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
-          const js = await r.json().catch(()=>({}));
-          const latest = Array.isArray(js.runs) && js.runs.length ? js.runs[0] : null;
-          let side = null;
-          if (latest) {
-            const ans = latest.answers || latest.answers_json || {};
-            const scores = ans.scores || {};
-            if (typeof scores.NET === 'number') {
-              if (scores.NET > 0) side = 'BUY';
-              else if (scores.NET < 0) side = 'SELL';
-            } else if (typeof ans.signal === 'string') {
-              const sig = ans.signal.toUpperCase();
-              if (sig.includes('BUY')) side = 'BUY';
-              else if (sig.includes('SELL')) side = 'SELL';
-            }
-          }
-          if (!side) { status('Tech+AI is neutral — no trade.'); return; }
-          // Draft plan and execute
-          await runAiTradePlan(side);
-          await executeAiPlan();
-        } catch (e) {
-          status(`Auto AI Trade failed: ${e && e.message || e}`);
-        } finally {
-          try { await refreshTechFreshness(); } catch {}
-          try { await refreshHealthFreshness(); } catch {}
-        }
-      }
+      // (removed duplicate autoAiTrade definition)
       async function runAiTradePlan(side) {
         const sym = symbolSelect.value.toUpperCase();
         const tf = currentTf();
@@ -6538,3 +6526,4 @@ const ensureLwMacd = () => {
         if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';
         loadAutoHistory(5, 0);
       }
+      try { window.openAutoModal = openAutoModal; } catch {}
