@@ -375,7 +375,8 @@
             </div>
             <div id="aiTradePlanBox" style="font-size:13px; color:var(--text);"></div>
             <div id="aiPlanHistoryBox" style="display:none; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:160px; overflow:auto; font-size:12px; color:var(--muted);"></div>
-            <div class="row" style="margin-top:8px;">
+            <div class="row" style="gap:10px; align-items:center; margin-top:8px;">
+              <button class="btn" id="btnAutoAiTrade" style="padding:6px 10px;">Auto AI Trade</button>
               <button class="btn secondary" id="btnExecutePlan" disabled style="padding:6px 10px;">Execute Plan</button>
             </div>
             <!-- Leverage + position size hint -->
@@ -402,6 +403,15 @@
                 </select>
               </label>
             </div>
+            <!-- Manual safe max lots override (moved below Stop row) -->
+            <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Safe max lots</span>
+                <input id="safeMaxLotsInput" type="number" min="0.01" max="100" step="0.01" style="width:100px;" />
+              </label>
+              <span style="font-size:12px; color:var(--muted);">(Manual override, saved per symbol × TF)</span>
+            </div>
+            <div id="blowoutHint" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
           </div>
         </div>
         <!-- STL panel -->
@@ -2812,6 +2822,7 @@ const ensureLwMacd = () => {
       const btnTechHealth = document.getElementById('btnTechHealth');
       const btnTechAiHealth = document.getElementById('btnTechAiHealth');
       const btnAiBuySell = document.getElementById('btnAiBuySell');
+      const btnAutoAiTrade = document.getElementById('btnAutoAiTrade');
       const aiLeverageInput = document.getElementById('aiLeverage');
       const btnTechClose = document.getElementById('btnTechClose');
       const autoBasicToggle = document.getElementById('chkAutoBasic');
@@ -3149,14 +3160,31 @@ const ensureLwMacd = () => {
         const suggestedLots = Math.min(lots, riskLots);
         const suggestedStr = suggestedLots.toFixed(2);
 
+        // Determine which safe lots to use for blowout calc: manual override if present
+        const safeLotsEl = document.getElementById('safeMaxLotsInput');
+        const manualLotsRaw = Number(safeLotsEl && safeLotsEl.value);
+        const usedLots = (Number.isFinite(manualLotsRaw) && manualLotsRaw > 0) ? manualLotsRaw : (Number(lotsStr) || 0);
+        let blowLongStr = '—', blowShortStr = '—';
+        if (usedLots > 0 && contract > 0) {
+          const blowMove = bal / (usedLots * contract); // price units
+          const digits = priceDigits ? priceDigits(sym, isFxPair(sym) ? 'forex' : 'equity') : 2;
+          const blowLong = px - blowMove;
+          const blowShort = px + blowMove;
+          blowLongStr = Number.isFinite(blowLong) ? blowLong.toFixed(digits) : '—';
+          blowShortStr = Number.isFinite(blowShort) ? blowShort.toFixed(digits) : '—';
+        }
+
         posSizeHint.innerHTML = `
-          <div>${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} ${unitLbl}) ≈ ${lotsStr} lots (safe max)</div>
-          <div>Safe max lots: <strong>${lotsStr}</strong></div>
+          <div>${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} ${unitLbl}) ≈ ${lotsStr} lots (auto safe max)</div>
           <div>Risk-based lots: <strong>${riskLotsStr}</strong> (risk ${riskVal.toFixed(1)}%, stop ${stop} ${stopUnit})</div>
           <div>Suggested lots: <strong>${suggestedStr}</strong> (min of safe and risk)</div>
           <div style="opacity:0.8;">Ref: 1.00 price unit ≈ ${cur}${moveValueStr}/lot; 1 pip ≈ ${cur}${pipValueStr}/lot</div>
         `;
-        try { queuePrefUpdate(getSafeLotsKey(), lotsStr); } catch {}
+        const blowBox = document.getElementById('blowoutHint');
+        if (blowBox) {
+          blowBox.innerHTML = `Lose-all price (assuming <strong>${usedLots.toFixed(2)}</strong> lots): <strong>Long ≈ ${blowLongStr}</strong> • <strong>Short ≈ ${blowShortStr}</strong>`;
+        }
+        // Do not overwrite manual safe lots here; user can set it below.
         try { queuePrefUpdate(getLevKey(), String(lev)); } catch {}
         try { queuePrefUpdate(`risk_percent:${sym}:${currentTf()}`, String(riskVal)); } catch {}
         try { queuePrefUpdate(`stop_distance:${sym}:${currentTf()}`, String(stop)); } catch {}
@@ -3223,6 +3251,32 @@ const ensureLwMacd = () => {
       if (stopEl) stopEl.addEventListener('input', () => { updatePositionSizeHint(); try { queuePrefUpdate(getStopKey(), String(stopEl.value)); } catch {} });
       const stopUnitEl = document.getElementById('stopUnit');
       if (stopUnitEl) stopUnitEl.addEventListener('change', () => { updatePositionSizeHint(); try { queuePrefUpdate(getStopUnitKey(), String(stopUnitEl.value)); } catch {} });
+      // Safe max lots manual override
+      const safeLotsEl = document.getElementById('safeMaxLotsInput');
+      async function loadSafeLotsPref() {
+        if (!safeLotsEl) return;
+        try {
+          const key = encodeURIComponent(getSafeLotsKey());
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${key}`, { cache: 'no-store' });
+          const js = await r.json();
+          const raw = js && js.prefs ? js.prefs[getSafeLotsKey()] : null;
+          if (raw != null && raw !== '') safeLotsEl.value = String(raw);
+        } catch {}
+      }
+      loadSafeLotsPref();
+      if (safeLotsEl) {
+        const saveSafeLots = () => {
+          const v = Number(safeLotsEl.value);
+          if (Number.isFinite(v) && v >= 0) {
+            try { queuePrefUpdate(getSafeLotsKey(), String(v)); } catch {}
+          }
+          // Recompute hint (updates lose-all price instantly)
+          try { updatePositionSizeHint(); } catch {}
+        };
+        safeLotsEl.addEventListener('input', saveSafeLots);
+        safeLotsEl.addEventListener('change', saveSafeLots);
+        safeLotsEl.addEventListener('blur', saveSafeLots);
+      }
       async function updateAiPlanPreview() {
         const outBox = el('aiTradePlanBox');
         if (!outBox) return;
@@ -3590,6 +3644,7 @@ const ensureLwMacd = () => {
       if (btnTradeStartSell) btnTradeStartSell.addEventListener('click', ()=> runAiTradePlan('SELL'));
       if (btnTradeClose) btnTradeClose.addEventListener('click', ()=> { if (tradeModal) tradeModal.style.display = 'none'; });
       if (btnTradeMore) btnTradeMore.addEventListener('click', ()=> { tradeState.offset = (tradeState.offset||0) + 5; loadTradeHistory(); });
+      if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', autoAiTrade);
       async function executeAiPlan() {
         if (!lastAiPlan) return;
         const side = (lastAiPlan.position || '').toLowerCase();
@@ -3619,6 +3674,47 @@ const ensureLwMacd = () => {
         }
       }
       if (btnExecutePlan) btnExecutePlan.addEventListener('click', executeAiPlan);
+      async function autoAiTrade() {
+        try {
+          const sym = currentSymbol();
+          const tf = currentTf();
+          if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
+          // Kick off fresh Basic and Tech+AI checks in parallel
+          await Promise.all([ newBasicCheckForTrade(), newTechCheckForTrade() ]);
+          // Fetch latest Tech+AI run (position variant preferred) for current TF
+          const params = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+          else { params.set('kind','stock'); params.set('symbol', sym); }
+          params.set('strategy','tech_snapshot_10q_position.json');
+          params.set('tf', tf);
+          params.set('limit','1');
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const latest = Array.isArray(js.runs) && js.runs.length ? js.runs[0] : null;
+          let side = null;
+          if (latest) {
+            const ans = latest.answers || latest.answers_json || {};
+            const scores = ans.scores || {};
+            if (typeof scores.NET === 'number') {
+              if (scores.NET > 0) side = 'BUY';
+              else if (scores.NET < 0) side = 'SELL';
+            } else if (typeof ans.signal === 'string') {
+              const sig = ans.signal.toUpperCase();
+              if (sig.includes('BUY')) side = 'BUY';
+              else if (sig.includes('SELL')) side = 'SELL';
+            }
+          }
+          if (!side) { status('Tech+AI is neutral — no trade.'); return; }
+          // Draft plan and execute
+          await runAiTradePlan(side);
+          await executeAiPlan();
+        } catch (e) {
+          status(`Auto AI Trade failed: ${e && e.message || e}`);
+        } finally {
+          try { await refreshTechFreshness(); } catch {}
+          try { await refreshHealthFreshness(); } catch {}
+        }
+      }
       async function runAiTradePlan(side) {
         const sym = symbolSelect.value.toUpperCase();
         const tf = currentTf();

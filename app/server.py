@@ -4208,15 +4208,15 @@ class TradePlanHandler(tornado.web.RequestHandler):
             s = symbol
             if len(s) >= 6:
                 base, quote = s[:3], s[3:6]
-        # Determine default strategy for basic
+        # Determine default strategy for basic (prefer +Position variants so SL/TP are present)
         if kind == "forex_pair":
             # metals vs non-metals
             if base in {"XAU", "XAG"}:
-                basic_strategy = "metal_pair_compact_10q.json"
+                basic_strategy = "metal_pair_compact_10q_position.json"
             else:
-                basic_strategy = "forex_pair_compact_10q.json"
+                basic_strategy = "forex_pair_compact_10q_position.json"
         else:
-            basic_strategy = "stocks_compact_10q.json"
+            basic_strategy = "stocks_compact_10q_position.json"
 
         async def _latest_run(strategy: str) -> dict | None:
             if kind == "forex_pair":
@@ -4277,6 +4277,9 @@ class TradePlanHandler(tornado.web.RequestHandler):
             tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
 
         def _format_run_block(run: dict | None) -> str:
+            """Format a health run block for inclusion in the trade-plan prompt.
+            Matches the UI when per-question answers use the Position schema.
+            """
             if not run:
                 return "(no recent run)"
             ans = run.get("answers_json") or {}
@@ -4284,33 +4287,70 @@ class TradePlanHandler(tornado.web.RequestHandler):
             signal = ans.get("signal")
             strategy = ans.get("strategy") or ""
             scores = ans.get("scores") or {}
-            parts = []
+            parts: list[str] = []
             parts.append(f"Score: {score}")
             if signal:
                 parts.append(str(signal))
             if strategy:
                 parts.append(f"Strategy: {strategy}")
             # counts line
-            counts = []
-            if "BASE" in scores and "QUOTE" in scores and base and quote:
-                counts.append(f"{base}={scores['BASE']}")
-                counts.append(f"{quote}={scores['QUOTE']}")
-            if "BULLISH" in scores or "BEARISH" in scores:
+            counts: list[str] = []
+            try:
+                if "BASE" in scores and "QUOTE" in scores and base and quote:
+                    counts.append(f"{base}={scores['BASE']}")
+                    counts.append(f"{quote}={scores['QUOTE']}")
                 if "BULLISH" in scores:
                     counts.append(f"BULLISH={scores['BULLISH']}")
                 if "BEARISH" in scores:
                     counts.append(f"BEARISH={scores['BEARISH']}")
-            if "NET" in scores:
-                counts.append(f"NET={scores['NET']}")
+                if "BUY" in scores:
+                    counts.append(f"BUY={scores['BUY']}")
+                if "SELL" in scores:
+                    counts.append(f"SELL={scores['SELL']}")
+                if "NET" in scores:
+                    counts.append(f"NET={scores['NET']}")
+            except Exception:
+                pass
             if counts:
-                parts.append(" ".join(["•".join(counts)]) if False else " ".join([" • ".join(counts)]))
+                parts.append(" • ".join(counts))
             # enumerate answers
             qlist = ans.get("questions") or []
-            lines = []
+            lines: list[str] = []
             for i, q in enumerate(qlist, 1):
                 aval = q.get("answer")
-                expl = q.get("explanation") or ""
-                lines.append(f"{i}.\n{str(aval).upper()}\n{expl}")
+                base_expl = str(q.get("explanation") or "")
+                if isinstance(aval, dict) and ("position" in aval):
+                    pos = str(aval.get("position") or "").upper()
+                    sl_val = aval.get("sl")
+                    tp_val = aval.get("tp")
+                    # format SL/TP when numeric; else keep raw string if parseable
+                    def _fmt_num(v):
+                        try:
+                            if isinstance(v, (int, float)):
+                                return f"{float(v):.2f}"
+                            if isinstance(v, str) and v.strip():
+                                float(v)  # validate
+                                return v
+                        except Exception:
+                            return None
+                        return None
+                    sl_str = _fmt_num(sl_val)
+                    tp_str = _fmt_num(tp_val)
+                    q_expl = str(aval.get("explanation") or base_expl)
+                    block_lines: list[str] = [f"{i}.", pos]
+                    sltp: list[str] = []
+                    if sl_str is not None:
+                        sltp.append(f"SL {sl_str}")
+                    if tp_str is not None:
+                        sltp.append(f"TP {tp_str}")
+                    if sltp:
+                        block_lines.append(" • ".join(sltp))
+                    if q_expl:
+                        block_lines.append(q_expl)
+                    lines.append("\n".join(block_lines))
+                else:
+                    aval_str = str(aval).upper() if aval is not None else "—"
+                    lines.append(f"{i}.\n{aval_str}\n{base_expl}")
             return "\n".join(parts + lines)
 
         basic_block = _format_run_block(basic_run)
