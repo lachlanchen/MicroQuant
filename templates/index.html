@@ -2693,7 +2693,8 @@ const ensureLwMacd = () => {
         healthFreshEl.style.color = color;
         const tip = [];
         if (info && info.last_run_at) tip.push(`Last check: ${new Date(info.last_run_at).toLocaleString()}`);
-        if (info && info.latest_news_at) tip.push(`Latest news: ${new Date(info.latest_news_at).toLocaleString()}`);
+        if (info && info.baseline_at) tip.push(`Last news used: ${new Date(info.baseline_at).toLocaleString()}`);
+        if (info && info.latest_news_at) tip.push(`Latest news (available): ${new Date(info.latest_news_at).toLocaleString()}`);
         tip.push(`Used in last run: ${lastUsed}`);
         tip.push(`New since: ${freshCount}`);
         healthFreshEl.title = tip.join(' \n');
