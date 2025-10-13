@@ -2261,7 +2261,12 @@ const ensureLwMacd = () => {
           healthStrategySelect.value = preferredStrategy;
         }
         healthState.strategy = preferredStrategy;
-        healthState.group = null;
+        // If Tech snapshot is selected, group as 'tech' to filter history appropriately
+        if (preferredStrategy === 'tech_snapshot_10q.json' || preferredStrategy === 'tech_snapshot_10q_position.json') {
+          healthState.group = 'tech';
+        } else {
+          healthState.group = null;
+        }
       } else {
         // Default to grouping by 'basic' so history shows all basic templates
         healthState.strategy = null;
@@ -2950,7 +2955,8 @@ const ensureLwMacd = () => {
         }
       }
       if (btnHealthStart) btnHealthStart.addEventListener('click', () => {
-        if (healthState && healthState.strategy === 'tech_snapshot_10q.json') {
+        const strat = (healthState && healthState.strategy) || '';
+        if (strat === 'tech_snapshot_10q.json' || strat === 'tech_snapshot_10q_position.json') {
           startTechAiRun();
         } else {
           startHealthRun();
