@@ -1517,6 +1517,7 @@
       // Account Balance pane
       let lwBalanceChart = null;
       let lwBalanceSeries = null;
+      // Closed-deals series is disabled per request; balance only
       let lwClosedCumSeries = null;
       let lwBalanceSubscribed = false;
       let fetchingBalance = false;
@@ -1530,6 +1531,11 @@
           const preRect = elBal.getBoundingClientRect();
           const initW = Math.max(100, Math.floor(elBal.clientWidth || preRect.width || 800));
           const initH = Math.max(120, Math.floor(elBal.clientHeight || preRect.height || 180));
+          // If container still effectively has no size, wait a frame
+          if (initW < 50 || initH < 80) {
+            requestAnimationFrame(() => { try { ensureLwBalance(); } catch {} });
+            return false;
+          }
           try {
             lwBalanceChart = LightweightCharts.createChart(elBal, {
               layout: { background: { color: '#ffffff' }, textColor: '#111' },
@@ -1558,9 +1564,6 @@
         }
         if (lwBalanceChart && !lwBalanceSeries) {
           lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2, priceScaleId: 'right' });
-          const LS = (LightweightCharts && LightweightCharts.LineStyle) ? LightweightCharts.LineStyle : {};
-          // Cumulative closed PnL on left scale
-          lwClosedCumSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0), priceScaleId: 'left' });
         }
         // Do not sync balance pane with other charts
         lwBalanceSubscribed = true;
@@ -1584,76 +1587,18 @@
               return { time: Math.floor(tsMs / 1000), value: numVal };
             })
             .filter(Boolean);
-          try {
-            lwBalanceSeries.setData(points);
-          } catch (err) {
-            console.warn('[Balance] setData failed', err, { pointsCount: points.length });
-          }
+          // Defer setData one frame to avoid internal layout races
+          requestAnimationFrame(() => {
+            try { if (lwBalanceSeries) lwBalanceSeries.setData(points); } catch (err) { console.warn('[Balance] setData failed', err, { pointsCount: points.length }); }
+          });
         } catch (e) {
           // ignore
         } finally { fetchingBalance = false; }
       }
 
       async function refreshClosedDealsSeries() {
-        if (fetchingClosed) return;
-        fetchingClosed = true;
-        // Button visual feedback
-        const btn = document.getElementById('btnFetchClosed');
-        const prevText = btn ? btn.textContent : '';
-        if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
-        try {
-          // Fetch a long window to approximate all history after a full sync
-          const r = await fetch('/api/account/closed_deals?days=5000&source=mt5&debug=1&comment=auto-quant', { cache: 'no-store' });
-          const js = await r.json().catch(()=>({}));
-          if (!ensureLwBalance() || !lwClosedCumSeries || !lwBalanceSeries) { setTimeout(refreshClosedDealsSeries, 250); return; }
-          // Cumulative realized PnL line
-          const cum = (js.cum || [])
-            .map(row => {
-              const tsMs = Date.parse(row.ts);
-              if (!Number.isFinite(tsMs)) return null;
-              const numVal = Number(row.value ?? 0);
-              if (!Number.isFinite(numVal)) return null;
-              return { time: Math.floor(tsMs / 1000), value: numVal };
-            })
-            .filter(Boolean);
-          try {
-            lwClosedCumSeries.setData(cum);
-          } catch (err) {
-            console.warn('[Closed] setData failed', err, { pointsCount: cum.length });
-          }
-          // Markers at each deal time
-          const deals = js.deals || [];
-          const markers = deals
-            .map(d => {
-              const tsMs = Date.parse(d.ts);
-              if (!Number.isFinite(tsMs)) return null;
-              const t = Math.floor(tsMs/1000);
-              const profit = Number(d.profit || 0) + Number(d.commission || 0) + Number(d.swap || 0);
-              if (!Number.isFinite(profit)) return null;
-              return {
-                time: t,
-                position: 'aboveBar',
-                color: profit >= 0 ? '#2ecc71' : '#e74c3c',
-                shape: 'circle',
-                text: `${profit>=0?'+':''}${profit.toFixed(2)}`,
-              };
-            })
-            .filter(Boolean);
-          try {
-            lwClosedCumSeries.setMarkers(markers);
-          } catch (err) {
-            console.warn('[Closed] setMarkers failed', err, { markersCount: markers.length });
-          }
-          const msg = `Closed orders: deals=${(js.deals_count||deals.length)} points=${(js.cum_count||cum.length)}`;
-          console.log('[Closed]', msg);
-          status(cum.length ? `Loaded ${cum.length} point(s) from ${deals.length} deal(s).` : 'No closed orders found in window.');
-        } catch (e) {
-          console.warn('Closed deals fetch failed', e);
-          status('Closed deals fetch failed.');
-        } finally {
-          if (btn) { btn.disabled = false; btn.textContent = prevText || 'Fetch Closed'; }
-          fetchingClosed = false;
-        }
+        // Closed-deals overlay disabled: no-op to avoid LW errors
+        return;
       }
 
       const ensureLwDeriv = () => {
@@ -4243,13 +4188,14 @@ const ensureLwMacd = () => {
       connectUpdates();
       window.addEventListener('load', () => {
         // Defer initial build slightly to ensure layout stabilizes
-        requestAnimationFrame(() => {
+        const kick = () => {
           if (ensureLwBalance()) {
             refreshBalanceSeries();
           } else {
-            setTimeout(() => { if (ensureLwBalance()) refreshBalanceSeries(); }, 200);
+            setTimeout(kick, 200);
           }
-        });
+        };
+        requestAnimationFrame(kick);
       });
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
