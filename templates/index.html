@@ -368,6 +368,7 @@
               <button class="btn btn-sell" id="btnAiSell" style="padding:6px 10px;">AI Sell</button>
             </div>
             <div id="aiTradePlanBox" style="font-size:13px; color:var(--text);"></div>
+            <div id="aiPlanHistoryBox" style="margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:160px; overflow:auto; font-size:12px; color:var(--muted);"></div>
             <div class="row" style="margin-top:8px;">
               <button class="btn secondary" id="btnExecutePlan" disabled style="padding:6px 10px;">Execute Plan</button>
             </div>
@@ -2509,40 +2510,7 @@ const ensureLwMacd = () => {
           }).join('');
           if (html) box.insertAdjacentHTML('beforeend', html);
 
-          // Include AI Trade Plans alongside Basic or Tech+AI history for the current timeframe
-          const wantAiAlongside = (!healthState.strategy) || (healthState.strategy === 'tech_snapshot_10q.json');
-          if (wantAiAlongside) {
-            const p2 = new URLSearchParams();
-            if (healthState.kind === 'forex_pair') {
-              const pq = isFxPair(sym) ? splitPair(sym) : { base: sym.slice(0,3), quote: sym.slice(3,6) };
-              p2.set('kind','forex_pair'); p2.set('base', pq.base); p2.set('quote', pq.quote);
-            } else {
-              p2.set('kind','stock'); p2.set('symbol', sym);
-            }
-            p2.set('strategy', 'ai_trade_plan');
-            p2.set('tf', currentTf());
-            p2.set('limit','5'); p2.set('offset', String(healthState.offset||0));
-            try {
-              const res2 = await fetch(`/api/health/runs?${p2.toString()}`);
-              const data2 = await res2.json();
-              const runs2 = (data2 && data2.runs) || [];
-              if (runs2.length) {
-                const html2 = runs2.map((r) => {
-                  const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
-                  const ans = r.answers || {};
-                  const plan = ans.plan || {};
-                  const pos = (plan.position || '').toUpperCase();
-                  const sl = plan.stop_loss;
-                  const tp = plan.take_profit;
-                  const posPill = pos ? `<span class=\"pill\" style=\"background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};\">${pos}</span>` : '';
-                  return `<div class=\"row\" style=\"justify-content:space-between; border:1px dashed var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n                    <span style=\"font-size:13px; color:var(--muted);\">${t}</span>\n                    <span>${posPill} <span style=\"font-size:12px; color:var(--muted);\">SL ${esc(sl)} • TP ${esc(tp)}</span> <span class=\"pill\" style=\"margin-left:6px\">ai_trade_plan</span></span>\n                  </div>`;
-                }).join('');
-                if (html2) box.insertAdjacentHTML('beforeend', html2);
-              } else if (!runs.length && (healthState.offset||0) === 0) {
-                box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>';
-              }
-            } catch (e) { if (!runs.length && (healthState.offset||0) === 0) { box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>'; } }
-          } else if (!runs.length && (healthState.offset||0) === 0) {
+          if (!runs.length && (healthState.offset||0) === 0) {
             box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>';
           }
         } catch (e) {
@@ -2850,7 +2818,9 @@ const ensureLwMacd = () => {
             <span class="pill">TP: ${esc(p.take_profit)}</span>
           </div>
           <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
+          try { loadAiPlanHistory(); } catch {}
           updateExecuteBtn();
+          try { loadAiPlanHistory(); } catch {}
         } catch (e) {
           if (reqId !== aiPlanReqSeq || currentSymbol() !== sym || currentTf() !== tf) return;
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
@@ -2896,7 +2866,37 @@ const ensureLwMacd = () => {
           </div>
           <div style="margin-top:6px; color:var(--muted);">${esc(plan.explanation || '')}</div>`;
           updateExecuteBtn();
+          try { loadAiPlanHistory(); } catch {}
         } catch (e) { outBox.innerHTML = ''; lastAiPlan = null; updateExecuteBtn(); }
+      }
+
+      // Dedicated AI Trade Plan history (separate from Basic/Tech history)
+      async function loadAiPlanHistory(limit=5, offset=0) {
+        const box = el('aiPlanHistoryBox');
+        if (!box) return;
+        const sym = symbolSelect.value.toUpperCase();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','ai_trade_plan'); params.set('tf', tf); params.set('limit', String(limit)); params.set('offset', String(offset));
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = Array.isArray(js.runs) ? js.runs : [];
+          if (!runs.length && offset === 0) { box.innerHTML = '<em style="color:var(--muted)">No recent AI plans</em>'; return; }
+          const html = runs.map((r) => {
+            const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+            const ans = r.answers || {};
+            const plan = ans.plan || {};
+            const pos = (plan.position || '').toUpperCase();
+            const sl = plan.stop_loss; const tp = plan.take_profit;
+            const posPill = pos ? `<span class=\"pill\" style=\"background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};\">${pos}</span>` : '';
+            return `<div class=\"row\" style=\"justify-content:space-between; border:1px dashed var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}</span>\n              <span>${posPill} <span style=\"font-size:12px; color:var(--muted);\">SL ${esc(sl)} • TP ${esc(tp)}</span></span>\n            </div>`;
+          }).join('');
+          if (offset === 0) box.innerHTML = '';
+          if (html) box.insertAdjacentHTML('beforeend', html);
+        } catch (e) { if (offset === 0) box.innerHTML = '<em style="color:var(--muted)">Failed to load</em>'; }
       }
       async function runAiTradePlan(side) {
         const sym = symbolSelect.value.toUpperCase();
@@ -2918,6 +2918,7 @@ const ensureLwMacd = () => {
           updateExecuteBtn();
           tradeState.offset = 0;
           loadTradeHistory();
+          try { loadAiPlanHistory(); } catch {}
         } catch (e) {
           if (outBox) outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         }
