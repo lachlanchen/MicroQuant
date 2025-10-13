@@ -3223,6 +3223,14 @@ class HealthRunHandler(tornado.web.RequestHandler):
         news_count = int(payload.get("news_count") or 5)
         # Optional model override for health checks (basic and tech)
         model_override = str(payload.get("model") or "").strip() or None
+        def _infer_provider(model_name: str | None) -> str | None:
+            if not model_name:
+                return None
+            low = str(model_name).strip().lower()
+            if low.startswith("deepseek"):
+                return "deepseek"
+            return None
+        provider_override = _infer_provider(model_override)
 
         loop = tornado.ioloop.IOLoop.current()
 
@@ -3261,6 +3269,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     system_content="You are a decisive technical analyst. Reply only with JSON that matches the schema.",
                     schema_name="tech_choice_answer",
                     model=model_override,
+                    provider=provider_override,
                 )
                 ans_raw = str((out or {}).get("answer") or "").strip().upper()
                 if ans_raw not in choice_options:
@@ -3433,6 +3442,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         system_content="You are a decisive analyst. Reply only with JSON that matches the schema.",
                         schema_name="fx_choice_answer",
                         model=model_override,
+                        provider=provider_override,
                     )
                     ans_raw = str((out or {}).get("answer") or "").strip().upper()
                     if ans_raw not in resolved_options:
@@ -3446,6 +3456,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     system_content="You are a precise analyst. Reply only with JSON that matches the schema.",
                     schema_name="fx_bool_answer",
                     model=model_override,
+                    provider=provider_override,
                 )
                 ans_bool = bool((out or {}).get("answer") is True)
                 expl = str((out or {}).get("explanation") or "").strip()
@@ -3608,6 +3619,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 system_content="You are a precise analyst. Reply only with JSON that matches the schema.",
                 schema_name="bool_answer",
                 model=model_override,
+                provider=provider_override,
             )
             ans = bool((out or {}).get("answer") is True)
             expl = str((out or {}).get("explanation") or "").strip()
@@ -3623,6 +3635,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 system_content="You are a decisive analyst. Reply only with JSON that matches the schema.",
                 schema_name="stock_choice_answer",
                 model=model_override,
+                provider=provider_override,
             )
             ans_raw = str((out or {}).get("answer") or "").strip().upper()
             if ans_raw not in choice_options:
