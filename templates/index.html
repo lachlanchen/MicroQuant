@@ -101,6 +101,13 @@
     pre { margin:0; }
     .switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; user-select:none; }
     .switch input[type="checkbox"] { width:18px; height:18px; accent-color: var(--accent); cursor:pointer; }
+    /* Slider-style switch (only applies when input has class toggle-input and followed by .toggle) */
+    .switch .toggle-input { position:absolute; opacity:0; width:0; height:0; }
+    .switch .toggle { width:36px; height:20px; border-radius:20px; background:#cfd8dc; position:relative; transition:background .2s ease; box-shadow: inset 0 0 0 1px var(--line); }
+    .switch .toggle::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.25); transition: transform .2s ease; }
+    .switch .toggle-input:checked + .toggle { background: var(--buy); }
+    .switch .toggle-input:checked + .toggle::after { transform: translateX(16px); }
+    .switch .toggle-input:focus-visible + .toggle { outline:2px solid var(--accent); outline-offset:2px; }
       .lw-pane { width: 100%; height: 190px; }
     .stl-row { align-items: center; }
     .stl-field { display:grid; grid-template-columns: 64px 240px; align-items:center; column-gap:8px; }
@@ -3507,6 +3514,7 @@ const ensureLwMacd = () => {
         autoWrap.style.marginRight = '8px';
         const autoChk = document.createElement('input');
         autoChk.type = 'checkbox';
+        autoChk.className = 'toggle-input';
         autoChk.id = 'chkStlAutoCompute';
         autoChk.checked = !!readAuto();
         autoChk.addEventListener('change', () => {
@@ -3515,9 +3523,12 @@ const ensureLwMacd = () => {
           // Persist to DB preferences under per-symbol×tf key
           try { queuePrefUpdate(getAutoKey(), val ? '1' : '0'); } catch {}
         });
+        const autoSlider = document.createElement('span');
+        autoSlider.className = 'toggle';
         const autoText = document.createElement('span');
         autoText.textContent = 'Auto STL';
         autoWrap.appendChild(autoChk);
+        autoWrap.appendChild(autoSlider);
         autoWrap.appendChild(autoText);
         stlOverlayControls.appendChild(autoWrap);
 
