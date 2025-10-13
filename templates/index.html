@@ -677,16 +677,16 @@
         } catch (_) { /* ignore */ }
       })();
       const HEALTH_STRATEGIES = [
+        // FX
+        { value: 'forex_pair_compact_10q_position.json', label: 'FX Comprehensive + Position (10)', kinds: ['forex_pair'] },
         { value: 'forex_pair_compact_10q.json', label: 'FX Comprehensive (10)', kinds: ['forex_pair'] },
+        // Metals (kind=forex_pair)
+        { value: 'metal_pair_compact_10q_position.json', label: 'Metals Comprehensive + Position (10)', kinds: ['forex_pair'] },
         { value: 'metal_pair_compact_10q.json', label: 'Metals Comprehensive (10)', kinds: ['forex_pair'] },
-        { value: 'metal_pair_neutral_30q.json', label: 'Metals Neutral (30)', kinds: ['forex_pair'] },
-        { value: 'forex_pair_neutral_30q.json', label: 'FX Neutral (30)', kinds: ['forex_pair'] },
-        { value: 'forex_pair_30q_yes_no.json', label: 'FX Pair Yes/No (30)', kinds: ['forex_pair'] },
-        { value: 'forex_30q_yes_no.json', label: 'FX Single Yes/No (30)', kinds: ['forex_pair'] },
+        // Stocks
+        { value: 'stocks_compact_10q_position.json', label: 'Stocks Comprehensive + Position (10)', kinds: ['stock'] },
         { value: 'stocks_compact_10q.json', label: 'Stocks Comprehensive (10)', kinds: ['stock'] },
-        { value: 'stocks_30q_health_yes_no.json', label: 'Stocks Yes/No (30)', kinds: ['stock'] },
-        // Intentionally exclude 'tech_snapshot_10q.json' from the Basic dropdown;
-        // it's invoked via the separate Tech+AI button.
+        // Intentionally exclude 'tech_snapshot_10q.json' from the Basic dropdown; it is used via Tech+AI
       ];
       let techHealthUserOverride = false;
       let healthStrategyUserOverride = false;
@@ -733,8 +733,8 @@
       const findStrategyMeta = (value) => HEALTH_STRATEGIES.find((item) => item.value === value);
       const defaultStrategyForKind = (kind) => {
         if (kind === 'forex_pair') {
-          // For non-metals FX pairs, prefer the comprehensive 10Q template
-          const fxDefault = HEALTH_STRATEGIES.find((item) => item.value === 'forex_pair_compact_10q.json');
+          // Default to +Position variant
+          const fxDefault = HEALTH_STRATEGIES.find((item) => item.value === 'forex_pair_compact_10q_position.json');
           if (fxDefault) return fxDefault;
         }
         return HEALTH_STRATEGIES.find((item) => item.kinds.includes(kind)) || HEALTH_STRATEGIES[0];
@@ -752,7 +752,7 @@
         // Prefer metals template for XAU/XAG pairs when user hasn't chosen explicitly
         const sym = (typeof currentSymbol === 'function') ? currentSymbol() : (symbolSelect && symbolSelect.value) || '';
         const preferMetal = kind === 'forex_pair' && isMetalPair(sym);
-        const desiredValue = preferMetal ? 'metal_pair_compact_10q.json' : (defaultStrategyForKind(kind)?.value);
+        const desiredValue = preferMetal ? 'metal_pair_compact_10q_position.json' : (defaultStrategyForKind(kind)?.value);
         if (!healthStrategyUserOverride || !currentMeta || !currentMeta.kinds.includes(kind) || (preferMetal && currentValue !== desiredValue)) {
           if (desiredValue) {
             healthStrategyUserOverride = false;

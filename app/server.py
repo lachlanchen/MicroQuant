@@ -340,23 +340,26 @@ def _articles_to_text(items: list[dict[str, Any]]) -> str:
 
 
 DEFAULT_STRATEGIES: dict[str, str] = {
-    "forex_pair": "forex_pair_compact_10q.json",
-    "stock": "stocks_compact_10q.json",
+    "forex_pair": "forex_pair_compact_10q_position.json",
+    "stock": "stocks_compact_10q_position.json",
 }
 
 ALLOWED_STRATEGIES: dict[str, set[str]] = {
     "forex_pair": {
-        "metal_pair_compact_10q.json",
+        # Compact 10Q + Position (default) and plain 10Q
+        "forex_pair_compact_10q_position.json",
         "forex_pair_compact_10q.json",
-        "metal_pair_neutral_30q.json",
-        "forex_pair_neutral_30q.json",
-        "forex_pair_30q_yes_no.json",
-        "forex_30q_yes_no.json",
+        # Metals variants used for XAU/XAG within forex_pair kind
+        "metal_pair_compact_10q_position.json",
+        "metal_pair_compact_10q.json",
+        # Tech snapshot remains available for Tech+AI flows
         "tech_snapshot_10q.json",
     },
     "stock": {
+        # Compact 10Q + Position (default) and plain 10Q
+        "stocks_compact_10q_position.json",
         "stocks_compact_10q.json",
-        "stocks_30q_health_yes_no.json",
+        # Tech snapshot remains available for Tech+AI flows
         "tech_snapshot_10q.json",
     },
 }
@@ -3472,12 +3475,12 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 items = []
 
             allowed = ALLOWED_STRATEGIES.get("forex_pair", set())
-            # Auto-pick metals compact template for XAU/XAG when no override provided
+            # Auto-pick metals template for XAU/XAG when no override provided
             prefer_metals = base in {"XAU", "XAG"}
             if strategy_override and strategy_override in allowed:
                 strategy_name = strategy_override
-            elif prefer_metals and "metal_pair_compact_10q.json" in allowed:
-                strategy_name = "metal_pair_compact_10q.json"
+            elif prefer_metals and "metal_pair_compact_10q_position.json" in allowed:
+                strategy_name = "metal_pair_compact_10q_position.json"
             else:
                 strategy_name = DEFAULT_STRATEGIES["forex_pair"]
             if strategy_override and strategy_override not in allowed:
