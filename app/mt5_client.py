@@ -379,6 +379,22 @@ class MT5Client:
         except Exception:
             pass
         deals = mt5.history_deals_get(from_dt, to_dt) or []
+        try:
+            if deals is None or len(deals) == 0:
+                code, msg = mt5.last_error()
+                self.logger.info("history_deals_get returned empty; last_error=%s %s", code, msg)
+            else:
+                # Log a concise summary: total count and entry distribution
+                entry_counts: dict[str, int] = {}
+                for d in deals:
+                    e = getattr(d, "entry", None)
+                    key = str(int(e)) if e is not None else "None"
+                    entry_counts[key] = entry_counts.get(key, 0) + 1
+                self.logger.info(
+                    "history_deals_get count=%d entries=%s", len(deals), entry_counts
+                )
+        except Exception:
+            pass
         out: list[dict] = []
         for d in deals:
             try:
@@ -402,9 +418,9 @@ class MT5Client:
                 })
             except Exception:
                 continue
-        # Only keep closing deals (entry out=1) if entry flag available; otherwise return all
+        # Only keep closing deals (entry OUT=1 and OUT_BY=3) if entry flag available; otherwise return all
         try:
-            outs = [r for r in out if r.get("entry") in (1, "1")]
+            outs = [r for r in out if r.get("entry") in (1, 3, "1", "3")]
             if outs:
                 out = outs
         except Exception:

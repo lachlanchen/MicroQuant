@@ -2036,6 +2036,8 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         days = int(self.get_argument("days", default="90"))
         start_arg = self.get_argument("from", default=None)
         end_arg = self.get_argument("to", default=None)
+        debug_flag = self.get_argument("debug", default="0").lower() in ("1", "true", "yes")
+        source = self.get_argument("source", default="auto").lower()  # auto|db|mt5
         user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
         start_dt = _normalize_dt(start_arg) if start_arg else None
         end_dt = _normalize_dt(end_arg) if end_arg else None
@@ -2050,12 +2052,31 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         except Exception:
             account_id = 0
         try:
-            logger.info("/api/account/closed_deals from=%s to=%s days=%s", start_dt, end_dt, days)
-            # Prefer DB
-            deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
-            from_db = bool(deals)
-            if not from_db:
+            logger.info("/api/account/closed_deals from=%s to=%s days=%s source=%s", start_dt, end_dt, days, source)
+            deals = []
+            from_db = False
+            if source in ("auto", "db"):
+                deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+                from_db = bool(deals)
+            if source == "mt5" or (source == "auto" and not from_db):
                 deals = mt5_client.closed_deals(start_dt, end_dt)
+                if debug_flag:
+                    try:
+                        sample = [
+                            {
+                                "ts": d.get("ts"),
+                                "symbol": d.get("symbol"),
+                                "profit": d.get("profit"),
+                                "entry": d.get("entry"),
+                                "deal": d.get("deal"),
+                                "order": d.get("order"),
+                                "comment": d.get("comment"),
+                            }
+                            for d in (deals[:5] + deals[-5:] if len(deals) > 10 else deals)
+                        ]
+                        logger.info("[closed_deals debug] mt5 sample=%s", sample)
+                    except Exception:
+                        pass
                 # Best-effort persist to DB for future queries
                 try:
                     if deals:
@@ -2088,7 +2109,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         except Exception:
             synthetic_points = []
         try:
-            logger.info("/api/account/closed_deals ok deals=%d cum_points=%d synthetic=%d", len(deals), len(cum_points), len(synthetic_points))
+            logger.info("/api/account/closed_deals ok deals=%d cum_points=%d synthetic=%d (from_db=%s)", len(deals), len(cum_points), len(synthetic_points), from_db)
         except Exception:
             pass
         self.set_header("Content-Type", "application/json")
@@ -2102,6 +2123,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             "cum": cum_points,
             "cum_count": len(cum_points),
             "synthetic": synthetic_points,
+            "source": ("db" if from_db else "mt5") if source == "auto" else source,
         }))
 
 
