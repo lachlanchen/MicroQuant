@@ -3859,8 +3859,8 @@ const ensureLwMacd = () => {
             const saved = await save.json().catch(()=>({}));
             if (saved && saved.ok && saved.run_id) {
               appendAutoLog(`Saved log run id=${saved.run_id}`);
-              autoSelectOffset = 0;
-              await loadAutoDropdown({ append: false, selectRunId: Number(saved.run_id) });
+              autoHistoryOffset = 0;
+              await loadAutoHistory(5, 0);
             }
           } catch {}
           try { await refreshChart(); } catch {}
@@ -6498,7 +6498,47 @@ const ensureLwMacd = () => {
           const js = await r.json().catch(()=>({}));
           const runs = Array.isArray(js.runs) ? js.runs : [];
           if (offset === 0) autoHistoryBox.innerHTML = '';
-          if (!runs.length && offset === 0) { autoHistoryBox.innerHTML = '<em style="color:var(--muted)">No recent auto logs</em>'; return; }
+          if (!runs.length && offset === 0) {
+            // Fallback: try group=auto with tf filter
+            const p2 = new URLSearchParams();
+            if (isFxPair(sym)) { const pq = splitPair(sym); p2.set('kind','forex_pair'); p2.set('base', pq.base); p2.set('quote', pq.quote); } else { p2.set('kind','stock'); p2.set('symbol', sym); }
+            p2.set('group','auto'); p2.set('tf', tf); p2.set('limit', String(limit)); p2.set('offset', String(offset));
+            const r2 = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
+            const j2 = await r2.json().catch(()=>({}));
+            const runs2 = Array.isArray(j2.runs) ? j2.runs : [];
+            if (!runs2.length) {
+              // Final fallback: drop tf filter
+              const p3 = new URLSearchParams();
+              if (isFxPair(sym)) { const pq = splitPair(sym); p3.set('kind','forex_pair'); p3.set('base', pq.base); p3.set('quote', pq.quote); } else { p3.set('kind','stock'); p3.set('symbol', sym); }
+              p3.set('group','auto'); p3.set('limit', String(limit)); p3.set('offset', String(offset));
+              const r3 = await fetch(`/api/health/runs?${p3.toString()}`, { cache:'no-store' });
+              const j3 = await r3.json().catch(()=>({}));
+              const runs3 = Array.isArray(j3.runs) ? j3.runs : [];
+              if (!runs3.length) { autoHistoryBox.innerHTML = '<em style="color:var(--muted)">No recent auto logs</em>'; return; }
+              const html3 = runs3.map(r => {
+                const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+                const ans = r.answers || r.answers_json || {};
+                const meta = ans.meta || {};
+                const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
+                const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
+                const orderStr = order ? ` • order ${esc(order)}` : '';
+                return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
+              }).join('');
+              if (html3) autoHistoryBox.insertAdjacentHTML('beforeend', html3);
+              return;
+            }
+            const html2 = runs2.map(r => {
+              const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+              const ans = r.answers || r.answers_json || {};
+              const meta = ans.meta || {};
+              const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
+              const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
+              const orderStr = order ? ` • order ${esc(order)}` : '';
+              return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
+            }).join('');
+            if (html2) autoHistoryBox.insertAdjacentHTML('beforeend', html2);
+            return;
+          }
           const html = runs.map(r => {
             const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
             const ans = r.answers || r.answers_json || {};
