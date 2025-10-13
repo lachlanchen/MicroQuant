@@ -253,7 +253,9 @@
               </label>
               <button class="btn secondary" id="btnUpdateBalancePoll" style="padding:4px 8px;">Save</button>
             </div>
-            <div id="lwBalance" class="lw-pane"></div>
+            <div style="width:100%">
+              <canvas id="balanceChartCanvas" height="190"></canvas>
+            </div>
           </div>
         </div>
       </div>
@@ -1514,91 +1516,90 @@
         }
       };
 
-      // Account Balance pane
-      let lwBalanceChart = null;
-      let lwBalanceSeries = null;
-      // Closed-deals series is disabled per request; balance only
-      let lwClosedCumSeries = null;
-      let lwBalanceSubscribed = false;
+      // Account Balance (Chart.js, decoupled from LW to avoid errors)
+      let balanceChart = null;
       let fetchingBalance = false;
       let fetchingClosed = false;
-      const ensureLwBalance = () => {
-        if (!lwBalanceChart) {
-          const elBal = document.getElementById('lwBalance');
-          if (!elBal) return false;
-          // Pre-size and compute initial dimensions before createChart
-          try { elBal.style.minHeight = elBal.style.minHeight || '180px'; } catch (e) {}
-          const preRect = elBal.getBoundingClientRect();
-          const initW = Math.max(100, Math.floor(elBal.clientWidth || preRect.width || 800));
-          const initH = Math.max(120, Math.floor(elBal.clientHeight || preRect.height || 180));
-          // If container still effectively has no size, wait a frame
-          if (initW < 50 || initH < 80) {
-            requestAnimationFrame(() => { try { ensureLwBalance(); } catch {} });
-            return false;
-          }
-          try {
-            lwBalanceChart = LightweightCharts.createChart(elBal, {
-              layout: { background: { color: '#ffffff' }, textColor: '#111' },
-              rightPriceScale: { visible: true },
-              leftPriceScale: { visible: true },
-              timeScale: { rightOffset: 2, fixRightEdge: false },
-              grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
-              width: initW,
-              height: initH,
-            });
-          } catch (err) {
-            console.warn('[Balance] createChart failed, will retry', err, { initW, initH });
-            setTimeout(() => { try { ensureLwBalance(); } catch {} }, 150);
-            return false;
-          }
-          // Keep chart sized on container changes
-          try {
-            const ro = new ResizeObserver(() => {
-              const r = elBal.getBoundingClientRect();
-              const nw = Math.max(100, Math.floor(elBal.clientWidth || r.width || 800));
-              const nh = Math.max(120, Math.floor(elBal.clientHeight || r.height || 180));
-              lwBalanceChart.applyOptions({ width: nw, height: nh });
-            });
-            ro.observe(elBal);
-          } catch (e) { /* ignore sizing errors */ }
-        }
-        if (lwBalanceChart && !lwBalanceSeries) {
-          lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2, priceScaleId: 'right' });
-        }
-        // Do not sync balance pane with other charts
-        lwBalanceSubscribed = true;
-        return !!(lwBalanceChart && lwBalanceSeries);
+      const ensureBalanceChart = () => {
+        if (balanceChart) return true;
+        const canvas = document.getElementById('balanceChartCanvas');
+        if (!canvas) return false;
+        const ctx = canvas.getContext('2d');
+        balanceChart = new window.Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: [],
+            datasets: [
+              { label: 'Balance', data: [], borderColor: '#1b5e20', borderWidth: 1.5, pointRadius: 0, tension: 0.15, yAxisID: 'y2' },
+              { label: 'Closed PnL', data: [], borderColor: '#ff9800', borderWidth: 1.2, pointRadius: 0, tension: 0.15, yAxisID: 'y' },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: true } },
+            interaction: { intersect: false, mode: 'index' },
+            parsing: false,
+            scales: {
+              x: { type: 'time', time: { tooltipFormat: 'MMM d HH:mm' }, ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
+              y: { position: 'left', grid: { color: '#e0e6ef' } },
+              y2: { position: 'right', grid: { drawOnChartArea: false } },
+            },
+          },
+        });
+        return true;
       };
 
       async function refreshBalanceSeries() {
-        if (fetchingBalance) return;
-        fetchingBalance = true;
+        if (fetchingBalance) return; fetchingBalance = true;
         try {
           const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000', { cache: 'no-store' });
-          const js = await r.json();
+          const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) return;
-          if (!ensureLwBalance()) { setTimeout(refreshBalanceSeries, 250); return; }
-          const points = (js.rows || [])
+          if (!ensureBalanceChart()) return;
+          const pts = (js.rows || [])
             .map(row => {
-              const tsMs = Date.parse(row.ts);
-              if (!Number.isFinite(tsMs)) return null;
-              const numVal = Number(row.balance);
-              if (!Number.isFinite(numVal)) return null;
-              return { time: Math.floor(tsMs / 1000), value: numVal };
+              const t = Date.parse(row.ts);
+              const v = Number(row.balance);
+              if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+              return { x: new Date(t), y: v };
             })
             .filter(Boolean);
-          // Defer setData one frame to avoid internal layout races
-          requestAnimationFrame(() => {
-            try { if (lwBalanceSeries) lwBalanceSeries.setData(points); } catch (err) { console.warn('[Balance] setData failed', err, { pointsCount: points.length }); }
-          });
+          const ds = balanceChart.data.datasets[0];
+          ds.data = pts;
+          balanceChart.update('none');
         } catch (e) {
-          // ignore
+          // swallow UI errors
         } finally { fetchingBalance = false; }
       }
 
       async function refreshClosedDealsSeries() {
-        // Closed-deals overlay disabled: no-op to avoid LW errors
-        return;
+        if (fetchingClosed) return; fetchingClosed = true;
+        const btn = document.getElementById('btnFetchClosed');
+        const prev = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
+        try {
+          // Prefer DB to avoid noisy MT5 calls during normal refresh
+          const r = await fetch('/api/account/closed_deals?days=5000&source=db&comment=auto-quant', { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (!ensureBalanceChart()) return;
+          const cum = (js.cum || [])
+            .map(row => {
+              const t = Date.parse(row.ts);
+              const v = Number(row.value ?? 0);
+              if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+              return { x: new Date(t), y: v };
+            })
+            .filter(Boolean);
+          const ds = balanceChart.data.datasets[1];
+          ds.data = cum;
+          balanceChart.update('none');
+        } catch (e) {
+          // swallow UI errors
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = prev || 'Fetch Closed'; }
+          fetchingClosed = false;
+        }
       }
 
       const ensureLwDeriv = () => {
@@ -4160,17 +4161,9 @@ const ensureLwMacd = () => {
           } else if (data.type === 'stl_complete') {
             handleStlEvent(data);
           } else if (data.type === 'balance_update') {
-            if (ensureLwBalance()) {
-              refreshBalanceSeries();
-            } else {
-              setTimeout(() => { if (ensureLwBalance()) refreshBalanceSeries(); }, 200);
-            }
+            refreshBalanceSeries();
           } else if (data.type === 'closed_deals_update') {
-            if (ensureLwBalance()) {
-              refreshClosedDealsSeries();
-            } else {
-              setTimeout(() => { if (ensureLwBalance()) refreshClosedDealsSeries(); }, 250);
-            }
+            refreshClosedDealsSeries();
           }
         });
 
@@ -4187,15 +4180,12 @@ const ensureLwMacd = () => {
 
       connectUpdates();
       window.addEventListener('load', () => {
-        // Defer initial build slightly to ensure layout stabilizes
-        const kick = () => {
-          if (ensureLwBalance()) {
-            refreshBalanceSeries();
-          } else {
-            setTimeout(kick, 200);
-          }
-        };
-        requestAnimationFrame(kick);
+        // Initialize Chart.js balance pane
+        requestAnimationFrame(async () => {
+          ensureBalanceChart();
+          await refreshBalanceSeries();
+          await refreshClosedDealsSeries();
+        });
       });
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
@@ -4854,7 +4844,16 @@ const ensureLwMacd = () => {
       });
       // Closed orders controls
       const btnFetchClosed = document.getElementById('btnFetchClosed');
-      if (btnFetchClosed) btnFetchClosed.addEventListener('click', refreshClosedDealsSeries);
+      if (btnFetchClosed) btnFetchClosed.addEventListener('click', async () => {
+        const prev = btnFetchClosed.textContent;
+        btnFetchClosed.disabled = true; btnFetchClosed.textContent = 'Fetching…';
+        try {
+          // Hit MT5 to upsert latest into DB, then reload from DB for plotting
+          await fetch('/api/account/closed_deals?days=5000&source=mt5&comment=auto-quant', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
+          await refreshClosedDealsSeries();
+        } catch (e) { /* ignore */ }
+        finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }
+      });
       const btnSyncClosed = document.getElementById('btnSyncClosed');
       if (btnSyncClosed) btnSyncClosed.addEventListener('click', async () => {
         const prev = btnSyncClosed.textContent;
