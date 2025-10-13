@@ -963,21 +963,39 @@
         return value.toFixed(8);
       };
 
-      function populateStlRuns(runs, selectedId) {
+      // STL runs lazy list state
+      let stlRunsAll = [];
+      let stlRunsShown = 5;
+      const stlRunsPageSize = 5;
+      function renderStlRunsList(selectedId) {
         if (!stlRunsSelect) return;
+        const ensureVisible = (id) => {
+          if (!id) return;
+          const idx = stlRunsAll.findIndex(r => String(r && r.id) === String(id));
+          if (idx >= 0 && idx >= stlRunsShown) stlRunsShown = Math.min(stlRunsAll.length, Math.ceil((idx+1)/stlRunsPageSize)*stlRunsPageSize);
+        };
+        ensureVisible(selectedId);
         stlRunsSelect.innerHTML = '';
         stlRunsSelect.appendChild(new Option('Latest (auto)', ''));
-        if (Array.isArray(runs)) {
-          runs.forEach((run) => {
-            if (!run) return;
-            const label = `${formatDateShort(run.start_ts)} → ${formatDateShort(run.end_ts)} • P${run.period}`;
-            const opt = new Option(label, String(run.id));
-            if (selectedId && String(run.id) === String(selectedId)) opt.selected = true;
-            stlRunsSelect.appendChild(opt);
-          });
+        const slice = stlRunsAll.slice(0, stlRunsShown);
+        slice.forEach((run) => {
+          if (!run) return;
+          const label = `${formatDateShort(run.start_ts)} → ${formatDateShort(run.end_ts)} • P${run.period}`;
+          const opt = new Option(label, String(run.id));
+          if (selectedId && String(run.id) === String(selectedId)) opt.selected = true;
+          stlRunsSelect.appendChild(opt);
+        });
+        if (stlRunsAll.length > stlRunsShown) {
+          const more = new Option('More…', '__more__');
+          stlRunsSelect.appendChild(more);
         }
         if (!selectedId) stlRunsSelect.value = '';
-        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlRunsSelect.value;
+        if (stlDeleteBtn) stlDeleteBtn.disabled = !stlRunsSelect.value || stlRunsSelect.value === '__more__';
+      }
+      function populateStlRuns(runs, selectedId) {
+        stlRunsAll = Array.isArray(runs) ? runs.slice() : [];
+        stlRunsShown = Math.min(stlRunsAll.length, stlRunsPageSize);
+        renderStlRunsList(selectedId);
       }
 
       function updateIndicatorCharts(rows) {
@@ -4509,7 +4527,16 @@ const ensureLwMacd = () => {
         refreshStlOverlay({});
       });
       if (stlRunsSelect) stlRunsSelect.addEventListener('change', () => {
-        stlSelectedRunId = stlRunsSelect.value ? Number(stlRunsSelect.value) : null;
+        const val = stlRunsSelect.value;
+        if (val === '__more__') {
+          stlRunsShown = Math.min(stlRunsAll.length, stlRunsShown + stlRunsPageSize);
+          renderStlRunsList(stlSelectedRunId);
+          // keep selection on 'Latest (auto)'
+          stlRunsSelect.value = '';
+          if (stlDeleteBtn) stlDeleteBtn.disabled = true;
+          return;
+        }
+        stlSelectedRunId = val ? Number(val) : null;
         if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
         refreshStlOverlay({ runId: stlSelectedRunId });
       });
