@@ -2558,8 +2558,6 @@ const ensureLwMacd = () => {
         const outBox = el('healthResultsBox');
         outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
         try {
-          // Always refresh latest news for this symbol first so Basic uses freshest DB rows
-          try { await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
           // Optimistically show running state on Basic freshness
           if (typeof setHealthFreshRunning === 'function') setHealthFreshRunning();
           // Optional model override for Basic Health
@@ -5600,8 +5598,11 @@ const ensureLwMacd = () => {
           btnNews.textContent = 'Refreshing…';
         }
         try {
-          // Force a live refresh then read from DB
-          const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}&refresh=1`, { cache: 'no-store' });
+          // Live fetch only when explicitly requested (manual click);
+          // otherwise read DB (no provider call).
+          const useLive = !!opts.forceLive;
+          const url = `/api/news?symbol=${encodeURIComponent(symbol)}` + (useLive ? `&refresh=1` : '');
+          const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json();
           if (js && js.ok) {
             const items = js.news || [];
@@ -5639,7 +5640,8 @@ const ensureLwMacd = () => {
       }
       if (btnNews) btnNews.addEventListener('click', (ev) => {
         ev.preventDefault();
-        refreshNews({ disableButton: true, reason: 'manual_click' });
+        // Manual click: force provider fetch, then DB render
+        refreshNews({ disableButton: true, reason: 'manual_click', forceLive: true });
       });
       if (btnNewsFull) btnNewsFull.addEventListener('click', () => {
         NEWS_SHOW_FULL = !NEWS_SHOW_FULL;

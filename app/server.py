@@ -3464,19 +3464,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 return
             base, quote = sym[:3], sym[3:6]
 
-            # Refresh latest news for the pair, then read from DB newest-first (7d window)
-            try:
-                digest = await loop.run_in_executor(EXECUTOR, lambda: fetch_symbol_digest(sym, limit=max(30, news_count)))
-                live = digest.get("news", [])
-                if live:
-                    for it in live:
-                        it["symbol"] = sym
-                    try:
-                        await upsert_news_articles(self.pool, live)
-                    except Exception:
-                        logger.debug("[health] pair refresh upsert failed", exc_info=True)
-            except Exception:
-                pass
+            # Read from DB newest-first (7d window). No provider fetch here.
             one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
             try:
                 items = await fetch_news_db(self.pool, sym, since=one_week_ago, limit=news_count)
