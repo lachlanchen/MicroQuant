@@ -541,6 +541,20 @@
       let chartShiftOn = (DEFAULT_CHART_SHIFT !== '0');
       const getRightOffset = () => (chartShiftOn ? 20 : 0);
       const healthStrategySelect = el('healthStrategy');
+
+      // Strong client-side memory for last selection (fallback if DB prefs are stale)
+      const isValidSymbol = (s) => APP_SYMBOLS.includes(String(s || '').toUpperCase());
+      const isValidTf = (tf) => ALL_TFS.includes(String(tf || '').toUpperCase());
+      (function applyLocalSelectionFallback() {
+        try {
+          const lsSym = (localStorage.getItem('last_symbol') || '').toUpperCase();
+          const lsTf = (localStorage.getItem('last_tf') || '').toUpperCase();
+          const symSel = document.getElementById('symbol');
+          const tfSel = document.getElementById('tf');
+          if (symSel && isValidSymbol(lsSym)) { symSel.value = lsSym; }
+          if (tfSel && isValidTf(lsTf)) { tfSel.value = lsTf; }
+        } catch (_) { /* ignore */ }
+      })();
       const HEALTH_STRATEGIES = [
         { value: 'forex_pair_compact_10q.json', label: 'FX Comprehensive (10)', kinds: ['forex_pair'] },
         { value: 'metal_pair_compact_10q.json', label: 'Metals Comprehensive (10)', kinds: ['forex_pair'] },
@@ -4171,6 +4185,7 @@ const ensureLwMacd = () => {
       el('btnRefresh').addEventListener('click', refreshChart);
       // Auto-fetch when user changes symbol or timeframe
       el('symbol').addEventListener('change', async () => {
+        try { localStorage.setItem('last_symbol', currentSymbol()); } catch {}
         stlSelectedRunId = null;
         stlPendingCompute = false;
         stlLastRows = [];
@@ -4199,6 +4214,7 @@ const ensureLwMacd = () => {
       });
       const tfSel = document.getElementById('tf');
       if (tfSel) tfSel.addEventListener('change', async () => {
+        try { localStorage.setItem('last_tf', currentTf()); } catch {}
         stlSelectedRunId = null;
         stlPendingCompute = false;
         stlLastRows = [];
@@ -5089,7 +5105,7 @@ const ensureLwMacd = () => {
       }
       // restart ticker when symbol changes
       const symSel = document.getElementById('symbol');
-      if (symSel) symSel.addEventListener('change', startTickPoll);
+      if (symSel) symSel.addEventListener('change', () => { try { localStorage.setItem('last_symbol', currentSymbol()); } catch {} startTickPoll(); });
 
       // Initial loads
       buildStlOverlayControls();

@@ -1391,8 +1391,8 @@ class MainHandler(tornado.web.RequestHandler):
             return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
 
         reset_flag = _truthy(self.get_argument("reset", default=None))
-        # Default to pinning XAUUSD/H1 unless explicitly disabled via env
-        pin_defaults = _truthy(os.getenv("PIN_DEFAULTS_TO_XAU_H1", "1"))
+        # Optional: pin defaults to XAUUSD/H1 when enabled via env
+        pin_defaults = _truthy(os.getenv("PIN_DEFAULTS_TO_XAU_H1", "0"))
 
         # Read last selection from prefs if available
         pool = self.settings.get("pool")
