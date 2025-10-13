@@ -2791,10 +2791,13 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                 val = meta.get("last_used_news_ts")
                 if isinstance(val, str) and val:
                     from datetime import datetime as _dt
+                    from datetime import timezone as _tz
                     v = val.strip()
                     if v.endswith('Z'):
                         v = v[:-1] + '+00:00'
                     baseline_ts = _dt.fromisoformat(v)
+                    if baseline_ts.tzinfo is None:
+                        baseline_ts = baseline_ts.replace(tzinfo=_tz.utc)
                     baseline_iso = baseline_ts.isoformat()
                     baseline_src = "meta"
         except Exception:
@@ -3969,18 +3972,18 @@ class HealthRunHandler(tornado.web.RequestHandler):
 
         # Optional final position (BUY/SELL with SL/TP) when strategy defines a position_response_schema
         position_obj = None
-        try:
-            pos_schema = (strat or {}).get("position_response_schema")
-            if isinstance(pos_schema, dict):
-                pos_prompt = _build_stock_position_prompt(symbol, items, timeframe)
-                position_obj = AI_CLIENT.send_request_with_json_schema(
-                    pos_prompt,
-                    pos_schema,
-                    system_content="You are a precise equity analyst. Reply only with JSON that matches the schema.",
-                    schema_name="stock_position",
-                    model=model_override,
-                    provider=provider_override,
-                )
+            try:
+                pos_schema = (strat or {}).get("position_response_schema")
+                if isinstance(pos_schema, dict):
+                    pos_prompt = _build_stock_position_prompt(symbol, items, timeframe)
+                    position_obj = AI_CLIENT.send_request_with_json_schema(
+                        pos_prompt,
+                        pos_schema,
+                        system_content="You are a precise equity analyst. Reply only with JSON that matches the schema.",
+                        schema_name="stock_position",
+                        model=model_override,
+                        provider=provider_override,
+                    )
         except Exception:
             position_obj = None
 
