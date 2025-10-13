@@ -2295,7 +2295,6 @@ const ensureLwMacd = () => {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
           const runs = (data && data.runs) || [];
-          if (!runs.length && (healthState.offset||0) === 0) { box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>'; return; }
           if ((healthState.offset||0) === 0) { box.innerHTML = ''; }
           if (!Array.isArray(healthState.runs)) healthState.runs = [];
           const startIdx = healthState.runs.length;
@@ -2317,7 +2316,44 @@ const ensureLwMacd = () => {
               <span style="font-weight:600;">${summary}</span>
             </button>`;
           }).join('');
-          box.insertAdjacentHTML('beforeend', html);
+          if (html) box.insertAdjacentHTML('beforeend', html);
+
+          // Include AI Trade Plans alongside Basic or Tech+AI history for the current timeframe
+          const wantAiAlongside = (!healthState.strategy) || (healthState.strategy === 'tech_snapshot_10q.json');
+          if (wantAiAlongside) {
+            const p2 = new URLSearchParams();
+            if (healthState.kind === 'forex_pair') {
+              const pq = isFxPair(sym) ? splitPair(sym) : { base: sym.slice(0,3), quote: sym.slice(3,6) };
+              p2.set('kind','forex_pair'); p2.set('base', pq.base); p2.set('quote', pq.quote);
+            } else {
+              p2.set('kind','stock'); p2.set('symbol', sym);
+            }
+            p2.set('strategy', 'ai_trade_plan');
+            p2.set('tf', currentTf());
+            p2.set('limit','5'); p2.set('offset', String(healthState.offset||0));
+            try {
+              const res2 = await fetch(`/api/health/runs?${p2.toString()}`);
+              const data2 = await res2.json();
+              const runs2 = (data2 && data2.runs) || [];
+              if (runs2.length) {
+                const html2 = runs2.map((r) => {
+                  const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+                  const ans = r.answers || {};
+                  const plan = ans.plan || {};
+                  const pos = (plan.position || '').toUpperCase();
+                  const sl = plan.stop_loss;
+                  const tp = plan.take_profit;
+                  const posPill = pos ? `<span class=\"pill\" style=\"background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};\">${pos}</span>` : '';
+                  return `<div class=\"row\" style=\"justify-content:space-between; border:1px dashed var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n                    <span style=\"font-size:13px; color:var(--muted);\">${t}</span>\n                    <span>${posPill} <span style=\"font-size:12px; color:var(--muted);\">SL ${esc(sl)} • TP ${esc(tp)}</span> <span class=\"pill\" style=\"margin-left:6px\">ai_trade_plan</span></span>\n                  </div>`;
+                }).join('');
+                if (html2) box.insertAdjacentHTML('beforeend', html2);
+              } else if (!runs.length && (healthState.offset||0) === 0) {
+                box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>';
+              }
+            } catch (e) { if (!runs.length && (healthState.offset||0) === 0) { box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>'; } }
+          } else if (!runs.length && (healthState.offset||0) === 0) {
+            box.innerHTML = '<em style="color:var(--muted)">No recent checks</em>';
+          }
         } catch (e) {
           box.innerHTML = '<em style="color:var(--muted)">Failed to load</em>';
         }
