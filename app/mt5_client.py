@@ -253,6 +253,7 @@ class MT5Client:
     def close_all_for(self, symbol: str, deviation: int = 20) -> list[dict]:
         # In netting accounts, sending the opposite market order with same volume reduces/closes
         pos = self.positions_for(symbol)
+        self.logger.info("close_all_for symbol=%s positions=%d", symbol, len(pos))
         out = []
         for p in pos:
             side = "sell" if int(p.type) == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
@@ -265,6 +266,7 @@ class MT5Client:
         """
         self._ensure_initialized()
         all_pos = mt5.positions_get() or []
+        self.logger.info("close_all across symbols positions=%d", len(all_pos))
         out: list[dict] = []
         for p in all_pos:
             try:

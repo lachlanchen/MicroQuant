@@ -4540,12 +4540,14 @@ const ensureLwMacd = () => {
         }
       }
 
-      function openCloseModal() {
+      function openCloseModal(defaultScope = 'current') {
         const modal = el('closeModal');
         if (!modal) return;
         const sym = currentSymbol();
         const txt = el('closeModalText');
         if (txt) txt.textContent = `Close all open positions for ${sym} (Current) or across ALL symbols?`;
+        modal.dataset.scope = (defaultScope === 'all') ? 'all' : 'current';
+        console.log('[Close] open modal scope=', modal.dataset.scope);
         modal.style.display = 'flex';
       }
 
@@ -4553,11 +4555,20 @@ const ensureLwMacd = () => {
 
       async function doClose(scope) {
         const symbol = currentSymbol();
-        status('Closing positions...');
+        const effScope = scope || (el('closeModal') && el('closeModal').dataset.scope) || 'current';
+        status(`Closing positions (${effScope})...`);
+        console.log('[Close] confirm scope=', effScope, 'symbol=', symbol);
+        // simple effect: disable buttons while closing
+        const btnCur = document.getElementById('btnConfirmCloseCurrent');
+        const btnAll = document.getElementById('btnConfirmCloseAll');
+        const prevCur = btnCur ? btnCur.textContent : '';
+        const prevAll = btnAll ? btnAll.textContent : '';
+        if (btnCur) { btnCur.disabled = true; btnCur.textContent = 'Closing…'; }
+        if (btnAll) { btnAll.disabled = true; btnAll.textContent = 'Closing…'; }
         try {
           let url;
           let opts;
-          if (scope === 'all') {
+          if (effScope === 'all') {
             url = '/api/close?scope=all';
             opts = { method:'POST', cache:'no-store' };
           } else {
@@ -4568,7 +4579,8 @@ const ensureLwMacd = () => {
           const r = await fetch(url, opts);
           const js = await r.json().catch(()=>({}));
           if (r.ok && js && js.ok) {
-            status(`Closed ${Array.isArray(js.closed)?js.closed.length:0} position(s) [${js.scope||scope}]`);
+            const n = Number.isFinite(Number(js.closed_count)) ? Number(js.closed_count) : (Array.isArray(js.closed) ? js.closed.length : 0);
+            status(`Closed ${n} position(s) [${js.scope||effScope}]`);
             await refreshChart();
             await refreshPositions();
           } else {
@@ -4576,7 +4588,11 @@ const ensureLwMacd = () => {
           }
         } catch (e) {
           status(`Close error: ${e && e.message || e}`);
-        } finally { hideCloseModal(); }
+        } finally {
+          if (btnCur) { btnCur.disabled = false; btnCur.textContent = prevCur; }
+          if (btnAll) { btnAll.disabled = false; btnAll.textContent = prevAll; }
+          hideCloseModal();
+        }
       }
 
       async function refreshPositions() {
@@ -5173,8 +5189,8 @@ const ensureLwMacd = () => {
       const btnPosEl = document.getElementById('btnPos');
       if (btnBuyEl) btnBuyEl.addEventListener('click', () => trade('buy'));
       if (btnSellEl) btnSellEl.addEventListener('click', () => trade('sell'));
-      if (btnCloseEl) btnCloseEl.addEventListener('click', openCloseModal);
-      if (btnCloseAllEl) btnCloseAllEl.addEventListener('click', () => { openCloseModal(); });
+      if (btnCloseEl) btnCloseEl.addEventListener('click', () => openCloseModal('current'));
+      if (btnCloseAllEl) btnCloseAllEl.addEventListener('click', () => openCloseModal('all'));
       if (btnPosEl) btnPosEl.addEventListener('click', refreshPositions);
 
       // Close modal actions

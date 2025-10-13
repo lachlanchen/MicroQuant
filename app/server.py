@@ -1865,7 +1865,12 @@ class CloseHandler(tornado.web.RequestHandler):
             return
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
-        self.finish(json.dumps({"ok": True, "closed": res, "scope": scope}))
+        try:
+            closed_count = len(res) if isinstance(res, list) else 0
+        except Exception:
+            closed_count = 0
+        logger.info("/api/close done scope=%s symbol=%s closed=%d", scope, symbol, closed_count)
+        self.finish(json.dumps({"ok": True, "closed": res, "closed_count": closed_count, "scope": scope}))
 
     async def post(self):
         return await self.get()
