@@ -3490,6 +3490,19 @@ const ensureLwMacd = () => {
         const current = currentTf();
         stlOverlayControls.innerHTML = '';
         stlOverlayInputs.clear();
+        // Auto STL toggle button (per symbol × timeframe)
+        const autoBtn = document.createElement('button');
+        autoBtn.className = 'btn secondary';
+        autoBtn.id = 'btnStlAutoCompute';
+        autoBtn.style.padding = '6px 10px';
+        const getAutoKey = () => `stl_auto_compute:${symbol}:${current}`;
+        const readAuto = () => { try { return (localStorage.getItem(getAutoKey()) === '1'); } catch { return false; } };
+        const writeAuto = (val) => { try { localStorage.setItem(getAutoKey(), val ? '1' : '0'); } catch {} };
+        const applyLabel = (val) => { autoBtn.textContent = val ? 'Auto STL: On' : 'Auto STL: Off'; };
+        applyLabel(readAuto());
+        autoBtn.addEventListener('click', () => { const next = !readAuto(); writeAuto(next); applyLabel(next); });
+        stlOverlayControls.appendChild(autoBtn);
+
         const label = document.createElement('span');
         label.textContent = 'Overlay STL';
         label.style.fontSize = '12px';
@@ -3744,7 +3757,8 @@ const ensureLwMacd = () => {
         syncStlOverlayVisibility();
       }
       async function refreshStlOverlay(options = {}) {
-        const { runId = stlSelectedRunId, autoCompute = true } = options || {};
+        const { runId = stlSelectedRunId } = options || {};
+        const autoCompute = (() => { try { return localStorage.getItem(`stl_auto_compute:${currentSymbol()}:${currentTf()}`) === '1'; } catch { return false; } })();
         const statusBox = el('stlStatus');
         const symbol = currentSymbol();
         const tf = currentTf();
@@ -4062,7 +4076,7 @@ const ensureLwMacd = () => {
           const overlayPeriod = stlAutoPeriod ? stlLastPeriod : stlManualPeriod;
           updatePeriodOverlays(overlayPeriod && Number.isFinite(overlayPeriod) ? overlayPeriod : null);
           status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
-          await refreshStlOverlay({ autoCompute: true });
+          await refreshStlOverlay({});
           syncStlOverlayVisibility();
         } catch (err) {
           console.error('Refresh failed', err);
@@ -4304,7 +4318,7 @@ const ensureLwMacd = () => {
           stlTargetEnd = stlDatasetRange.end_ts;
         }
         updateStlInputsFromState();
-        refreshStlOverlay({ autoCompute: true });
+        refreshStlOverlay({});
       });
       if (stlAutoToggle) stlAutoToggle.addEventListener('change', () => {
         stlAutoPeriod = !!stlAutoToggle.checked;
@@ -4340,7 +4354,7 @@ const ensureLwMacd = () => {
           status('STL range invalid: start must be before end.');
           return;
         }
-        refreshStlOverlay({ autoCompute: true });
+        refreshStlOverlay({});
       });
       if (stlEndInput) stlEndInput.addEventListener('change', () => {
         if (stlAllData) return;
@@ -4351,12 +4365,12 @@ const ensureLwMacd = () => {
           status('STL range invalid: start must be before end.');
           return;
         }
-        refreshStlOverlay({ autoCompute: true });
+        refreshStlOverlay({});
       });
       if (stlRunsSelect) stlRunsSelect.addEventListener('change', () => {
         stlSelectedRunId = stlRunsSelect.value ? Number(stlRunsSelect.value) : null;
         if (stlDeleteBtn) stlDeleteBtn.disabled = !stlSelectedRunId;
-        refreshStlOverlay({ runId: stlSelectedRunId, autoCompute: false });
+        refreshStlOverlay({ runId: stlSelectedRunId });
       });
       if (stlDeleteBtn) stlDeleteBtn.addEventListener('click', async () => {
         const selected = stlRunsSelect && stlRunsSelect.value ? stlRunsSelect.value : '';
@@ -4375,7 +4389,7 @@ const ensureLwMacd = () => {
             stlSelectedRunId = null;
             stlLastRows = [];
             stlLastMeta = null;
-            refreshStlOverlay({ autoCompute: true });
+            refreshStlOverlay({});
           }
         } catch (err) {
           status(`Delete failed: ${err.message || err}`);
