@@ -318,6 +318,11 @@
               </label>
               <button class="btn secondary" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
               <span id="healthFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
+              <label class="switch" style="margin-left:8px;">
+                <input type="checkbox" id="chkAutoBasic" />
+                <span class="toggle"></span>
+                <span>Auto Check</span>
+              </label>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
@@ -347,7 +352,7 @@
               <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
               <span id="techFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <label class="switch" style="margin-left:8px;">
-                <input type="checkbox" id="chkAutoHealth" />
+                <input type="checkbox" id="chkAutoTech" />
                 <span class="toggle"></span>
                 <span>Auto Check</span>
               </label>
@@ -2676,7 +2681,8 @@ const ensureLwMacd = () => {
       const btnAiSell = document.getElementById('btnAiSell');
       const aiLeverageInput = document.getElementById('aiLeverage');
       const btnTechClose = document.getElementById('btnTechClose');
-      const autoCheckToggle = document.getElementById('chkAutoHealth');
+      const autoBasicToggle = document.getElementById('chkAutoBasic');
+      const autoTechToggle = document.getElementById('chkAutoTech');
       let autoBasicRunning = false;
       let autoTechRunning = false;
       let autoCheckPoller = null;
@@ -2791,22 +2797,41 @@ const ensureLwMacd = () => {
       }
 
       // --- Auto Check (per symbol × timeframe) ---
-      const getAutoCheckKey = () => `auto_check:${currentSymbol()}:${currentTf()}`;
-      const isAutoCheckEnabled = () => !!(autoCheckToggle && autoCheckToggle.checked);
-      const applyAutoCheckState = (on) => { if (autoCheckToggle) autoCheckToggle.checked = !!on; };
-      async function loadAutoCheckPref() {
-        if (!autoCheckToggle) return;
+      const getAutoBasicKey = () => `auto_check_basic:${currentSymbol()}:${currentTf()}`;
+      const getAutoTechKey = () => `auto_check_tech:${currentSymbol()}:${currentTf()}`;
+      const isAutoBasicEnabled = () => !!(autoBasicToggle && autoBasicToggle.checked);
+      const isAutoTechEnabled = () => !!(autoTechToggle && autoTechToggle.checked);
+      const applyAutoBasicState = (on) => { if (autoBasicToggle) autoBasicToggle.checked = !!on; };
+      const applyAutoTechState = (on) => { if (autoTechToggle) autoTechToggle.checked = !!on; };
+      async function loadAutoBasicPref() {
+        if (!autoBasicToggle) return;
         try {
-          const key = encodeURIComponent(getAutoCheckKey());
+          const key = encodeURIComponent(getAutoBasicKey());
           const r = await fetch(`${PREF_ENDPOINT}?keys=${key}`, { cache: 'no-store' });
           const js = await r.json();
-          const val = js && js.prefs ? js.prefs[getAutoCheckKey()] : null;
-          applyAutoCheckState(String(val || '').toLowerCase() === '1');
+          const val = js && js.prefs ? js.prefs[getAutoBasicKey()] : null;
+          applyAutoBasicState(String(val || '').toLowerCase() === '1');
         } catch {}
       }
-      if (autoCheckToggle) autoCheckToggle.addEventListener('change', () => {
-        const key = getAutoCheckKey();
-        const on = isAutoCheckEnabled();
+      async function loadAutoTechPref() {
+        if (!autoTechToggle) return;
+        try {
+          const key = encodeURIComponent(getAutoTechKey());
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${key}`, { cache: 'no-store' });
+          const js = await r.json();
+          const val = js && js.prefs ? js.prefs[getAutoTechKey()] : null;
+          applyAutoTechState(String(val || '').toLowerCase() === '1');
+        } catch {}
+      }
+      if (autoBasicToggle) autoBasicToggle.addEventListener('change', () => {
+        const key = getAutoBasicKey();
+        const on = isAutoBasicEnabled();
+        try { queuePrefUpdate(key, on ? '1' : '0'); } catch {}
+        ensureAutoCheckPoller();
+      });
+      if (autoTechToggle) autoTechToggle.addEventListener('change', () => {
+        const key = getAutoTechKey();
+        const on = isAutoTechEnabled();
         try { queuePrefUpdate(key, on ? '1' : '0'); } catch {}
         ensureAutoCheckPoller();
       });
@@ -2815,10 +2840,8 @@ const ensureLwMacd = () => {
         if (!autoCheckPoller) {
           autoCheckPoller = setInterval(async () => {
             try {
-              if (isAutoCheckEnabled()) {
-                await refreshTechFreshness();
-                await refreshHealthFreshness();
-              }
+              if (isAutoTechEnabled()) await refreshTechFreshness();
+              if (isAutoBasicEnabled()) await refreshHealthFreshness();
             } catch {}
           }, 60000);
         }
@@ -2826,7 +2849,7 @@ const ensureLwMacd = () => {
       ensureAutoCheckPoller();
 
       async function maybeAutoRunBasic(info) {
-        if (!isAutoCheckEnabled()) return;
+        if (!isAutoBasicEnabled()) return;
         const stale = info && info.status === 'stale' && Number(info.new_count || 0) > 0;
         if (!stale || autoBasicRunning) return;
         autoBasicRunning = true;
@@ -2842,7 +2865,7 @@ const ensureLwMacd = () => {
       }
 
       async function maybeAutoRunTech(info) {
-        if (!isAutoCheckEnabled()) return;
+        if (!isAutoTechEnabled()) return;
         const stale = info && info.status === 'stale' && Number(info.outdated_bars || 0) > 0;
         if (!stale || autoTechRunning) return;
         autoTechRunning = true;
@@ -4323,6 +4346,7 @@ const ensureLwMacd = () => {
       });
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
+      (async () => { try { await loadAutoBasicPref(); await loadAutoTechPref(); } catch {} })();
       (async () => { try { await refreshTechFreshness(); } catch {} })();
       (async () => { try { await loadLatestAiPlanPreview(); } catch {} })();
 
@@ -4547,7 +4571,8 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
-          await loadAutoCheckPref();
+          await loadAutoBasicPref();
+          await loadAutoTechPref();
           await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on symbol change (run from modal Start)
@@ -4576,7 +4601,8 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
-          await loadAutoCheckPref();
+          await loadAutoBasicPref();
+          await loadAutoTechPref();
           await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on timeframe change (run from modal Start)

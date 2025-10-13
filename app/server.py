@@ -2560,7 +2560,11 @@ class PreferencesHandler(tornado.web.RequestHandler):
                 elif isinstance(key, str) and key.startswith("stl_auto_compute:"):
                     allowed = True
                 # Allow per-symbol×timeframe auto health/tech checks
-                elif isinstance(key, str) and key.startswith("auto_check:"):
+                elif isinstance(key, str) and (
+                    key.startswith("auto_check:") or
+                    key.startswith("auto_check_basic:") or
+                    key.startswith("auto_check_tech:")
+                ):
                     allowed = True
                 if allowed:
                     updates[key] = str(value)
