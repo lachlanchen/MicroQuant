@@ -563,6 +563,12 @@
           <select id="selectPlanRun" style="flex:1; min-width:260px;"></select>
           <button class="btn secondary" id="btnPlanMore" style="padding:6px 10px;">More</button>
         </div>
+        <!-- Auto AI Trade logs/history -->
+        <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
+          <span style="min-width:110px; color:var(--muted);">Auto</span>
+          <select id="selectAutoRun" style="flex:1; min-width:260px;"></select>
+          <button class="btn secondary" id="btnAutoMore" style="padding:6px 10px;">More</button>
+        </div>
         <!-- Plan JSON hint/selector (moved below Tech+AI row) -->
         <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
           <span style="min-width:110px; color:var(--muted);">Plan JSON</span>
@@ -585,6 +591,7 @@
   </div>
 
         <div id="tradeResultsBox" style="margin-top:10px;"></div>
+        <div id="autoAiLogBox" style="margin-top:8px; font-size:12px; color:var(--muted); border:1px dashed var(--line); border-radius:8px; padding:8px; max-height:180px; overflow:auto;"></div>
       </div>
     </div>
 
@@ -2839,6 +2846,9 @@ const ensureLwMacd = () => {
       const tradeModal = document.getElementById('tradeModal');
       const tradeInfo = document.getElementById('tradeInfo');
       const tradeResultsBox = document.getElementById('tradeResultsBox');
+      const autoLogBox = document.getElementById('autoAiLogBox');
+      const autoSelect = document.getElementById('selectAutoRun');
+      const btnAutoMore = document.getElementById('btnAutoMore');
       const tradeHistoryBox = document.getElementById('tradeHistoryBox');
       const btnTradeStartBuy = document.getElementById('btnTradeStartBuy');
       const btnTradeStartSell = document.getElementById('btnTradeStartSell');
@@ -2847,6 +2857,20 @@ const ensureLwMacd = () => {
       const btnTradeClose = document.getElementById('btnTradeClose');
       const btnTradeMore = document.getElementById('btnTradeMore');
       let tradeState = { action: 'BUY', offset: 0, basicRunId: null, techRunId: null };
+      let autoSelectOffset = 0;
+      function appendAutoLog(msg, level='info') {
+        try {
+          const ts = new Date().toLocaleTimeString();
+          const color = level === 'error' ? '#e74c3c' : (level === 'warn' ? '#ff9800' : 'var(--muted)');
+          const line = `<div><span style="color:${color};">[${ts}]</span> ${esc(msg)}</div>`;
+          if (autoLogBox) {
+            autoLogBox.insertAdjacentHTML('beforeend', line);
+            autoLogBox.scrollTop = autoLogBox.scrollHeight;
+          }
+          if (!tradeState.autoSteps) tradeState.autoSteps = [];
+          tradeState.autoSteps.push({ ts: new Date().toISOString(), level, message: msg });
+        } catch {}
+      }
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
       const healthFreshEl = document.getElementById('healthFreshIndicator');
       const setHealthFreshRunning = () => {
@@ -3565,8 +3589,10 @@ const ensureLwMacd = () => {
             await loadTradeSourceDropdowns();
             const basicSel = el('selectBasicRun');
             if (basicSel) { basicSel.value = String(js.run_id); basicSel.dispatchEvent(new Event('change')); }
+            return js.run_id;
           }
         } catch {}
+        return null;
       }
       async function newTechCheckForTrade() {
         const sym = currentSymbol();
@@ -3583,18 +3609,24 @@ const ensureLwMacd = () => {
             await loadTradeSourceDropdowns();
             const techSel = el('selectTechRun');
             if (techSel) { techSel.value = String(js.run_id); techSel.dispatchEvent(new Event('change')); }
+            return js.run_id;
           }
         } catch {}
+        return null;
       }
       function openTradePlan(action) {
         tradeState.action = action || 'BUY';
         tradeState.offset = 0;
         if (tradeInfo) tradeInfo.textContent = `${currentSymbol()} • TF ${currentTf()}`;
         if (tradeResultsBox) tradeResultsBox.innerHTML = '';
+        if (autoLogBox) autoLogBox.innerHTML = '';
+        tradeState.autoSteps = [];
         if (tradeModal) tradeModal.style.display = 'flex';
         loadTradeSourceDropdowns();
         planSelectOffset = 0;
         loadPlanDropdown({ append: false });
+        autoSelectOffset = 0;
+        loadAutoDropdown({ append: false });
         loadTradeHistory();
       }
       async function loadTradeHistory() {
@@ -3645,6 +3677,8 @@ const ensureLwMacd = () => {
       if (btnTradeClose) btnTradeClose.addEventListener('click', ()=> { if (tradeModal) tradeModal.style.display = 'none'; });
       if (btnTradeMore) btnTradeMore.addEventListener('click', ()=> { tradeState.offset = (tradeState.offset||0) + 5; loadTradeHistory(); });
       if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', autoAiTrade);
+      if (autoSelect) autoSelect.addEventListener('change', () => { const v = Number(autoSelect.value); if (Number.isFinite(v)) renderSelectedAuto(v); });
+      if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoSelectOffset += 5; loadAutoDropdown({ append: true }); });
       async function executeAiPlan() {
         if (!lastAiPlan) return;
         const side = (lastAiPlan.position || '').toLowerCase();
@@ -3674,6 +3708,141 @@ const ensureLwMacd = () => {
         }
       }
       if (btnExecutePlan) btnExecutePlan.addEventListener('click', executeAiPlan);
+      async function loadAutoDropdown({ append = false, selectRunId = null } = {}) {
+        if (!autoSelect) return;
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','auto_ai_trade'); params.set('tf', tf); params.set('limit','5'); params.set('offset', String(autoSelectOffset));
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = Array.isArray(js.runs) ? js.runs : [];
+          if (!append) autoSelect.innerHTML = '';
+          if (!runs.length && !append) { autoSelect.innerHTML = '<option value="">(no auto logs)</option>'; return; }
+          const opts = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
+          autoSelect.insertAdjacentHTML('beforeend', opts);
+          if (!append) {
+            const defVal = selectRunId ? String(selectRunId) : (runs.length ? String(runs[0].id) : '');
+            if (defVal) autoSelect.value = defVal;
+          } else if (selectRunId) {
+            autoSelect.value = String(selectRunId);
+          }
+          if (autoSelect.value) {
+            await renderSelectedAuto(Number(autoSelect.value));
+          }
+        } catch {}
+      }
+      async function renderSelectedAuto(runId) {
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','auto_ai_trade'); params.set('tf', tf); params.set('limit', String(autoSelectOffset + 5)); params.set('offset','0');
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const all = Array.isArray(js.runs) ? js.runs : [];
+          const run = all.find(x => Number(x.id) === Number(runId));
+          if (!run) return;
+          const ans = run.answers || run.answers_json || {};
+          const steps = Array.isArray(ans.log) ? ans.log : [];
+          if (autoLogBox) {
+            autoLogBox.innerHTML = steps.map(s => {
+              const ts = s.ts ? new Date(s.ts).toLocaleString() : '';
+              const color = (s.level === 'error') ? '#e74c3c' : (s.level === 'warn' ? '#ff9800' : 'var(--muted)');
+              return `<div><span style=\"color:${color};\">[${esc(ts)}]</span> ${esc(s.message||'')}</div>`;
+            }).join('');
+          }
+        } catch {}
+      }
+      async function autoAiTrade() {
+        try {
+          const sym = currentSymbol();
+          const tf = currentTf();
+          if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
+          if (autoLogBox) autoLogBox.innerHTML = '';
+          tradeState.autoSteps = [];
+          appendAutoLog(`Auto AI Trade started for ${sym} ${tf}`);
+          appendAutoLog('Trigger Basic check…');
+          appendAutoLog('Trigger Tech+AI check…');
+          const [basicId, techId] = await Promise.all([ newBasicCheckForTrade(), newTechCheckForTrade() ]);
+          if (basicId) appendAutoLog(`Basic run id=${basicId}`);
+          if (techId) appendAutoLog(`Tech run id=${techId}`);
+          const params = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+          else { params.set('kind','stock'); params.set('symbol', sym); }
+          params.set('strategy','tech_snapshot_10q_position.json');
+          params.set('tf', tf);
+          params.set('limit','1');
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const latest = Array.isArray(js.runs) && js.runs.length ? js.runs[0] : null;
+          let side = null;
+          if (latest) {
+            const ans = latest.answers || latest.answers_json || {};
+            const scores = ans.scores || {};
+            if (typeof scores.NET === 'number') {
+              if (scores.NET > 0) side = 'BUY';
+              else if (scores.NET < 0) side = 'SELL';
+            } else if (typeof ans.signal === 'string') {
+              const sig = ans.signal.toUpperCase();
+              if (sig.includes('BUY')) side = 'BUY';
+              else if (sig.includes('SELL')) side = 'SELL';
+            }
+          }
+          if (!side) { status('Tech+AI is neutral — no trade.'); appendAutoLog('Neutral signal — no trade.', 'warn'); return; }
+          appendAutoLog(`Signal: ${side}`);
+          appendAutoLog(`Drafting ${side} plan…`);
+          const planResp = await (async ()=>{
+            const lev = getLeverageValue();
+            const snapshot = buildTechSnapshotString();
+            const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
+            const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+            const js = await r.json().catch(()=>({}));
+            return { ok: !!(js && js.ok), data: js };
+          })();
+          if (!planResp.ok) { appendAutoLog(`Plan failed: ${(planResp.data && planResp.data.error) || 'unknown'}`, 'error'); return; }
+          const planRunId = planResp.data && planResp.data.run_id ? Number(planResp.data.run_id) : null;
+          if (planRunId) appendAutoLog(`Plan run id=${planRunId}`);
+          const p = (planResp.data && planResp.data.plan) || {};
+          lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
+          updateExecuteBtn();
+          appendAutoLog('Executing order…');
+          const sideLower = (side||'').toLowerCase();
+          const body = new URLSearchParams({ symbol: sym, side: sideLower, volume: String(el('volume') ? el('volume').value : '0.10') });
+          if (p.stop_loss != null) body.set('sl', String(p.stop_loss));
+          if (p.take_profit != null) body.set('tp', String(p.take_profit));
+          const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
+          const tj = await tr.json().catch(()=>({}));
+          const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
+          const orderId = (tj && tj.result && (tj.result.order || tj.result.deal)) ? (tj.result.order || tj.result.deal) : null;
+          if (ok) appendAutoLog(`Order placed: id=${orderId != null ? orderId : '—'}`); else appendAutoLog(`Order failed: ${(tj && tj.error) || tr.statusText || 'unknown'}`, 'error');
+          try {
+            const save = await fetch('/api/auto_trade/log', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: planRunId || null, order_result: tj || {}, steps: (tradeState.autoSteps || []) })
+            });
+            const saved = await save.json().catch(()=>({}));
+            if (saved && saved.ok && saved.run_id) {
+              appendAutoLog(`Saved log run id=${saved.run_id}`);
+              autoSelectOffset = 0;
+              await loadAutoDropdown({ append: false, selectRunId: Number(saved.run_id) });
+            }
+          } catch {}
+          try { await refreshChart(); } catch {}
+          try { await refreshPositions(); } catch {}
+        } catch (e) {
+          status(`Auto AI Trade failed: ${e && e.message || e}`);
+          appendAutoLog(`Auto AI Trade failed: ${e && e.message || e}`, 'error');
+        } finally {
+          try { await refreshTechFreshness(); } catch {}
+          try { await refreshHealthFreshness(); } catch {}
+        }
+      }
       async function autoAiTrade() {
         try {
           const sym = currentSymbol();

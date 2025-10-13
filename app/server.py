@@ -1905,6 +1905,7 @@ async def make_app():
             (r"/api/health/run", HealthRunHandler, dict(pool=pool)),
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
             (r"/api/ai/trade_plan", TradePlanHandler, dict(pool=pool)),
+            (r"/api/auto_trade/log", AutoTradeLogHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
             (r"/api/trades/signal", SignalTradesHandler, dict(pool=pool)),
@@ -3381,6 +3382,8 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                     return "tech"
                 if strat == "ai_trade_plan":
                     return "plan"
+                if strat == "auto_ai_trade":
+                    return "auto"
                 return "basic"
             grouped = [r for r in runs if derive_group(r) == g]
             # Apply offset/limit after grouping
@@ -4492,6 +4495,66 @@ class TradePlanHandler(tornado.web.RequestHandler):
             "run_id": run_id,
             "created_at": created_at,
         }))
+
+
+class AutoTradeLogHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        try:
+            payload = json.loads(self.request.body or "{}")
+        except Exception:
+            payload = {}
+        symbol = str(payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
+        timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
+        action = str(payload.get("action") or "").upper() or None
+        basic_run_id = payload.get("basic_run_id")
+        tech_run_id = payload.get("tech_run_id")
+        plan_run_id = payload.get("plan_run_id")
+        order_result = payload.get("order_result") or {}
+        steps = payload.get("steps") or []
+        # Determine kind + base/quote
+        kind = "forex_pair" if _is_fx_symbol(symbol) else "stock"
+        base_ccy = symbol[:3] if kind == "forex_pair" else None
+        quote_ccy = symbol[3:6] if kind == "forex_pair" else None
+        # Persist as a health_run with strategy 'auto_ai_trade'
+        answers_json = {
+            "strategy": "auto_ai_trade",
+            "group": "auto",
+            "log": steps,
+            "meta": {
+                "timeframe": timeframe,
+                "symbol": symbol,
+                "action": action,
+                "basic_run_id": basic_run_id,
+                "tech_run_id": tech_run_id,
+                "plan_run_id": plan_run_id,
+                "order_result": order_result,
+            },
+        }
+        try:
+            ins = await insert_health_run(
+                self.pool,
+                kind=kind,
+                symbol=(symbol if kind == "stock" else f"{base_ccy}{quote_ccy}"),
+                base_ccy=base_ccy,
+                quote_ccy=quote_ccy,
+                news_count=0,
+                news_ids=[],
+                answers_json=answers_json,
+            )
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({
+                "ok": True,
+                "run_id": ins.get("id"),
+                "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
+            }))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
 def main():
     # Load .env automatically if present (handy on Windows)
     # Allow .env to override any previously-set variables in this process
