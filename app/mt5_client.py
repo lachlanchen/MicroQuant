@@ -259,6 +259,27 @@ class MT5Client:
             out.append(self.place_market(symbol, side, float(p.volume), deviation, comment="auto-quant-close"))
         return out
 
+    def close_all(self, deviation: int = 20) -> list[dict]:
+        """Close all open positions across all symbols.
+        Note: Uses netting behavior by sending opposite market orders for each position.
+        """
+        self._ensure_initialized()
+        all_pos = mt5.positions_get() or []
+        out: list[dict] = []
+        for p in all_pos:
+            try:
+                sym = str(getattr(p, "symbol", ""))
+                if not sym:
+                    continue
+                side = "sell" if int(getattr(p, "type", 0)) == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
+                vol = float(getattr(p, "volume", 0.0))
+                if vol <= 0:
+                    continue
+                out.append(self.place_market(sym, side, vol, deviation, comment="auto-quant-close"))
+            except Exception:
+                continue
+        return out
+
     def get_tick(self, symbol: str) -> dict:
         self._ensure_initialized()
         if not mt5.symbol_select(symbol, True):

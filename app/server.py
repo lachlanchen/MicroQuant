@@ -1847,17 +1847,15 @@ class TradeHandler(tornado.web.RequestHandler):
 
 class CloseHandler(tornado.web.RequestHandler):
     async def get(self):
-        enabled = (os.getenv("TRADING_ENABLED", "0").lower() in ("1", "true", "yes"))
-        if not enabled:
-            self.set_status(403)
-            self.set_header("Content-Type", "application/json")
-            self.set_header("Cache-Control", "no-store")
-            self.finish(json.dumps({"ok": False, "error": "trading_disabled (set TRADING_ENABLED=1)"}))
-            return
+        # Allow closing positions regardless of TRADING_ENABLED for safety
+        scope = self.get_argument("scope", default="current").lower()
         symbol = self.get_argument("symbol", default=default_symbol())
-        logger.info("/api/close symbol=%s", symbol)
+        logger.info("/api/close scope=%s symbol=%s", scope, symbol)
         try:
-            res = mt5_client.close_all_for(symbol)
+            if scope == "all":
+                res = mt5_client.close_all()
+            else:
+                res = mt5_client.close_all_for(symbol)
         except Exception as e:
             logger.exception("close positions failed: %s", e)
             self.set_status(500)
@@ -1867,7 +1865,7 @@ class CloseHandler(tornado.web.RequestHandler):
             return
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
-        self.finish(json.dumps({"ok": True, "closed": res}))
+        self.finish(json.dumps({"ok": True, "closed": res, "scope": scope}))
 
     async def post(self):
         return await self.get()

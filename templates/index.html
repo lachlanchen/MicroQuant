@@ -195,7 +195,8 @@
         </label>
         <button class="btn btn-buy" id="btnBuy">Buy</button>
         <button class="btn btn-sell" id="btnSell">Sell</button>
-        <button class="btn secondary" id="btnClose">Close All</button>
+        <button class="btn secondary" id="btnClose">Close Current</button>
+        <button class="btn secondary" id="btnCloseAll">Close ALL</button>
       </div>
     </div>
     <div id="status"></div>
@@ -459,8 +460,26 @@
           <div class="row" style="gap:8px; margin-top:6px;">
             <button class="btn secondary" id="btnTradeMore" style="padding:6px 10px;">More</button>
             <button class="btn" id="btnTradeStart" style="padding:6px 10px;">Start</button>
-          </div>
+    </div>
+  </div>
+
+  <!-- Close Positions Modal -->
+  <div id="closeModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>Close Positions</h3>
+        <button id="btnCloseModalX" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body" style="padding:12px;">
+        <div id="closeModalText" style="margin-bottom:10px; color:var(--muted);"></div>
+        <div class="row" style="gap:8px;">
+          <button class="btn" id="btnConfirmCloseCurrent" style="padding:6px 10px;">Close Current</button>
+          <button class="btn secondary" id="btnConfirmCloseAll" style="padding:6px 10px;">Close ALL</button>
+          <button class="btn secondary" id="btnCloseModalCancel" style="padding:6px 10px;">Cancel</button>
         </div>
+      </div>
+    </div>
+  </div>
         <div id="tradeResultsBox" style="margin-top:10px;"></div>
       </div>
     </div>
@@ -4519,19 +4538,43 @@ const ensureLwMacd = () => {
         }
       }
 
-      async function closeAll() {
+      function openCloseModal() {
+        const modal = el('closeModal');
+        if (!modal) return;
+        const sym = currentSymbol();
+        const txt = el('closeModalText');
+        if (txt) txt.textContent = `Close all open positions for ${sym} (Current) or across ALL symbols?`;
+        modal.style.display = 'flex';
+      }
+
+      function hideCloseModal() { const m = el('closeModal'); if (m) m.style.display = 'none'; }
+
+      async function doClose(scope) {
         const symbol = currentSymbol();
         status('Closing positions...');
-        const body = new URLSearchParams({ symbol });
-        const r = await fetch(`/api/close`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
-        const js = await r.json().catch(() => ({}));
-        if (js.ok) {
-          status(`Closed positions: ${JSON.stringify(js.closed)}`);
-          await refreshChart();
-          await refreshPositions();
-        } else {
-          status(`Close error: ${js.error || r.statusText}`);
-        }
+        try {
+          let url;
+          let opts;
+          if (scope === 'all') {
+            url = '/api/close?scope=all';
+            opts = { method:'POST', cache:'no-store' };
+          } else {
+            const body = new URLSearchParams({ symbol });
+            url = '/api/close';
+            opts = { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body, cache:'no-store' };
+          }
+          const r = await fetch(url, opts);
+          const js = await r.json().catch(()=>({}));
+          if (r.ok && js && js.ok) {
+            status(`Closed ${Array.isArray(js.closed)?js.closed.length:0} position(s) [${js.scope||scope}]`);
+            await refreshChart();
+            await refreshPositions();
+          } else {
+            status(`Close error: ${js.error || r.statusText}`);
+          }
+        } catch (e) {
+          status(`Close error: ${e && e.message || e}`);
+        } finally { hideCloseModal(); }
       }
 
       async function refreshPositions() {
@@ -5124,11 +5167,23 @@ const ensureLwMacd = () => {
       const btnBuyEl = document.getElementById('btnBuy');
       const btnSellEl = document.getElementById('btnSell');
       const btnCloseEl = document.getElementById('btnClose');
+      const btnCloseAllEl = document.getElementById('btnCloseAll');
       const btnPosEl = document.getElementById('btnPos');
       if (btnBuyEl) btnBuyEl.addEventListener('click', () => trade('buy'));
       if (btnSellEl) btnSellEl.addEventListener('click', () => trade('sell'));
-      if (btnCloseEl) btnCloseEl.addEventListener('click', closeAll);
+      if (btnCloseEl) btnCloseEl.addEventListener('click', openCloseModal);
+      if (btnCloseAllEl) btnCloseAllEl.addEventListener('click', () => { openCloseModal(); });
       if (btnPosEl) btnPosEl.addEventListener('click', refreshPositions);
+
+      // Close modal actions
+      const btnCloseModalX = document.getElementById('btnCloseModalX');
+      const btnCloseModalCancel = document.getElementById('btnCloseModalCancel');
+      const btnConfirmCloseCurrent = document.getElementById('btnConfirmCloseCurrent');
+      const btnConfirmCloseAll = document.getElementById('btnConfirmCloseAll');
+      if (btnCloseModalX) btnCloseModalX.addEventListener('click', hideCloseModal);
+      if (btnCloseModalCancel) btnCloseModalCancel.addEventListener('click', hideCloseModal);
+      if (btnConfirmCloseCurrent) btnConfirmCloseCurrent.addEventListener('click', () => doClose('current'));
+      if (btnConfirmCloseAll) btnConfirmCloseAll.addEventListener('click', () => doClose('all'));
 
       // Ticker poll (bid/ask + update button labels)
       let tickTimer = null;
