@@ -3035,8 +3035,9 @@ const ensureLwMacd = () => {
           const p = js.plan || {};
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: js.symbol, timeframe: js.timeframe };
           const enforced = js.enforced ? ' (risk cap applied)' : '';
+          const created = js.created_at ? new Date(js.created_at).toLocaleString() : '';
           outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
-            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}</span>
+            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>
           </div>
           <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
             <span class="pill" style="background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};">${esc(p.position||'')}</span>
@@ -3081,8 +3082,9 @@ const ensureLwMacd = () => {
           const pos = (plan.position || '').toUpperCase();
           const enforced = (ans.meta && ans.meta.enforced) ? ' (risk cap applied)' : '';
           lastAiPlan = { position: pos, stop_loss: plan.stop_loss, take_profit: plan.take_profit, symbol: sym, timeframe: tf };
+          const created = run.created_at ? new Date(run.created_at).toLocaleString() : '';
           outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
-            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(sym)} ${esc(tf)}${enforced}</span>
+            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>
           </div>
           <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
             <span class="pill" style="background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};">${esc(pos || '-')}
@@ -3140,7 +3142,8 @@ const ensureLwMacd = () => {
           if (!r.ok || !js || js.ok !== true) { if (outBox) outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
           const p = js.plan || {};
           const enforced = js.enforced ? ' (risk cap applied)' : '';
-          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};\">${esc(p.position||'')}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
+          const created = js.created_at ? new Date(js.created_at).toLocaleString() : '';
+          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};\">${esc(p.position||'')}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
           // Update inline preview cache and Execute button
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: js.symbol, timeframe: js.timeframe };
           updateExecuteBtn();
