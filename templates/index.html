@@ -2558,6 +2558,8 @@ const ensureLwMacd = () => {
         const outBox = el('healthResultsBox');
         outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
         try {
+          // Always refresh latest news for this symbol first so Basic uses freshest DB rows
+          try { await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
           // Optimistically show running state on Basic freshness
           if (typeof setHealthFreshRunning === 'function') setHealthFreshRunning();
           // Optional model override for Basic Health
@@ -5598,7 +5600,8 @@ const ensureLwMacd = () => {
           btnNews.textContent = 'Refreshing…';
         }
         try {
-          const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+          // Force a live refresh then read from DB
+          const r = await fetch(`/api/news?symbol=${encodeURIComponent(symbol)}&refresh=1`, { cache: 'no-store' });
           const js = await r.json();
           if (js && js.ok) {
             const items = js.news || [];

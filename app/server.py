@@ -426,6 +426,37 @@ def _is_fx_symbol(sym: str | None) -> bool:
     return s.startswith(("XAU", "XAG", "XPT", "XPD"))
 
 
+def _build_pair_prompt_one_combined(question_text: str, pair_symbol: str, items: list[dict], timeframe: str | None) -> str:
+    blk = _articles_to_text(items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are an FX analyst. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
+        "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
+        f"Pair: {pair_symbol}\n{tf_line}\n\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Question: {question_text}\n"
+    )
+
+
+def _build_pair_prompt_choice_combined(
+    question_text: str,
+    pair_symbol: str,
+    items: list[dict[str, Any]],
+    timeframe: str | None,
+    options: list[str],
+) -> str:
+    blk = _articles_to_text(items)
+    allowed = ", ".join(options)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are an FX analyst. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
+        f"Choose exactly one from: {allowed}. Be decisive and cite the strongest evidence.\n\n"
+        f"Pair: {pair_symbol}\n{tf_line}\n\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Question: {question_text}\n"
+    )
+
+
 async def run_news_backfill(days: int = 7) -> dict:
     if GLOBAL_POOL is None:
         return {"ok": False, "error": "no_pool"}
@@ -2931,9 +2962,34 @@ class NewsHandler(tornado.web.RequestHandler):
 
     async def get(self):
         symbol = self.get_argument("symbol", default=default_symbol())
+        refresh_flag = self.get_argument("refresh", default="0").lower() in ("1", "true", "yes")
         loop = tornado.ioloop.IOLoop.current()
         one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-        logger.info("/api/news symbol=%s (since %s)", symbol, one_week_ago.date().isoformat())
+        logger.info("/api/news symbol=%s (since %s) refresh=%s", symbol, one_week_ago.date().isoformat(), refresh_flag)
+        rows = []
+        if refresh_flag:
+            try:
+                digest = await loop.run_in_executor(EXECUTOR, lambda: fetch_symbol_digest(symbol, limit=50))
+                live = digest.get("news", [])
+                for it in live:
+                    it["symbol"] = symbol.upper()
+                if live:
+                    try:
+                        inserted = await upsert_news_articles(self.pool, live)
+                        logger.info("[news] refresh fetched=%d inserted=%d for %s", len(live), inserted, symbol)
+                        if inserted:
+                            await emit_news_event(
+                                symbol=symbol,
+                                status="refreshed",
+                                scope="manual",
+                                background=False,
+                                items=inserted,
+                                note="refresh",
+                            )
+                    except Exception:
+                        logger.exception("[news] refresh upsert failed for %s", symbol)
+            except Exception as e:
+                logger.warning("[news] refresh fetch failed for %s: %s", symbol, e)
         try:
             rows = await fetch_news_db(self.pool, symbol.upper(), since=one_week_ago, limit=30)
         except Exception:
@@ -3395,23 +3451,37 @@ class HealthRunHandler(tornado.web.RequestHandler):
             return
 
         if kind == "forex_pair":
+            # Derive pair symbol
+            sym = str(payload.get("symbol") or symbol_raw or "").upper()
             base = str(payload.get("base_currency") or payload.get("base") or "").upper()
             quote = str(payload.get("quote_currency") or payload.get("quote") or "").upper()
-            sym = str(payload.get("symbol") or symbol_raw or "")
-            if (not base or not quote) and sym:
-                s = sym.upper()
-                if len(s) >= 6:
-                    base, quote = s[:3], s[3:6]
-            if not base or not quote:
+            if (not sym or len(sym) < 6) and base and quote:
+                sym = f"{base}{quote}"
+            if not sym or len(sym) < 6:
                 self.set_status(400)
                 self.set_header("Content-Type", "application/json")
-                self.finish(json.dumps({"ok": False, "error": "base_currency/quote_currency required"}))
+                self.finish(json.dumps({"ok": False, "error": "symbol (pair) required e.g. XAUUSD"}))
                 return
+            base, quote = sym[:3], sym[3:6]
 
-            base_items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(base, limit=news_count))
-            quote_items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(quote, limit=news_count))
-            base_items = base_items[:news_count]
-            quote_items = quote_items[:news_count]
+            # Refresh latest news for the pair, then read from DB newest-first (7d window)
+            try:
+                digest = await loop.run_in_executor(EXECUTOR, lambda: fetch_symbol_digest(sym, limit=max(30, news_count)))
+                live = digest.get("news", [])
+                if live:
+                    for it in live:
+                        it["symbol"] = sym
+                    try:
+                        await upsert_news_articles(self.pool, live)
+                    except Exception:
+                        logger.debug("[health] pair refresh upsert failed", exc_info=True)
+            except Exception:
+                pass
+            one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            try:
+                items = await fetch_news_db(self.pool, sym, since=one_week_ago, limit=news_count)
+            except Exception:
+                items = []
 
             allowed = ALLOWED_STRATEGIES.get("forex_pair", set())
             # Auto-pick metals compact template for XAU/XAG when no override provided
@@ -3433,7 +3503,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             if answer_type not in {"bool", "choice"}:
                 answer_type = "bool"
             choice_template = strat.get("answer_options") if answer_type == "choice" else []
-            logger.info("[health] strategy=%s kind=forex_pair symbol=%s%s news=%d", strategy_name, base, quote, news_count)
+            logger.info("[health] strategy=%s kind=forex_pair symbol=%s news=%d", strategy_name, sym, news_count)
 
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
@@ -3468,7 +3538,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     ]
                     if not resolved_options:
                         resolved_options = [base.upper(), quote.upper()]
-                    prompt = _build_pair_prompt_choice(question_text, base, quote, base_items, quote_items, timeframe, resolved_options)
+                    prompt = _build_pair_prompt_choice_combined(question_text, sym, items, timeframe, resolved_options)
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         _make_choice_schema(resolved_options),
@@ -3482,7 +3552,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         ans_raw = resolved_options[0]
                     expl = str((out or {}).get("explanation") or "").strip()
                     return (qid, ans_raw, expl)
-                prompt = _build_pair_prompt_one(question_text, base, quote, base_items, quote_items, timeframe)
+                prompt = _build_pair_prompt_one_combined(question_text, sym, items, timeframe)
                 out = AI_CLIENT.send_request_with_json_schema(
                     prompt,
                     HEALTH_BOOL_SCHEMA,
@@ -3541,19 +3611,13 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 except Exception:
                     continue
 
-            news_ids = []
-            for it in base_items:
-                if it.get("url"):
-                    news_ids.append(f"{base}:{it['url']}")
-            for it in quote_items:
-                if it.get("url"):
-                    news_ids.append(f"{quote}:{it['url']}")
+            news_ids = [it.get("url") for it in items if it.get("url")]
 
             # Compute the newest used news timestamp for metadata (helps freshness without DB lookups)
             def _extract_pub(it):
                 v = (it or {}).get("published_at") or (it or {}).get("published") or (it or {}).get("publishedAt")
                 return str(v) if v else None
-            used_ts_values = [t for t in map(_extract_pub, (base_items + quote_items)) if t]
+            used_ts_values = [t for t in map(_extract_pub, items) if t]
             latest_used_iso = None
             base_min = base_max = quote_min = quote_max = None
             if used_ts_values:
@@ -3588,15 +3652,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
             # Trace what we used for baseline on this run
             try:
                 logger.info(
-                    "[health.run.basic] %s%s items base=%d(%s→%s) quote=%d(%s→%s) meta.last_used=%s",
-                    base,
-                    quote,
-                    len(base_items),
-                    base_min,
-                    base_max,
-                    len(quote_items),
-                    quote_min,
-                    quote_max,
+                    "[health.run.basic] %s items=%d meta.last_used=%s",
+                    sym,
+                    len(items),
                     latest_used_iso,
                 )
             except Exception:
@@ -3615,7 +3673,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             ins = await insert_health_run(
                 self.pool,
                 kind="forex_pair",
-                symbol=f"{base}{quote}",
+                symbol=sym,
                 base_ccy=base,
                 quote_ccy=quote,
                 news_count=news_count,
@@ -3630,10 +3688,10 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     {
                         "ok": True,
                         "kind": "forex_pair",
-                        "symbol": f"{base}{quote}",
+                        "symbol": sym,
                         "base": base,
                         "quote": quote,
-                        "used_news": {"base": base_items, "quote": quote_items},
+                        "used_news": items,
                         "answers": ans_struct,
                         "score": score_value,
                         "scores": scores_payload,
