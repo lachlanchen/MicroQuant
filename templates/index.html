@@ -2546,7 +2546,7 @@ const ensureLwMacd = () => {
         if (healthState.strategy) { params.set('strategy', healthState.strategy); }
         if (healthState.group) { params.set('group', healthState.group); }
         if (healthState.excludeStrategy) { params.set('exclude_strategy', healthState.excludeStrategy); }
-        if (healthState.strategy === 'tech_snapshot_10q.json') { params.set('tf', currentTf()); }
+        if (healthState.strategy === 'tech_snapshot_10q.json' || healthState.strategy === 'tech_snapshot_10q_position.json') { params.set('tf', currentTf()); }
         try {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
@@ -2662,6 +2662,12 @@ const ensureLwMacd = () => {
             return;
           }
           renderHealthOutcome(outBox, data);
+          // After a Tech+AI run, show Tech group history filtered by the chosen strategy
+          if (typeof healthState === 'object') {
+            healthState.group = 'tech';
+            healthState.strategy = body.strategy || 'tech_snapshot_10q_position.json';
+            healthState.offset = 0;
+          }
           loadHealthHistory();
           refreshHealthFreshness();
         } catch (e) {
