@@ -1524,6 +1524,23 @@
             timeScale: { rightOffset: 2, fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
           });
+          // Ensure the pane has a sensible size even if CSS hasn't sized it yet
+          try {
+            const rect = elBal.getBoundingClientRect();
+            if ((rect?.height || 0) < 40) {
+              elBal.style.minHeight = '180px';
+            }
+            const w = Math.max(100, Math.floor(elBal.clientWidth || rect.width || 800));
+            const h = Math.max(120, Math.floor(elBal.clientHeight || rect.height || 180));
+            lwBalanceChart.applyOptions({ width: w, height: h });
+            const ro = new ResizeObserver(() => {
+              const r = elBal.getBoundingClientRect();
+              const nw = Math.max(100, Math.floor(elBal.clientWidth || r.width || 800));
+              const nh = Math.max(120, Math.floor(elBal.clientHeight || r.height || 180));
+              lwBalanceChart.applyOptions({ width: nw, height: nh });
+            });
+            ro.observe(elBal);
+          } catch (e) { /* ignore sizing errors */ }
         }
         if (lwBalanceChart && !lwBalanceSeries) {
           lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2, priceScaleId: 'right' });
