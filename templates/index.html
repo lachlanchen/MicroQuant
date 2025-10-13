@@ -3490,18 +3490,23 @@ const ensureLwMacd = () => {
         const current = currentTf();
         stlOverlayControls.innerHTML = '';
         stlOverlayInputs.clear();
-        // Auto STL toggle button (per symbol × timeframe)
-        const autoBtn = document.createElement('button');
-        autoBtn.className = 'btn secondary';
-        autoBtn.id = 'btnStlAutoCompute';
-        autoBtn.style.padding = '6px 10px';
+        // Auto STL switch (per symbol × timeframe)
         const getAutoKey = () => `stl_auto_compute:${symbol}:${current}`;
         const readAuto = () => { try { return (localStorage.getItem(getAutoKey()) === '1'); } catch { return false; } };
         const writeAuto = (val) => { try { localStorage.setItem(getAutoKey(), val ? '1' : '0'); } catch {} };
-        const applyLabel = (val) => { autoBtn.textContent = val ? 'Auto STL: On' : 'Auto STL: Off'; };
-        applyLabel(readAuto());
-        autoBtn.addEventListener('click', () => { const next = !readAuto(); writeAuto(next); applyLabel(next); });
-        stlOverlayControls.appendChild(autoBtn);
+        const autoWrap = document.createElement('label');
+        autoWrap.className = 'switch';
+        autoWrap.style.marginRight = '8px';
+        const autoChk = document.createElement('input');
+        autoChk.type = 'checkbox';
+        autoChk.id = 'chkStlAutoCompute';
+        autoChk.checked = !!readAuto();
+        autoChk.addEventListener('change', () => { writeAuto(!!autoChk.checked); });
+        const autoText = document.createElement('span');
+        autoText.textContent = 'Auto STL';
+        autoWrap.appendChild(autoChk);
+        autoWrap.appendChild(autoText);
+        stlOverlayControls.appendChild(autoWrap);
 
         const label = document.createElement('span');
         label.textContent = 'Overlay STL';
