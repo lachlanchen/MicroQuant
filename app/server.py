@@ -1850,12 +1850,15 @@ class CloseHandler(tornado.web.RequestHandler):
         # Allow closing positions regardless of TRADING_ENABLED for safety
         scope = self.get_argument("scope", default="current").lower()
         symbol = self.get_argument("symbol", default=default_symbol())
-        logger.info("/api/close scope=%s symbol=%s", scope, symbol)
+        side = self.get_argument("side", default="both").lower()
+        if side not in {"both", "long", "short"}:
+            side = "both"
+        logger.info("/api/close scope=%s symbol=%s side=%s", scope, symbol, side)
         try:
             if scope == "all":
-                res = mt5_client.close_all()
+                res = mt5_client.close_all(side=None if side == "both" else side)
             else:
-                res = mt5_client.close_all_for(symbol)
+                res = mt5_client.close_all_for(symbol, side=None if side == "both" else side)
         except Exception as e:
             logger.exception("close positions failed: %s", e)
             self.set_status(500)
@@ -1869,8 +1872,8 @@ class CloseHandler(tornado.web.RequestHandler):
             closed_count = len(res) if isinstance(res, list) else 0
         except Exception:
             closed_count = 0
-        logger.info("/api/close done scope=%s symbol=%s closed=%d", scope, symbol, closed_count)
-        self.finish(json.dumps({"ok": True, "closed": res, "closed_count": closed_count, "scope": scope}))
+        logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d", scope, symbol, side, closed_count)
+        self.finish(json.dumps({"ok": True, "closed": res, "closed_count": closed_count, "scope": scope, "side": side}))
 
     async def post(self):
         return await self.get()

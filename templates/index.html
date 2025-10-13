@@ -478,6 +478,18 @@
         </div>
         <div class="modal-body" style="padding:12px;">
           <div id="closeModalText" style="margin-bottom:10px; color:var(--muted);"></div>
+          <div class="row" style="gap:12px; align-items:center; margin-bottom:8px;">
+            <label class="switch" style="gap:6px;">
+              <input type="checkbox" id="chkCloseLong" class="toggle-input" />
+              <span class="toggle"></span>
+              <span>Close Long</span>
+            </label>
+            <label class="switch" style="gap:6px;">
+              <input type="checkbox" id="chkCloseShort" class="toggle-input" />
+              <span class="toggle"></span>
+              <span>Close Short</span>
+            </label>
+          </div>
           <div class="row" style="gap:8px;">
             <button class="btn" id="btnConfirmCloseCurrent" style="padding:6px 10px;">Close Current</button>
             <button class="btn secondary" id="btnConfirmCloseAll" style="padding:6px 10px;">Close ALL</button>
@@ -4549,15 +4561,23 @@ const ensureLwMacd = () => {
         if (txt) txt.textContent = `Close all open positions for ${sym} (Current) or across ALL symbols?`;
         modal.dataset.scope = (defaultScope === 'all') ? 'all' : 'current';
         console.log('[Close] open modal scope=', modal.dataset.scope);
+        // reset toggles
+        const cL = el('chkCloseLong'); if (cL) cL.checked = false;
+        const cS = el('chkCloseShort'); if (cS) cS.checked = false;
         modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden','false');
       }
 
-      function hideCloseModal() { const m = el('closeModal'); if (m) m.style.display = 'none'; }
+      function hideCloseModal() { const m = el('closeModal'); if (m) { m.style.display = 'none'; m.setAttribute('aria-hidden','true'); } }
 
       async function doClose(scope) {
         const symbol = currentSymbol();
         const effScope = scope || (el('closeModal') && el('closeModal').dataset.scope) || 'current';
-        status(`Closing positions (${effScope})...`);
+        const cL = el('chkCloseLong'); const cS = el('chkCloseShort');
+        const wantLong = !!(cL && cL.checked); const wantShort = !!(cS && cS.checked);
+        if (!wantLong && !wantShort) { status('Select at least one side (Long/Short) to close.'); return; }
+        const sideParam = (wantLong && wantShort) ? 'both' : (wantLong ? 'long' : 'short');
+        status(`Closing positions (${effScope}, ${sideParam})...`);
         console.log('[Close] confirm scope=', effScope, 'symbol=', symbol);
         // simple effect: disable buttons while closing
         const btnCur = document.getElementById('btnConfirmCloseCurrent');
@@ -4570,11 +4590,11 @@ const ensureLwMacd = () => {
           let url;
           let opts;
           if (effScope === 'all') {
-            url = '/api/close?scope=all';
+            url = `/api/close?scope=all&side=${encodeURIComponent(sideParam)}`;
             opts = { method:'POST', cache:'no-store' };
           } else {
             const body = new URLSearchParams({ symbol });
-            url = '/api/close';
+            url = `/api/close?side=${encodeURIComponent(sideParam)}`;
             opts = { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body, cache:'no-store' };
           }
           const r = await fetch(url, opts);

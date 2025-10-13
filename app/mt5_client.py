@@ -250,34 +250,45 @@ class MT5Client:
             "comment": getattr(result, "comment", ""),
         }
 
-    def close_all_for(self, symbol: str, deviation: int = 20) -> list[dict]:
+    def close_all_for(self, symbol: str, deviation: int = 20, side: str | None = None) -> list[dict]:
         # In netting accounts, sending the opposite market order with same volume reduces/closes
         pos = self.positions_for(symbol)
-        self.logger.info("close_all_for symbol=%s positions=%d", symbol, len(pos))
+        self.logger.info("close_all_for symbol=%s positions=%d side=%s", symbol, len(pos), side)
         out = []
         for p in pos:
-            side = "sell" if int(p.type) == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
-            out.append(self.place_market(symbol, side, float(p.volume), deviation, comment="auto-quant-close"))
+            ptype = int(getattr(p, "type", 0))
+            # Filter by requested side: 'long' closes only buys; 'short' closes only sells
+            if side == "long" and ptype != getattr(mt5, "POSITION_TYPE_BUY", 0):
+                continue
+            if side == "short" and ptype != getattr(mt5, "POSITION_TYPE_SELL", 1):
+                continue
+            opp = "sell" if ptype == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
+            out.append(self.place_market(symbol, opp, float(getattr(p, "volume", 0.0)), deviation, comment="auto-quant-close"))
         return out
 
-    def close_all(self, deviation: int = 20) -> list[dict]:
+    def close_all(self, deviation: int = 20, side: str | None = None) -> list[dict]:
         """Close all open positions across all symbols.
         Note: Uses netting behavior by sending opposite market orders for each position.
         """
         self._ensure_initialized()
         all_pos = mt5.positions_get() or []
-        self.logger.info("close_all across symbols positions=%d", len(all_pos))
+        self.logger.info("close_all across symbols positions=%d side=%s", len(all_pos), side)
         out: list[dict] = []
         for p in all_pos:
             try:
                 sym = str(getattr(p, "symbol", ""))
                 if not sym:
                     continue
-                side = "sell" if int(getattr(p, "type", 0)) == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
+                ptype = int(getattr(p, "type", 0))
+                if side == "long" and ptype != getattr(mt5, "POSITION_TYPE_BUY", 0):
+                    continue
+                if side == "short" and ptype != getattr(mt5, "POSITION_TYPE_SELL", 1):
+                    continue
+                opp = "sell" if ptype == getattr(mt5, "POSITION_TYPE_BUY", 0) else "buy"
                 vol = float(getattr(p, "volume", 0.0))
                 if vol <= 0:
                     continue
-                out.append(self.place_market(sym, side, vol, deviation, comment="auto-quant-close"))
+                out.append(self.place_market(sym, opp, vol, deviation, comment="auto-quant-close"))
             except Exception:
                 continue
         return out
