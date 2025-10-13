@@ -243,11 +243,11 @@
               <button class="btn secondary" id="btnSyncClosed" style="padding:4px 8px;">Sync</button>
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="font-size:12px; color:var(--muted);">Closed PnL refresh (min)</span>
-                <input id="closedPollMin" type="number" min="1" value="{{ default_closed_orders_poll_min }}" style="width:72px;" />
+                <input id="closedPollMin" type="number" min="1" value="{% try %}{{ default_closed_orders_poll_min }}{% except %}30{% end %}" style="width:72px;" />
               </label>
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="font-size:12px; color:var(--muted);">Balance snapshot (min)</span>
-                <input id="balancePollMin" type="number" min="1" value="{{ default_balance_poll_min }}" style="width:72px;" />
+                <input id="balancePollMin" type="number" min="1" value="{% try %}{{ default_balance_poll_min }}{% except %}60{% end %}" style="width:72px;" />
               </label>
               <button class="btn secondary" id="btnSaveIntervals" style="padding:4px 8px;">Save</button>
             </div>
