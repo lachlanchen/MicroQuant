@@ -435,7 +435,7 @@ def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: 
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
-        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
         "Task: Based on the evidence above, provide the trade orientation JSON."
@@ -447,7 +447,7 @@ def _build_pair_prompt_position_question(question_text: str, pair_symbol: str, i
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
-        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
         f"Question: {question_text}\n"
@@ -460,7 +460,7 @@ def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str 
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
-        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
         "Task: Based on the evidence above, provide the trade orientation JSON."
@@ -472,7 +472,7 @@ def _build_stock_prompt_position_question(question_text: str, ticker: str, items
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
-        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
         f"Question: {question_text}\n"

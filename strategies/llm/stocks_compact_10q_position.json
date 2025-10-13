@@ -62,7 +62,7 @@
       "Output must match: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}",
       "Use uppercase BUY/SELL in 'position'.",
       "Provide numeric placeholders for sl/tp if exact levels are unavailable.",
-      "Keep the explanation to one concise sentence citing the strongest evidence from the provided texts."
+      "Explanation cites strongest evidence."
     ],
     "question_instructions": [
       "For each of the 10 questions, answer strictly with JSON matching the Position schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.",
