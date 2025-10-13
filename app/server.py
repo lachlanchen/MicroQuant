@@ -2680,6 +2680,13 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     key.startswith("safe_max_lots:")
                 ):
                     allowed = True
+                # Allow per-symbol×timeframe risk params
+                elif isinstance(key, str) and (
+                    key.startswith("risk_percent:") or
+                    key.startswith("stop_distance:") or
+                    key.startswith("stop_unit:")
+                ):
+                    allowed = True
                 if allowed:
                     updates[key] = str(value)
         if updates:

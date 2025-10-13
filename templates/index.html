@@ -386,6 +386,22 @@
               </label>
             </div>
             <div id="posSizeHint" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
+            <!-- Risk controls (per symbol×TF) -->
+            <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Risk %</span>
+                <input id="riskPercent" type="range" min="0.5" max="2" step="0.1" value="1.0" />
+                <span id="riskPercentVal" style="min-width:48px; text-align:right;">1.0%</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Stop</span>
+                <input id="stopDistance" type="number" min="0.01" step="0.01" value="10" style="width:100px;" />
+                <select id="stopUnit" style="min-width:80px;">
+                  <option value="price" selected>Price</option>
+                  <option value="pips">Pips</option>
+                </select>
+              </label>
+            </div>
           </div>
         </div>
         <!-- STL panel -->
@@ -3057,10 +3073,23 @@ const ensureLwMacd = () => {
       const getSafeLotsKey = () => `safe_max_lots:${currentSymbol()}:${currentTf()}`;
       const contractSizeForSymbol = (sym) => {
         const s = (sym || '').toUpperCase();
-        if (/^[A-Z]{6,7}$/.test(s)) return 100000; // FX standard lot
-        if (s.startsWith('XAU')) return 100; // gold
-        if (s.startsWith('XAG')) return 5000; // silver (common CFD size)
+        if (/^[A-Z]{6,7}$/.test(s) && !s.startsWith('XAU') && !s.startsWith('XAG')) return 100000; // FX standard lot
+        if (s.startsWith('XAU')) return 100; // Gold: 100 oz/lot
+        if (s.startsWith('XAG')) return 5000; // Silver: 5000 oz/lot
         return 100; // default
+      };
+      const unitLabelForSymbol = (sym) => {
+        const s = (sym || '').toUpperCase();
+        if (s.startsWith('XAU') || s.startsWith('XAG')) return 'oz/lot';
+        return 'units/lot';
+      };
+      const pipSizeForSymbol = (sym) => {
+        const s = (sym || '').toUpperCase();
+        if (s.startsWith('XAU') || s.startsWith('XAG')) return 0.01; // metals often 0.01
+        // JPY quote pairs use 0.01 pip; others 0.0001
+        const quote = s.slice(3,6);
+        if (quote === 'JPY') return 0.01;
+        return 0.0001;
       };
       const latestClose = () => {
         if (Array.isArray(lastPriceRows) && lastPriceRows.length) {
@@ -3092,14 +3121,46 @@ const ensureLwMacd = () => {
           return;
         }
         const contract = contractSizeForSymbol(sym);
+        const unitLbl = unitLabelForSymbol(sym);
         const denom = px * contract;
         const lots = denom > 0 ? (bal * lev) / denom : 0;
         const lotsStr = (lots || 0).toFixed(2);
         const pxStr = Number(px).toFixed(2);
         const cur = lastAccountCurrency ? lastAccountCurrency : '$';
-        posSizeHint.innerHTML = `<div>${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} units/lot) ≈ ${lotsStr} lots (safe max)</div>
-        <div>Safe max lots: <strong>${lotsStr}</strong></div>`;
+        // Pip and move value references
+        const pipSize = pipSizeForSymbol(sym);
+        const moveValuePerLot = contract; // $ per 1.00 price unit move per lot
+        const pipValuePerLot = contract * pipSize; // $ per pip per lot (approx for USD account)
+        const pipValueStr = pipValuePerLot.toFixed(2);
+        const moveValueStr = moveValuePerLot.toFixed(2);
+
+        // Risk-based sizing
+        const riskInput = document.getElementById('riskPercent');
+        const riskVal = Number(riskInput && riskInput.value) || 1.0;
+        const stopInput = document.getElementById('stopDistance');
+        const stopUnitSel = document.getElementById('stopUnit');
+        const stopUnit = (stopUnitSel && stopUnitSel.value) || 'price';
+        const stopRaw = Number(stopInput && stopInput.value);
+        const stop = Number.isFinite(stopRaw) && stopRaw > 0 ? stopRaw : 10;
+        const riskAmt = bal * (riskVal/100);
+        const riskPerLot = stopUnit === 'pips' ? (stop * pipValuePerLot) : (stop * moveValuePerLot);
+        const riskLots = riskPerLot > 0 ? (riskAmt / riskPerLot) : 0;
+        const riskLotsStr = riskLots.toFixed(2);
+        const suggestedLots = Math.min(lots, riskLots);
+        const suggestedStr = suggestedLots.toFixed(2);
+
+        posSizeHint.innerHTML = `
+          <div>${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} ${unitLbl}) ≈ ${lotsStr} lots (safe max)</div>
+          <div>Safe max lots: <strong>${lotsStr}</strong></div>
+          <div>Risk-based lots: <strong>${riskLotsStr}</strong> (risk ${riskVal.toFixed(1)}%, stop ${stop} ${stopUnit})</div>
+          <div>Suggested lots: <strong>${suggestedStr}</strong> (min of safe and risk)</div>
+          <div style="opacity:0.8;">Ref: 1.00 price unit ≈ ${cur}${moveValueStr}/lot; 1 pip ≈ ${cur}${pipValueStr}/lot</div>
+        `;
         try { queuePrefUpdate(getSafeLotsKey(), lotsStr); } catch {}
+        try { queuePrefUpdate(getLevKey(), String(lev)); } catch {}
+        try { queuePrefUpdate(`risk_percent:${sym}:${currentTf()}`, String(riskVal)); } catch {}
+        try { queuePrefUpdate(`stop_distance:${sym}:${currentTf()}`, String(stop)); } catch {}
+        try { queuePrefUpdate(`stop_unit:${sym}:${currentTf()}`, String(stopUnit)); } catch {}
       }
       // Initialize balance and hook calculators (run after dependencies are defined)
       (async () => { try { await refreshAccountBalanceQuick(); } finally { updatePositionSizeHint(); } })();
@@ -3125,14 +3186,43 @@ const ensureLwMacd = () => {
         } catch {}
         updatePositionSizeHint();
       }
+      // Risk pref helpers
+      const getRiskKey = () => `risk_percent:${currentSymbol()}:${currentTf()}`;
+      const getStopKey = () => `stop_distance:${currentSymbol()}:${currentTf()}`;
+      const getStopUnitKey = () => `stop_unit:${currentSymbol()}:${currentTf()}`;
+      async function loadRiskPrefs() {
+        const rEl = document.getElementById('riskPercent');
+        const sEl = document.getElementById('stopDistance');
+        const uEl = document.getElementById('stopUnit');
+        try {
+          const keys = [getRiskKey(), getStopKey(), getStopUnitKey()].map(encodeURIComponent).join(',');
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${keys}`, { cache: 'no-store' });
+          const js = await r.json();
+          const rp = js && js.prefs ? js.prefs[getRiskKey()] : null;
+          const sd = js && js.prefs ? js.prefs[getStopKey()] : null;
+          const su = js && js.prefs ? js.prefs[getStopUnitKey()] : null;
+          if (rEl && rp != null) { const v = Number(rp); if (Number.isFinite(v)) { rEl.value = String(v); const lab = document.getElementById('riskPercentVal'); if (lab) lab.textContent = `${v.toFixed(1)}%`; } }
+          if (sEl && sd != null) { const v = Number(sd); if (Number.isFinite(v) && v>0) sEl.value = String(v); }
+          if (uEl && su != null) { uEl.value = String(su); }
+        } catch {}
+        updatePositionSizeHint();
+      }
       if (aiLevEl) aiLevEl.addEventListener('input', () => {
         updatePositionSizeHint();
         try { queuePrefUpdate(getLevKey(), String(getLeverageValue())); } catch {}
       });
       // Load saved leverage on startup and whenever the symbol/TF changes
       loadLeveragePref();
-      if (symbolSelect) symbolSelect.addEventListener('change', () => { loadLeveragePref(); });
-      if (tfSelect) tfSelect.addEventListener('change', () => { loadLeveragePref(); });
+      loadRiskPrefs();
+      if (symbolSelect) symbolSelect.addEventListener('change', () => { loadLeveragePref(); loadRiskPrefs(); });
+      if (tfSelect) tfSelect.addEventListener('change', () => { loadLeveragePref(); loadRiskPrefs(); });
+      const riskEl = document.getElementById('riskPercent');
+      const riskVal = document.getElementById('riskPercentVal');
+      if (riskEl) riskEl.addEventListener('input', () => { if (riskVal) riskVal.textContent = `${Number(riskEl.value).toFixed(1)}%`; updatePositionSizeHint(); try { queuePrefUpdate(getRiskKey(), String(riskEl.value)); } catch {} });
+      const stopEl = document.getElementById('stopDistance');
+      if (stopEl) stopEl.addEventListener('input', () => { updatePositionSizeHint(); try { queuePrefUpdate(getStopKey(), String(stopEl.value)); } catch {} });
+      const stopUnitEl = document.getElementById('stopUnit');
+      if (stopUnitEl) stopUnitEl.addEventListener('change', () => { updatePositionSizeHint(); try { queuePrefUpdate(getStopUnitKey(), String(stopUnitEl.value)); } catch {} });
       async function updateAiPlanPreview() {
         const outBox = el('aiTradePlanBox');
         if (!outBox) return;
