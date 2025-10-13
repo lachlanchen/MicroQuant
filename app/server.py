@@ -2697,32 +2697,41 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
             if base: used_symbols.add(base)
             if quote: used_symbols.add(quote)
 
+        baseline_ts = None
         baseline_iso = None
+        # 1) Prefer explicit meta timestamp if present on the run (newer runs store this)
         try:
-            if base_url_list:
-                async with self.pool.acquire() as conn:
-                    baseline_ts = await conn.fetchval(
-                        "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE url = ANY($1::text[])",
-                        base_url_list,
-                    )
-                if baseline_ts is not None and hasattr(baseline_ts, "isoformat"):
-                    baseline_iso = baseline_ts.isoformat()
-        except Exception:
-            baseline_iso = None
-        # Prefer explicit meta timestamp if present on the run (newer runs store this)
-        if last_run and not baseline_iso:
-            try:
+            if last_run:
                 ans = last_run.get("answers_json") or last_run.get("answers") or {}
                 meta = ans.get("meta") or {}
                 val = meta.get("last_used_news_ts")
                 if isinstance(val, str) and val:
                     from datetime import datetime as _dt
-                    baseline_ts = _dt.fromisoformat(val)
-                    baseline_iso = val
+                    v = val.strip()
+                    if v.endswith('Z'):
+                        v = v[:-1] + '+00:00'
+                    baseline_ts = _dt.fromisoformat(v)
+                    baseline_iso = baseline_ts.isoformat()
+        except Exception:
+            baseline_ts = None
+            baseline_iso = None
+        # 2) If meta missing, resolve via DB using the used URLs
+        if baseline_ts is None:
+            try:
+                if base_url_list:
+                    async with self.pool.acquire() as conn:
+                        db_ts = await conn.fetchval(
+                            "SELECT MAX(COALESCE(published_at, created_at)) FROM news_articles WHERE url = ANY($1::text[])",
+                            base_url_list,
+                        )
+                    if db_ts is not None and hasattr(db_ts, "isoformat"):
+                        baseline_ts = db_ts
+                        baseline_iso = db_ts.isoformat()
             except Exception:
-                pass
-        # Fallback to run creation time if we couldn't resolve a baseline from news_ids
-        if baseline_iso is None and last_run_at_dt is not None:
+                baseline_ts = None
+                baseline_iso = None
+        # 3) Fallback to run creation time if still unresolved
+        if baseline_ts is None and last_run_at_dt is not None:
             baseline_ts = last_run_at_dt
             baseline_iso = last_run_at
 
@@ -3525,7 +3534,12 @@ class HealthRunHandler(tornado.web.RequestHandler):
             if used_ts_values:
                 try:
                     from datetime import datetime as _dt
-                    latest_used_iso = max((_dt.fromisoformat(x) for x in used_ts_values)).isoformat()
+                    def _parse(v: str):
+                        vv = v.strip()
+                        if vv.endswith('Z'):
+                            vv = vv[:-1] + '+00:00'
+                        return _dt.fromisoformat(vv)
+                    latest_used_iso = max((_parse(x) for x in used_ts_values)).isoformat()
                 except Exception:
                     latest_used_iso = None
 
@@ -3700,7 +3714,12 @@ class HealthRunHandler(tornado.web.RequestHandler):
         if used_ts_values_stock:
             try:
                 from datetime import datetime as _dt
-                latest_used_iso_stock = max((_dt.fromisoformat(x) for x in used_ts_values_stock)).isoformat()
+                def _parse2(v: str):
+                    vv = v.strip()
+                    if vv.endswith('Z'):
+                        vv = vv[:-1] + '+00:00'
+                    return _dt.fromisoformat(vv)
+                latest_used_iso_stock = max((_parse2(x) for x in used_ts_values_stock)).isoformat()
             except Exception:
                 latest_used_iso_stock = None
 
