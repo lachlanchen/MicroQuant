@@ -600,12 +600,14 @@
       function updateSignalUI(sig, reason) {
         lastSignal = sig || 'hold';
         const dot = document.getElementById('signalDot');
+        const txt = document.getElementById('signalText');
         const btn = document.getElementById('btnTradeSignalTop');
         let color = '#999';
         if (lastSignal === 'buy') color = getComputedStyle(document.documentElement).getPropertyValue('--buy').trim() || '#2ecc71';
         if (lastSignal === 'sell') color = getComputedStyle(document.documentElement).getPropertyValue('--sell').trim() || '#e74c3c';
         if (dot) dot.style.background = color;
         if (btn) btn.disabled = !(lastSignal === 'buy' || lastSignal === 'sell');
+        if (txt) txt.textContent = `Signal: ${lastSignal.toUpperCase()}` + (reason ? ` (${reason})` : '');
         lastSignalReason = reason || '';
         if (reason && DEBUG_LOGS) console.log('[Strategy]', lastSignal, reason);
       }

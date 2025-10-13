@@ -12,6 +12,7 @@ import tornado.ioloop
 import tornado.web
 from tornado.websocket import WebSocketHandler
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+from tornado.log import access_log
 from dotenv import load_dotenv
 import numpy as np
 from statsmodels.tsa.seasonal import STL
@@ -1744,11 +1745,30 @@ async def make_app():
     global GLOBAL_POOL
     GLOBAL_POOL = pool
 
+    def _log_request(handler: tornado.web.RequestHandler) -> None:
+        try:
+            path = handler.request.path
+        except Exception:
+            path = ""
+        # Suppress noisy tick polling
+        if path == "/api/tick":
+            return
+        try:
+            status = handler.get_status()
+            summary = handler._request_summary()  # type: ignore[attr-defined]
+            ip = handler.request.remote_ip
+            req_ms = 1000.0 * handler.request.request_time()
+            access_log.info("%d %s (%s) %.2fms", status, summary, ip, req_ms)
+        except Exception:
+            # Fallback to default logging if something unexpected occurs
+            pass
+
     settings = dict(
         debug=True,
         template_path=os.path.join(os.path.dirname(__file__), "..", "templates"),
         static_path=os.path.join(os.path.dirname(__file__), "..", "static"),
         pool=pool,
+        log_function=_log_request,
     )
     return tornado.web.Application(
         [
