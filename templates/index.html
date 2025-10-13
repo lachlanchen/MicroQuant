@@ -3157,9 +3157,29 @@ const ensureLwMacd = () => {
           if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
           else { p.set('kind','stock'); p.set('symbol', sym); }
           p.set('limit','5'); p.set('group','basic'); p.set('tf', tf);
-          const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
-          const js = await r.json().catch(()=>({}));
-          const runs = Array.isArray(js.runs) ? js.runs : [];
+          let r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          let js = await r.json().catch(()=>({}));
+          let runs = Array.isArray(js.runs) ? js.runs : [];
+          // Fallback: drop tf filter if none
+          if (!runs.length) {
+            const p2 = new URLSearchParams(p.toString());
+            p2.delete('tf');
+            r = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
+            js = await r.json().catch(()=>({}));
+            runs = Array.isArray(js.runs) ? js.runs : [];
+          }
+          // Fallback: ask explicitly for default basic strategy if still empty
+          if (!runs.length) {
+            const p3 = new URLSearchParams();
+            if (isFxPair(sym)) { const pq = splitPair(sym); p3.set('kind','forex_pair'); p3.set('base', pq.base); p3.set('quote', pq.quote); }
+            else { p3.set('kind','stock'); p3.set('symbol', sym); }
+            p3.set('limit','5');
+            const preferMetal = isFxPair(sym) && isMetalPair(sym);
+            p3.set('strategy', preferMetal ? 'metal_pair_compact_10q_position.json' : 'stocks_compact_10q_position.json');
+            r = await fetch(`/api/health/runs?${p3.toString()}`, { cache:'no-store' });
+            js = await r.json().catch(()=>({}));
+            runs = Array.isArray(js.runs) ? js.runs : [];
+          }
           if (basicSel) {
             basicSel.innerHTML = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
             tradeState.basicRunId = runs.length ? runs[0].id : null;
@@ -3172,9 +3192,16 @@ const ensureLwMacd = () => {
           if (isFxPair(sym)) { const pq = splitPair(sym); p2.set('kind','forex_pair'); p2.set('base', pq.base); p2.set('quote', pq.quote); }
           else { p2.set('kind','stock'); p2.set('symbol', sym); }
           p2.set('limit','5'); p2.set('group','tech'); p2.set('tf', tf);
-          const r2 = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
-          const js2 = await r2.json().catch(()=>({}));
-          const runs2 = Array.isArray(js2.runs) ? js2.runs : [];
+          let r2 = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
+          let js2 = await r2.json().catch(()=>({}));
+          let runs2 = Array.isArray(js2.runs) ? js2.runs : [];
+          // Fallback: drop tf filter
+          if (!runs2.length) {
+            const p4 = new URLSearchParams(p2.toString()); p4.delete('tf');
+            r2 = await fetch(`/api/health/runs?${p4.toString()}`, { cache:'no-store' });
+            js2 = await r2.json().catch(()=>({}));
+            runs2 = Array.isArray(js2.runs) ? js2.runs : [];
+          }
           if (techSel) {
             techSel.innerHTML = runs2.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
             tradeState.techRunId = runs2.length ? runs2[0].id : null;
