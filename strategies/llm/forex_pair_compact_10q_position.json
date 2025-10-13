@@ -52,4 +52,19 @@
     "required": ["position", "sl", "tp", "explanation"],
     "additionalProperties": false
   }
+  ,
+  "prompt": {
+    "system": "You are a decisive FX analyst. Return only valid JSON that matches the provided schema.",
+    "position_instructions": [
+      "Output must match: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}",
+      "Use uppercase BUY/SELL in 'position'.",
+      "Provide numeric placeholders for sl/tp if exact levels are unavailable.",
+      "Keep the explanation to one concise sentence citing the strongest evidence from the provided texts."
+    ],
+    "choice_instructions": [
+      "For each of the 10 questions, answer strictly with JSON matching: {answer: '${base_currency}|${quote_currency}', explanation: string}.",
+      "Choose exactly one currency code per question; do not return both.",
+      "Keep explanations short and fact-based."
+    ]
+  }
 }
