@@ -549,7 +549,7 @@ async def upsert_closed_deals(
         args.append(
             (
                 int(account_id),
-                int(r.get("deal") or r.get("deal_id") or 0),
+                int(r.get("deal") or r.get("deal_id") or r.get("ticket") or 0),
                 (int(r.get("order") or 0) if r.get("order") is not None else None),
                 ts,
                 r.get("symbol"),

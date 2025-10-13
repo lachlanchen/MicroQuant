@@ -405,6 +405,17 @@ class MT5Client:
                     ts_iso = _dt.datetime.fromtimestamp(ts_ms / 1000, _tz.utc).isoformat()
                 else:
                     ts_iso = _dt.datetime.fromtimestamp(int(ts), _tz.utc).isoformat()
+                # Prefer 'ticket' as the unique deal id; some builds expose it as 'ticket' rather than 'deal'
+                deal_id = None
+                try:
+                    deal_id = int(getattr(d, "deal", 0))
+                except Exception:
+                    deal_id = None
+                if not deal_id:
+                    try:
+                        deal_id = int(getattr(d, "ticket", 0))
+                    except Exception:
+                        deal_id = 0
                 out.append({
                     "ts": ts_iso,
                     "symbol": str(getattr(d, "symbol", "")),
@@ -412,9 +423,10 @@ class MT5Client:
                     "commission": float(getattr(d, "commission", 0.0)) if hasattr(d, "commission") else 0.0,
                     "swap": float(getattr(d, "swap", 0.0)) if hasattr(d, "swap") else 0.0,
                     "order": int(getattr(d, "order", 0)) if hasattr(d, "order") else None,
-                    "deal": int(getattr(d, "deal", 0)) if hasattr(d, "deal") else None,
+                    "deal": deal_id,
                     "volume": float(getattr(d, "volume", 0.0)) if hasattr(d, "volume") else None,
                     "entry": int(getattr(d, "entry", 0)) if hasattr(d, "entry") else None,
+                    "comment": str(getattr(d, "comment", "")) if hasattr(d, "comment") else None,
                 })
             except Exception:
                 continue
