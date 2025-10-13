@@ -429,15 +429,18 @@ def _is_fx_symbol(sym: str | None) -> bool:
     return s.startswith(("XAU", "XAG", "XPT", "XPD"))
 
 
-def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: str | None) -> str:
+def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    prices_line = ""
+    if closes:
+        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
         "Task: Based on the evidence above, provide the trade orientation JSON."
     )
 
@@ -457,15 +460,18 @@ def _build_pair_prompt_position_question(question_text: str, pair_symbol: str, i
     )
 
 
-def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str | None) -> str:
+def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    prices_line = ""
+    if closes:
+        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
         "Task: Based on the evidence above, provide the trade orientation JSON."
     )
 
@@ -3744,7 +3750,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             try:
                 pos_schema = (strat or {}).get("position_response_schema")
                 if isinstance(pos_schema, dict):
-                    pos_prompt = _build_pair_position_prompt(sym, items, timeframe)
+                    pos_prompt = _build_pair_position_prompt(sym, items, timeframe, closes=closes_series)
                     position_obj = AI_CLIENT.send_request_with_json_schema(
                         pos_prompt,
                         pos_schema,
@@ -4011,7 +4017,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
         try:
             pos_schema = (strat or {}).get("position_response_schema")
             if isinstance(pos_schema, dict):
-                pos_prompt = _build_stock_position_prompt(symbol, items, timeframe)
+                pos_prompt = _build_stock_position_prompt(symbol, items, timeframe, closes=closes_series_stock)
                 position_obj = AI_CLIENT.send_request_with_json_schema(
                     pos_prompt,
                     pos_schema,
