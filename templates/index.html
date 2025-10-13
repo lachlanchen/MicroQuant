@@ -1609,7 +1609,8 @@
           data: {
             labels: [],
             datasets: [
-              { label: 'Balance', data: [], borderColor: '#1b5e20', borderWidth: 1.5, pointRadius: 0, tension: 0.15, yAxisID: 'y2' },
+              // Show only the latest balance as a horizontal reference line
+              { label: 'Balance (Last)', data: [], borderColor: '#1b5e20', borderWidth: 1.2, pointRadius: 0, borderDash: [6, 4], tension: 0, yAxisID: 'y2' },
               { label: 'Closed PnL', data: [], borderColor: '#ff9800', borderWidth: 1.2, pointRadius: 0, tension: 0.15, yAxisID: 'y' },
             ],
           },
@@ -1636,7 +1637,7 @@
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) return;
           if (!ensureBalanceChart()) return;
-          const pts = (js.rows || [])
+          const rows = (js.rows || [])
             .map(row => {
               const t = Date.parse(row.ts);
               const v = Number(row.balance);
@@ -1646,7 +1647,22 @@
             })
             .filter(Boolean);
           const ds = balanceChart.data.datasets[0];
-          ds.data = pts;
+          // Replace full balance curve with a horizontal line at the latest balance
+          if (!rows.length) {
+            ds.data = [];
+          } else {
+            const last = rows[rows.length - 1];
+            const lastY = Number(last.y);
+            // Determine visible x-range using balance points; fallback to now±1h
+            let xMin = rows[0].x;
+            let xMax = rows[rows.length - 1].x;
+            if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin === xMax) {
+              const now = Date.now();
+              xMin = now - 3600_000;
+              xMax = now + 3600_000;
+            }
+            ds.data = [ { x: xMin, y: lastY }, { x: xMax, y: lastY } ];
+          }
           balanceChart.update('none');
         } catch (e) {
           // swallow UI errors
