@@ -1509,7 +1509,7 @@
       // Account Balance pane
       let lwBalanceChart = null;
       let lwBalanceSeries = null;
-      let lwClosedPnlSeries = null;
+      let lwClosedCumSeries = null;
       let lwBalanceSubscribed = false;
       const ensureLwBalance = () => {
         if (!lwBalanceChart) {
@@ -1525,8 +1525,8 @@
         if (lwBalanceChart && !lwBalanceSeries) {
           lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2, priceScaleId: 'right' });
           const LS = (LightweightCharts && LightweightCharts.LineStyle) ? LightweightCharts.LineStyle : {};
-          // Use right scale for synthetic overlay so it aligns with balance values
-          lwClosedPnlSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0), priceScaleId: 'right' });
+          // Cumulative closed PnL on left scale
+          lwClosedCumSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0), priceScaleId: 'left' });
         }
         if (!lwBalanceSubscribed && lwBalanceChart) {
           lwBalanceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -1556,14 +1556,14 @@
         const prevText = btn ? btn.textContent : '';
         if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
         try {
-          const r = await fetch('/api/account/closed_deals?days=180', { cache: 'no-store' });
+          // Fetch a long window to approximate all history after a full sync
+          const r = await fetch('/api/account/closed_deals?days=5000', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           ensureLwBalance();
-          if (!lwClosedPnlSeries || !lwBalanceSeries) return;
-          // Prefer synthetic (balance baseline + cumulative PnL) if present
-          const syn = Array.isArray(js.synthetic) ? js.synthetic : [];
-          const points = (syn.length ? syn : (js.cum || [])).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.value||0) }));
-          lwClosedPnlSeries.setData(points);
+          if (!lwClosedCumSeries || !lwBalanceSeries) return;
+          // Cumulative realized PnL line
+          const cum = (js.cum || []).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.value||0) }));
+          lwClosedCumSeries.setData(cum);
           // Markers at each deal time
           const deals = js.deals || [];
           const markers = deals.map(d => {
@@ -1577,10 +1577,10 @@
               text: `${profit>=0?'+':''}${profit.toFixed(2)}`,
             };
           });
-          lwClosedPnlSeries.setMarkers(markers);
-          const msg = `Closed orders: deals=${(js.deals_count||deals.length)} points=${(syn.length? syn.length : (js.cum_count||points.length))}`;
+          lwClosedCumSeries.setMarkers(markers);
+          const msg = `Closed orders: deals=${(js.deals_count||deals.length)} points=${(js.cum_count||cum.length)}`;
           console.log('[Closed]', msg);
-          status(points.length ? `Loaded ${points.length} point(s) from ${deals.length} deal(s).` : 'No closed orders found in window.');
+          status(cum.length ? `Loaded ${cum.length} point(s) from ${deals.length} deal(s).` : 'No closed orders found in window.');
         } catch (e) {
           console.warn('Closed deals fetch failed', e);
           status('Closed deals fetch failed.');
