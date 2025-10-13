@@ -3721,6 +3721,13 @@ const ensureLwMacd = () => {
             }
             const s = document.getElementById('btnAutoStart');
             if (s) { try { s.focus(); } catch {} }
+            // Populate history when using fallback path
+            try {
+              autoHistoryOffset = 0;
+              const box = document.getElementById('autoHistoryBox');
+              if (box) box.innerHTML = '<em style="color:var(--muted)">Loading…</em>';
+              loadAutoHistory(5, 0);
+            } catch {}
           }
         } catch {}
       }
