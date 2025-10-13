@@ -1,0 +1,81 @@
+{
+  "name": "metal_pair_position_30q",
+  "title": "Metals Pair 30Q + Position (Binary + Trade Hint)",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-13T00:00:00Z",
+  "description": "Neutral, fact-based metals pair questionnaire (30 choice questions) plus a final trade-orientation question that returns a position JSON {answer, position, sl, tp, explanation}.",
+  "input": {
+    "variables": [
+      { "name": "base_currency", "type": "string", "example": "XAU" },
+      { "name": "quote_currency", "type": "string", "example": "USD" },
+      { "name": "texts", "type": "array<string>", "description": "Recent headlines, summaries, transcripts, and reports relevant to the pair." },
+      { "name": "timeframe", "type": "string", "example": "72h" }
+    ]
+  },
+  "categories": [
+    { "id": "mp",  "label": "Monetary Policy Impact" },
+    { "id": "ie",  "label": "Inflation & Economic Stress" },
+    { "id": "sh",  "label": "Safe-Haven & Risk Sentiment" },
+    { "id": "ps",  "label": "Physical Demand & Supply" },
+    { "id": "mf",  "label": "Market Technicals & Flows" }
+  ],
+  "questions": [
+    { "id": "mp_01", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is more favored by current Federal Reserve policy stance?" },
+    { "id": "mp_02", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current real interest rates (nominal minus inflation)?" },
+    { "id": "mp_03", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is supported by the current trajectory of US interest rate expectations?" },
+    { "id": "mp_04", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which does the current Fed inflation outlook favor?" },
+    { "id": "mp_05", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current US dollar liquidity conditions?" },
+    { "id": "mp_06", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is favored by current central bank gold reserve activities globally?" },
+    { "id": "mp_07", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current quantitative easing or tightening policies?" },
+    { "id": "mp_08", "category": "mp", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which does the current Fed balance sheet policy support?" },
+
+    { "id": "ie_09", "category": "ie", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is described as a better inflation hedge in recent commentary?" },
+    { "id": "ie_10", "category": "ie", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current inflation expectations?" },
+    { "id": "ie_11", "category": "ie", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is favored during the current level of economic uncertainty?" },
+    { "id": "ie_12", "category": "ie", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current debt and deficit concerns?" },
+    { "id": "ie_13", "category": "ie", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is mentioned more as protection against currency debasement?" },
+    { "id": "ie_14", "category": "ie", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits from current commodity price trends overall?" },
+
+    { "id": "sh_15", "category": "sh", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is attracting stronger safe-haven flows currently?" },
+    { "id": "sh_16", "category": "sh", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current geopolitical tensions?" },
+    { "id": "sh_17", "category": "sh", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is mentioned more frequently during market volatility discussions?" },
+    { "id": "sh_18", "category": "sh", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which shows stronger demand during equity market weakness?" },
+    { "id": "sh_19", "category": "sh", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current banking system concerns?" },
+    { "id": "sh_20", "category": "sh", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which is favored in current portfolio diversification strategies?" },
+
+    { "id": "ps_21", "category": "ps", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which shows stronger physical demand (jewelry, industrial, investment)?" },
+    { "id": "ps_22", "category": "ps", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which faces more supportive supply constraints or production issues?" },
+    { "id": "ps_23", "category": "ps", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which has stronger central bank or institutional buying mentioned?" },
+    { "id": "ps_24", "category": "ps", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which shows stronger retail or individual investor demand?" },
+    { "id": "ps_25", "category": "ps", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which benefits more from current industrial or technology demand trends?" },
+
+    { "id": "mf_26", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which shows stronger ETF or investment product inflows?" },
+    { "id": "mf_27", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which has broken through more significant technical resistance levels?" },
+    { "id": "mf_28", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which shows stronger momentum in futures positioning?" },
+    { "id": "mf_29", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which has more bullish analyst forecasts and price targets?" },
+    { "id": "mf_30", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which shows stronger investor sentiment in recent surveys or commentary?" },
+
+    { "id": "pos_31", "category": "mf", "weight": 0, "text": "Final trade orientation — Based on the combined evidence in the news/texts for ${base_currency}/${quote_currency}, state whether news currently favors a BUY or SELL for the pair. Return a single JSON object with this exact shape: {\n  \"answer\": \"BUY or SELL\",\n  \"position\": \"buy or sell\",\n  \"sl\": <number>,\n  \"tp\": <number>,\n  \"explanation\": \"one concise sentence citing the strongest evidence\"\n}. Keep sl/tp as simple numeric placeholders if exact levels are unavailable." }
+  ],
+  "answer_options": ["${base_currency}", "${quote_currency}"],
+  "scoring": {
+    "per_question": {
+      "${base_currency}": 1,
+      "${quote_currency}": 0
+    },
+    "per_currency_range": { "min": 0, "max": 30 },
+    "net_formula": "NET = BASE - QUOTE",
+    "thresholds": [
+      { "min": 18,  "max": 30,  "signal": "BUY_BASE",  "label": "Very strong preference for ${base_currency}" },
+      { "min": 10,  "max": 17,  "signal": "BUY_BASE",  "label": "Strong preference for ${base_currency}" },
+      { "min": 4,   "max": 9,   "signal": "BUY_BASE",  "label": "Moderate preference for ${base_currency}" },
+      { "min": -3,  "max": 3,   "signal": "NEUTRAL",   "label": "Balanced outlook" },
+      { "min": -9,  "max": -4,  "signal": "SELL_BASE", "label": "Moderate preference for ${quote_currency}" },
+      { "min": -17, "max": -10, "signal": "SELL_BASE", "label": "Strong preference for ${quote_currency}" },
+      { "min": -30, "max": -18, "signal": "SELL_BASE", "label": "Very strong preference for ${quote_currency}" }
+    ]
+  }
+}
+

@@ -1,0 +1,81 @@
+{
+  "name": "forex_pair_position_30q",
+  "title": "FX Pair 30Q + Position (Binary + Trade Hint)",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-13T00:00:00Z",
+  "description": "Neutral, fact-based FX pair questionnaire (30 choice questions) plus a final trade-orientation question that returns a position JSON {answer, position, sl, tp, explanation}.",
+  "input": {
+    "variables": [
+      { "name": "base_currency", "type": "string", "example": "EUR" },
+      { "name": "quote_currency", "type": "string", "example": "USD" },
+      { "name": "texts", "type": "array<string>", "description": "Recent headlines, summaries, transcripts, and reports relevant to both currencies." },
+      { "name": "timeframe", "type": "string", "example": "72h" }
+    ]
+  },
+  "categories": [
+    { "id": "cb",  "label": "Central Bank & Monetary Policy" },
+    { "id": "ed",  "label": "Economic Data & Growth" },
+    { "id": "inf", "label": "Inflation & Price Dynamics" },
+    { "id": "geo", "label": "Political & Risk Environment" },
+    { "id": "mf",  "label": "Market Sentiment & Capital Flow" }
+  ],
+  "questions": [
+    { "id": "cb_01", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's central bank used more hawkish language in recent statements?" },
+    { "id": "cb_02", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency has higher interest rate expectations in market commentary?" },
+    { "id": "cb_03", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank expressed greater confidence about economic outlook?" },
+    { "id": "cb_04", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's central bank is closer to achieving its stated inflation target?" },
+    { "id": "cb_05", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank signaled stronger policy tightening?" },
+    { "id": "cb_06", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank raised rates or held them steady most recently?" },
+    { "id": "cb_07", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's monetary policy is described as more supportive of currency strength?" },
+    { "id": "cb_08", "category": "cb", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which central bank's meeting minutes showed more optimism?" },
+
+    { "id": "ed_09", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region reported higher GDP growth in the latest release?" },
+    { "id": "ed_10", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has stronger employment data?" },
+    { "id": "ed_11", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has a higher manufacturing PMI reading?" },
+    { "id": "ed_12", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has a higher services PMI reading?" },
+    { "id": "ed_13", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region shows stronger consumer spending growth?" },
+    { "id": "ed_14", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has a better trade balance position?" },
+    { "id": "ed_15", "category": "ed", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region reports higher business confidence?" },
+
+    { "id": "inf_16", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has inflation closer to the central bank target?" },
+    { "id": "inf_17", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has more moderate wage growth?" },
+    { "id": "inf_18", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency benefits more from recent commodity price movements?" },
+    { "id": "inf_19", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region has more controlled producer price inflation?" },
+    { "id": "inf_20", "category": "inf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region shows better core inflation trends?" },
+
+    { "id": "geo_21", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's country or region has greater political stability?" },
+    { "id": "geo_22", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's government policies are described as more market-friendly?" },
+    { "id": "geo_23", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency faces lower election-related uncertainty or risks?" },
+    { "id": "geo_24", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's country or region faces lower geopolitical risks?" },
+    { "id": "geo_25", "category": "geo", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's country or region has a stronger credit rating or recent upgrade?" },
+
+    { "id": "mf_26", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency is attracting stronger foreign capital inflows?" },
+    { "id": "mf_27", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency is mentioned more frequently as a safe-haven asset?" },
+    { "id": "mf_28", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's assets show stronger investor demand?" },
+    { "id": "mf_29", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency do analysts express more bullish views on?" },
+    { "id": "mf_30", "category": "mf", "weight": 1, "text": "Between ${base_currency} and ${quote_currency}, which currency's region shows more positive investor sentiment?" },
+
+    { "id": "pos_31", "category": "mf", "weight": 0, "text": "Final trade orientation — Based on the combined evidence in the news/texts for ${base_currency}/${quote_currency}, state whether news currently favors a BUY or SELL for the pair. Return a single JSON object with this exact shape: {\n  \"answer\": \"BUY or SELL\",\n  \"position\": \"buy or sell\",\n  \"sl\": <number>,\n  \"tp\": <number>,\n  \"explanation\": \"one concise sentence citing the strongest evidence\"\n}. Keep sl/tp as simple numeric placeholders if exact levels are unavailable." }
+  ],
+  "answer_options": ["${base_currency}", "${quote_currency}"],
+  "scoring": {
+    "per_question": {
+      "${base_currency}": 1,
+      "${quote_currency}": 0
+    },
+    "per_currency_range": { "min": 0, "max": 30 },
+    "net_formula": "NET = BASE - QUOTE",
+    "thresholds": [
+      { "min": 15,  "max": 30,  "signal": "BUY_BASE",  "label": "Very strong preference for ${base_currency}" },
+      { "min": 8,   "max": 14,  "signal": "BUY_BASE",  "label": "Strong preference for ${base_currency}" },
+      { "min": 3,   "max": 7,   "signal": "BUY_BASE",  "label": "Moderate preference for ${base_currency}" },
+      { "min": -2,  "max": 2,   "signal": "NEUTRAL",   "label": "Balanced outlook" },
+      { "min": -7,  "max": -3,  "signal": "SELL_BASE", "label": "Moderate preference for ${quote_currency}" },
+      { "min": -14, "max": -8,  "signal": "SELL_BASE", "label": "Strong preference for ${quote_currency}" },
+      { "min": -30, "max": -15, "signal": "SELL_BASE", "label": "Very strong preference for ${quote_currency}" }
+    ]
+  }
+}
+
