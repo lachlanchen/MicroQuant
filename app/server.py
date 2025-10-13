@@ -2038,6 +2038,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         end_arg = self.get_argument("to", default=None)
         debug_flag = self.get_argument("debug", default="0").lower() in ("1", "true", "yes")
         source = self.get_argument("source", default="auto").lower()  # auto|db|mt5
+        comment_filters = [c for c in self.get_arguments("comment") if c]
         user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
         start_dt = _normalize_dt(start_arg) if start_arg else None
         end_dt = _normalize_dt(end_arg) if end_arg else None
@@ -2052,7 +2053,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         except Exception:
             account_id = 0
         try:
-            logger.info("/api/account/closed_deals from=%s to=%s days=%s source=%s", start_dt, end_dt, days, source)
+            logger.info("/api/account/closed_deals from=%s to=%s days=%s source=%s comment_filters=%s", start_dt, end_dt, days, source, comment_filters)
             deals = []
             from_db = False
             if source in ("auto", "db"):
@@ -2089,6 +2090,9 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             self.set_header("Cache-Control", "no-store")
             self.finish(json.dumps({"ok": False, "error": str(e)}))
             return
+        if comment_filters:
+            lf = [c.lower() for c in comment_filters]
+            deals = [d for d in deals if any(f in str(d.get("comment", "")).lower() for f in lf)]
         # Build cumulative PnL series over time
         cum = 0.0
         cum_points: list[dict] = []
@@ -2124,6 +2128,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             "cum_count": len(cum_points),
             "synthetic": synthetic_points,
             "source": ("db" if from_db else "mt5") if source == "auto" else source,
+            "comment_filters": comment_filters,
         }))
 
 

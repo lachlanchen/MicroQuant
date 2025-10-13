@@ -1557,7 +1557,7 @@
         if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
         try {
           // Fetch a long window to approximate all history after a full sync
-          const r = await fetch('/api/account/closed_deals?days=5000&source=mt5&debug=1', { cache: 'no-store' });
+          const r = await fetch('/api/account/closed_deals?days=5000&source=mt5&debug=1&comment=auto-quant', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           ensureLwBalance();
           if (!lwClosedCumSeries || !lwBalanceSeries) return;
