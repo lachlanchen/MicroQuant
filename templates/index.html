@@ -346,6 +346,11 @@
               </label>
               <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
               <span id="techFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
+              <label class="switch" style="margin-left:8px;">
+                <input type="checkbox" id="chkAutoHealth" />
+                <span class="toggle"></span>
+                <span>Auto Check</span>
+              </label>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
@@ -2671,6 +2676,10 @@ const ensureLwMacd = () => {
       const btnAiSell = document.getElementById('btnAiSell');
       const aiLeverageInput = document.getElementById('aiLeverage');
       const btnTechClose = document.getElementById('btnTechClose');
+      const autoCheckToggle = document.getElementById('chkAutoHealth');
+      let autoBasicRunning = false;
+      let autoTechRunning = false;
+      let autoCheckPoller = null;
       const tradeModal = document.getElementById('tradeModal');
       const tradeInfo = document.getElementById('tradeInfo');
       const tradeResultsBox = document.getElementById('tradeResultsBox');
@@ -2721,6 +2730,7 @@ const ensureLwMacd = () => {
           const js = await r.json().catch(() => ({}));
           if (r.ok && js && js.ok) {
             renderHealthFresh(js);
+            if (typeof maybeAutoRunBasic === 'function') maybeAutoRunBasic(js);
           }
         } catch (e) {
           // ignore
@@ -2773,9 +2783,77 @@ const ensureLwMacd = () => {
           const js = await r.json().catch(() => ({}));
           if (r.ok && js && js.ok) {
             renderTechFresh(js);
+            if (typeof maybeAutoRunTech === 'function') maybeAutoRunTech(js);
           }
         } catch (e) {
           // ignore
+        }
+      }
+
+      // --- Auto Check (per symbol × timeframe) ---
+      const getAutoCheckKey = () => `auto_check:${currentSymbol()}:${currentTf()}`;
+      const isAutoCheckEnabled = () => !!(autoCheckToggle && autoCheckToggle.checked);
+      const applyAutoCheckState = (on) => { if (autoCheckToggle) autoCheckToggle.checked = !!on; };
+      async function loadAutoCheckPref() {
+        if (!autoCheckToggle) return;
+        try {
+          const key = encodeURIComponent(getAutoCheckKey());
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${key}`, { cache: 'no-store' });
+          const js = await r.json();
+          const val = js && js.prefs ? js.prefs[getAutoCheckKey()] : null;
+          applyAutoCheckState(String(val || '').toLowerCase() === '1');
+        } catch {}
+      }
+      if (autoCheckToggle) autoCheckToggle.addEventListener('change', () => {
+        const key = getAutoCheckKey();
+        const on = isAutoCheckEnabled();
+        try { queuePrefUpdate(key, on ? '1' : '0'); } catch {}
+        ensureAutoCheckPoller();
+      });
+
+      function ensureAutoCheckPoller() {
+        if (!autoCheckPoller) {
+          autoCheckPoller = setInterval(async () => {
+            try {
+              if (isAutoCheckEnabled()) {
+                await refreshTechFreshness();
+                await refreshHealthFreshness();
+              }
+            } catch {}
+          }, 60000);
+        }
+      }
+      ensureAutoCheckPoller();
+
+      async function maybeAutoRunBasic(info) {
+        if (!isAutoCheckEnabled()) return;
+        const stale = info && info.status === 'stale' && Number(info.new_count || 0) > 0;
+        if (!stale || autoBasicRunning) return;
+        autoBasicRunning = true;
+        try {
+          if (typeof setHealthFreshRunning === 'function') setHealthFreshRunning();
+          await startHealthRun();
+        } catch (e) {
+          console.warn('[AutoCheck] Basic run failed', e);
+        } finally {
+          autoBasicRunning = false;
+          try { await refreshHealthFreshness(); } catch {}
+        }
+      }
+
+      async function maybeAutoRunTech(info) {
+        if (!isAutoCheckEnabled()) return;
+        const stale = info && info.status === 'stale' && Number(info.outdated_bars || 0) > 0;
+        if (!stale || autoTechRunning) return;
+        autoTechRunning = true;
+        try {
+          if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
+          await startTechAiRun();
+        } catch (e) {
+          console.warn('[AutoCheck] Tech run failed', e);
+        } finally {
+          autoTechRunning = false;
+          try { await refreshTechFreshness(); } catch {}
         }
       }
       if (btnHealthStart) btnHealthStart.addEventListener('click', () => {
@@ -4469,6 +4547,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
+          await loadAutoCheckPref();
           await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on symbol change (run from modal Start)
@@ -4497,6 +4576,7 @@ const ensureLwMacd = () => {
         } finally {
           await refreshNews();
           await refreshHealthFreshness();
+          await loadAutoCheckPref();
           await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
           // Inline AI trade plan preview disabled on timeframe change (run from modal Start)

@@ -2559,6 +2559,9 @@ class PreferencesHandler(tornado.web.RequestHandler):
                 # Allow per-symbol×timeframe STL auto compute preferences
                 elif isinstance(key, str) and key.startswith("stl_auto_compute:"):
                     allowed = True
+                # Allow per-symbol×timeframe auto health/tech checks
+                elif isinstance(key, str) and key.startswith("auto_check:"):
+                    allowed = True
                 if allowed:
                     updates[key] = str(value)
         if updates:
