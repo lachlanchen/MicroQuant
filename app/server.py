@@ -2795,10 +2795,25 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
             kind = "forex_pair"
             base = symbol[:3]
             quote = symbol[3:6]
-            runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=1, strategy="tech_snapshot_10q.json")
+            runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q.json")
         else:
             kind = "stock"
-            runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=1, strategy="tech_snapshot_10q.json")
+            runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q.json")
+
+        # Prefer a run that matches the requested timeframe in its meta
+        def _match_tf(run: dict) -> bool:
+            try:
+                ans = run.get("answers_json") or run.get("answers") or {}
+                meta = ans.get("meta") or {}
+                tfv = str(meta.get("timeframe") or "").upper()
+                return tfv == timeframe
+            except Exception:
+                return False
+        matching = [r for r in runs if _match_tf(r)]
+        if matching:
+            runs = matching
+        # Keep most recent
+        runs = runs[:1]
 
         last_run = runs[0] if runs else None
         last_run_at = last_run.get("created_at").isoformat() if last_run and last_run.get("created_at") else None

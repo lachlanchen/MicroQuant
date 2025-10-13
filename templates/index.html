@@ -2236,21 +2236,25 @@ const ensureLwMacd = () => {
 
       function openHealth(kind, preferredStrategy) {
       healthState.kind = kind;
-      healthState.strategy = preferredStrategy || null;
-      // If no specific strategy requested (Basic), exclude Tech snapshot from history by default
-      healthState.excludeStrategy = preferredStrategy ? null : 'tech_snapshot_10q.json';
       healthState.offset = 0;
       healthState.runs = [];
       const modal = el('healthModal');
       if (!modal) return;
+      // Ensure the dropdown reflects a sane default for this kind/symbol
       ensureStrategyForKind(kind);
+      // Resolve the strategy to use for history explicitly to avoid leakage (e.g. ai_trade_plan)
       if (preferredStrategy && healthStrategySelect) {
         const hasOption = !!healthStrategySelect.querySelector(`option[value="${preferredStrategy}"]`);
         if (hasOption) {
           healthStrategyUserOverride = true;
           healthStrategySelect.value = preferredStrategy;
         }
+        healthState.strategy = preferredStrategy;
+      } else {
+        healthState.strategy = healthStrategySelect ? healthStrategySelect.value : null;
       }
+      // No exclude filter needed once strategy is explicit
+      healthState.excludeStrategy = null;
       modal.style.display = 'flex';
       const sym = symbolSelect.value.toUpperCase();
         const info = el('healthInfo');
