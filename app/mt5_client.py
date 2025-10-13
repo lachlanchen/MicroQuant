@@ -373,6 +373,11 @@ class MT5Client:
             to_dt = _dt.datetime.now(_tz.utc)
         if from_dt is None:
             from_dt = to_dt - _dt.timedelta(days=180)
+        # Ensure history window is selected for reliability across terminals
+        try:
+            mt5.history_select(from_dt, to_dt)
+        except Exception:
+            pass
         deals = mt5.history_deals_get(from_dt, to_dt) or []
         out: list[dict] = []
         for d in deals:

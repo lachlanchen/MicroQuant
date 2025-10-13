@@ -2053,8 +2053,15 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             logger.info("/api/account/closed_deals from=%s to=%s days=%s", start_dt, end_dt, days)
             # Prefer DB
             deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
-            if not deals:
+            from_db = bool(deals)
+            if not from_db:
                 deals = mt5_client.closed_deals(start_dt, end_dt)
+                # Best-effort persist to DB for future queries
+                try:
+                    if deals:
+                        await upsert_closed_deals(GLOBAL_POOL, account_id=account_id, rows=deals)
+                except Exception as exc:
+                    logger.warning("/api/account/closed_deals upsert failed: %s", exc)
         except Exception as e:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
