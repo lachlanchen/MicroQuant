@@ -4169,6 +4169,15 @@ class TradePlanHandler(tornado.web.RequestHandler):
         action = str(payload.get("action") or payload.get("side") or "").upper()
         leverage = float(payload.get("leverage") or 10)
         snapshot_text = str(payload.get("tech_snapshot") or "").strip()
+        # Optional explicit selection of source runs for composing the plan
+        try:
+            basic_run_id = int(payload.get("basic_run_id")) if payload.get("basic_run_id") is not None else None
+        except Exception:
+            basic_run_id = None
+        try:
+            tech_run_id = int(payload.get("tech_run_id")) if payload.get("tech_run_id") is not None else None
+        except Exception:
+            tech_run_id = None
         if action not in {"BUY", "SELL"}:
             self.set_status(400)
             self.finish(json.dumps({"ok": False, "error": "action must be BUY or SELL"}))
