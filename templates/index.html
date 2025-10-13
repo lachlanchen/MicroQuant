@@ -2686,6 +2686,12 @@ const ensureLwMacd = () => {
       let autoBasicRunning = false;
       let autoTechRunning = false;
       let autoCheckPoller = null;
+      const AUTO_BASIC_MIN_MS = 15 * 60 * 1000; // 15 minutes guard
+      const AUTO_TECH_MIN_MS = 10 * 60 * 1000; // 10 minutes guard
+      const getABasicLastKey = () => `auto_basic_last:${currentSymbol()}:${currentTf()}`;
+      const getATechLastKey = () => `auto_tech_last:${currentSymbol()}:${currentTf()}`;
+      const getLastAt = (k) => { try { return Number(localStorage.getItem(k) || '0'); } catch { return 0; } };
+      const setLastAt = (k, t) => { try { localStorage.setItem(k, String(t || Date.now())); } catch {} };
       const tradeModal = document.getElementById('tradeModal');
       const tradeInfo = document.getElementById('tradeInfo');
       const tradeResultsBox = document.getElementById('tradeResultsBox');
@@ -2852,6 +2858,10 @@ const ensureLwMacd = () => {
         if (!isAutoBasicEnabled()) return;
         const stale = info && info.status === 'stale' && Number(info.new_count || 0) > 0;
         if (!stale || autoBasicRunning) return;
+        // Cooldown guard to protect provider quota
+        const lastKey = getABasicLastKey();
+        const lastAt = getLastAt(lastKey);
+        if (Date.now() - lastAt < AUTO_BASIC_MIN_MS) return;
         autoBasicRunning = true;
         try {
           if (typeof setHealthFreshRunning === 'function') setHealthFreshRunning();
@@ -2860,6 +2870,7 @@ const ensureLwMacd = () => {
           console.warn('[AutoCheck] Basic run failed', e);
         } finally {
           autoBasicRunning = false;
+          setLastAt(lastKey, Date.now());
           try { await refreshHealthFreshness(); } catch {}
         }
       }
@@ -2868,6 +2879,10 @@ const ensureLwMacd = () => {
         if (!isAutoTechEnabled()) return;
         const stale = info && info.status === 'stale' && Number(info.outdated_bars || 0) > 0;
         if (!stale || autoTechRunning) return;
+        // Cooldown guard to avoid repeated runs
+        const lastKey = getATechLastKey();
+        const lastAt = getLastAt(lastKey);
+        if (Date.now() - lastAt < AUTO_TECH_MIN_MS) return;
         autoTechRunning = true;
         try {
           if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
@@ -2876,6 +2891,7 @@ const ensureLwMacd = () => {
           console.warn('[AutoCheck] Tech run failed', e);
         } finally {
           autoTechRunning = false;
+          setLastAt(lastKey, Date.now());
           try { await refreshTechFreshness(); } catch {}
         }
       }
