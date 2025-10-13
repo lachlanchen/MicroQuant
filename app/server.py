@@ -3732,6 +3732,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         "scores": scores_payload,
                         "signal": signal,
                         "strategy": strategy_name,
+                        "position": position_obj,
                         "run_id": ins.get("id"),
                         "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
                     }
@@ -3948,6 +3949,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "scores": scores_payload,
                     "signal": signal,
                     "strategy": strategy_name,
+                    "position": position_obj,
                     "run_id": ins.get("id"),
                     "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
                 }

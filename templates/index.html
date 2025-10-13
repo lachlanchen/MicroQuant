@@ -2482,7 +2482,31 @@ const ensureLwMacd = () => {
             countsLine = `<div style="font-size:12px; color:var(--muted); margin-top:2px;">${segments.join(' • ')}</div>`;
           }
         }
-        container.innerHTML = `${scoreLine}${strategyLine}${countsLine}<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px;">${pillHtml}</div>`;
+        // Optional position block from +Position strategies
+        let positionBlock = '';
+        const pos = payload.position || null;
+        if (pos && typeof pos === 'object') {
+          const posLabel = String(pos.position || '').toUpperCase();
+          const isBuy = posLabel === 'BUY';
+          const bg = isBuy ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
+          const border = isBuy ? '#2ecc71' : '#e74c3c';
+          const color = isBuy ? '#1b5e20' : '#b71c1c';
+          const slStr = Number.isFinite(Number(pos.sl)) ? formatTechNumber(Number(pos.sl)) : '—';
+          const tpStr = Number.isFinite(Number(pos.tp)) ? formatTechNumber(Number(pos.tp)) : '—';
+          const expl = (pos.explanation || '').toString();
+          positionBlock = `
+            <div style="margin-top:8px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel);">
+              <div class="row" style="justify-content:space-between; align-items:center;">
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <strong>Trade Orientation</strong>
+                  <span class="pill" style="background:${bg}; border-color:${border}; color:${color};">${esc(posLabel)}</span>
+                </div>
+                <div style="font-size:12px; color:var(--muted);">SL ${esc(slStr)} • TP ${esc(tpStr)}</div>
+              </div>
+              <div style="font-size:12px; color:var(--muted); margin-top:6px;">${esc(expl)}</div>
+            </div>`;
+        }
+        container.innerHTML = `${scoreLine}${strategyLine}${countsLine}${positionBlock}<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px;">${pillHtml}</div>`;
       };
 
       async function loadHealthHistory() {
