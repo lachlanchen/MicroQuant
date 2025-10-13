@@ -3054,6 +3054,7 @@ const ensureLwMacd = () => {
         const raw = Number(el && el.value);
         return (Number.isFinite(raw) && raw > 0) ? raw : 10;
       };
+      const getSafeLotsKey = () => `safe_max_lots:${currentSymbol()}:${currentTf()}`;
       const contractSizeForSymbol = (sym) => {
         const s = (sym || '').toUpperCase();
         if (/^[A-Z]{6,7}$/.test(s)) return 100000; // FX standard lot
@@ -3096,7 +3097,9 @@ const ensureLwMacd = () => {
         const lotsStr = (lots || 0).toFixed(2);
         const pxStr = Number(px).toFixed(2);
         const cur = lastAccountCurrency ? lastAccountCurrency : '$';
-        posSizeHint.textContent = `${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} units/lot) ≈ ${lotsStr} lots (safe max)`;
+        posSizeHint.innerHTML = `<div>${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} units/lot) ≈ ${lotsStr} lots (safe max)</div>
+        <div>Safe max lots: <strong>${lotsStr}</strong></div>`;
+        try { queuePrefUpdate(getSafeLotsKey(), lotsStr); } catch {}
       }
       // Initialize balance and hook calculators (run after dependencies are defined)
       (async () => { try { await refreshAccountBalanceQuick(); } finally { updatePositionSizeHint(); } })();
@@ -3104,7 +3107,32 @@ const ensureLwMacd = () => {
       if (symbolSelect) symbolSelect.addEventListener('change', () => { updatePositionSizeHint(); });
       if (tfSelect) tfSelect.addEventListener('change', () => { updatePositionSizeHint(); });
       const aiLevEl = document.getElementById('aiLeverage');
-      if (aiLevEl) aiLevEl.addEventListener('input', () => { updatePositionSizeHint(); });
+      // Per-symbol×TF leverage preference
+      const getLevKey = () => `ai_leverage:${currentSymbol()}:${currentTf()}`;
+      async function loadLeveragePref() {
+        if (!aiLevEl) return;
+        try {
+          const key = encodeURIComponent(getLevKey());
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${key}`, { cache: 'no-store' });
+          const js = await r.json();
+          const raw = js && js.prefs ? js.prefs[getLevKey()] : null;
+          if (raw != null && raw !== '') {
+            const num = Number(raw);
+            if (Number.isFinite(num) && num > 0) {
+              aiLevEl.value = String(num);
+            }
+          }
+        } catch {}
+        updatePositionSizeHint();
+      }
+      if (aiLevEl) aiLevEl.addEventListener('input', () => {
+        updatePositionSizeHint();
+        try { queuePrefUpdate(getLevKey(), String(getLeverageValue())); } catch {}
+      });
+      // Load saved leverage on startup and whenever the symbol/TF changes
+      loadLeveragePref();
+      if (symbolSelect) symbolSelect.addEventListener('change', () => { loadLeveragePref(); });
+      if (tfSelect) tfSelect.addEventListener('change', () => { loadLeveragePref(); });
       async function updateAiPlanPreview() {
         const outBox = el('aiTradePlanBox');
         if (!outBox) return;
