@@ -1517,22 +1517,28 @@
         if (!lwBalanceChart) {
           const elBal = document.getElementById('lwBalance');
           if (!elBal) return;
-          lwBalanceChart = LightweightCharts.createChart(elBal, {
-            layout: { background: { color: '#ffffff' }, textColor: '#111' },
-            rightPriceScale: { visible: true },
-            leftPriceScale: { visible: true },
-            timeScale: { rightOffset: 2, fixRightEdge: false },
-            grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
-          });
-          // Ensure the pane has a sensible size even if CSS hasn't sized it yet
+          // Pre-size and compute initial dimensions before createChart
+          try { elBal.style.minHeight = elBal.style.minHeight || '180px'; } catch (e) {}
+          const preRect = elBal.getBoundingClientRect();
+          const initW = Math.max(100, Math.floor(elBal.clientWidth || preRect.width || 800));
+          const initH = Math.max(120, Math.floor(elBal.clientHeight || preRect.height || 180));
           try {
-            const rect = elBal.getBoundingClientRect();
-            if ((rect?.height || 0) < 40) {
-              elBal.style.minHeight = '180px';
-            }
-            const w = Math.max(100, Math.floor(elBal.clientWidth || rect.width || 800));
-            const h = Math.max(120, Math.floor(elBal.clientHeight || rect.height || 180));
-            lwBalanceChart.applyOptions({ width: w, height: h });
+            lwBalanceChart = LightweightCharts.createChart(elBal, {
+              layout: { background: { color: '#ffffff' }, textColor: '#111' },
+              rightPriceScale: { visible: true },
+              leftPriceScale: { visible: true },
+              timeScale: { rightOffset: 2, fixRightEdge: false },
+              grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
+              width: initW,
+              height: initH,
+            });
+          } catch (err) {
+            console.warn('[Balance] createChart failed, will retry', err, { initW, initH });
+            setTimeout(() => { try { ensureLwBalance(); } catch {} }, 150);
+            return;
+          }
+          // Keep chart sized on container changes
+          try {
             const ro = new ResizeObserver(() => {
               const r = elBal.getBoundingClientRect();
               const nw = Math.max(100, Math.floor(elBal.clientWidth || r.width || 800));
