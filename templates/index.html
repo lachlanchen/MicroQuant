@@ -1562,7 +1562,8 @@
               const t = Date.parse(row.ts);
               const v = Number(row.balance);
               if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-              return { x: new Date(t), y: v };
+              // Chart.js time scale (Luxon adapter) expects millis, not Date object
+              return { x: t, y: v };
             })
             .filter(Boolean);
           const ds = balanceChart.data.datasets[0];
@@ -1588,7 +1589,8 @@
               const t = Date.parse(row.ts);
               const v = Number(row.value ?? 0);
               if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-              return { x: new Date(t), y: v };
+              // Use millis for Luxon adapter
+              return { x: t, y: v };
             })
             .filter(Boolean);
           const ds = balanceChart.data.datasets[1];
