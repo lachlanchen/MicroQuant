@@ -40,6 +40,8 @@ from app.db import (
     fetch_news_db,
     upsert_account_balance,
     fetch_account_balances,
+    insert_signal_trade,
+    list_signal_trades,
 )
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
@@ -1757,6 +1759,7 @@ async def make_app():
             (r"/api/ai/trade_plan", TradePlanHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
+            (r"/api/trades/signal", SignalTradesHandler, dict(pool=pool)),
             # Duplicate route removed (was registered twice)
         ],
         **settings,
@@ -1820,6 +1823,21 @@ class TradeHandler(tornado.web.RequestHandler):
         tp = self.get_argument("tp", default=None)
         sl_val = float(sl) if sl not in (None, "", "null") else None
         tp_val = float(tp) if tp not in (None, "", "null") else None
+        # Optional context for signal logging
+        timeframe = self.get_argument("tf", default=None)
+        strategy = self.get_argument("strategy", default=None)
+        fast = self.get_argument("fast", default=None)
+        slow = self.get_argument("slow", default=None)
+        reason = self.get_argument("reason", default=None)
+        source = self.get_argument("source", default=None)
+        try:
+            fast_i = int(fast) if fast not in (None, "") else None
+        except Exception:
+            fast_i = None
+        try:
+            slow_i = int(slow) if slow not in (None, "") else None
+        except Exception:
+            slow_i = None
         logger.info("/api/trade symbol=%s side=%s volume=%s", symbol, side, volume)
         try:
             res = mt5_client.place_market(symbol, side, volume, sl=sl_val, tp=tp_val)
@@ -1831,6 +1849,29 @@ class TradeHandler(tornado.web.RequestHandler):
             self.finish(json.dumps({"ok": False, "error": str(e)}))
             return
         logger.info("/api/trade result=%s", res)
+        # Best-effort insert into signal_trades log
+        try:
+            if GLOBAL_POOL is not None:
+                await insert_signal_trade(
+                    GLOBAL_POOL,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    action=side,
+                    strategy=strategy,
+                    fast=fast_i,
+                    slow=slow_i,
+                    volume=volume,
+                    sl=sl_val,
+                    tp=tp_val,
+                    order_id=int(res.get("order") or 0) if isinstance(res, dict) else None,
+                    deal_id=int(res.get("deal") or 0) if isinstance(res, dict) else None,
+                    retcode=int(res.get("retcode") or 0) if isinstance(res, dict) else None,
+                    source=source,
+                    reason=reason,
+                    result=res if isinstance(res, dict) else None,
+                )
+        except Exception as exc:
+            logger.warning("signal trade log insert failed: %s", exc)
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         # Include a quick snapshot of positions after trade
@@ -1843,6 +1884,28 @@ class TradeHandler(tornado.web.RequestHandler):
     async def post(self):
         # Allow POST to avoid any client/proxy caching issues with GET
         return await self.get()
+
+
+class SignalTradesHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        symbol = self.get_argument("symbol", default=None)
+        timeframe = self.get_argument("tf", default=None)
+        limit = int(self.get_argument("limit", default="5"))
+        offset = int(self.get_argument("offset", default="0"))
+        try:
+            rows = await list_signal_trades(self.pool, symbol=symbol, timeframe=timeframe, limit=limit, offset=offset)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "rows": rows}))
+        except Exception as exc:
+            logger.exception("list signal trades failed: %s", exc)
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
 
 
 class CloseHandler(tornado.web.RequestHandler):

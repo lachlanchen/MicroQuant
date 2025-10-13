@@ -613,3 +613,103 @@ async def list_health_runs(
             }
         )
     return result
+
+
+# --- Signal trade logs ---
+async def insert_signal_trade(
+    pool: asyncpg.pool.Pool,
+    *,
+    symbol: str,
+    timeframe: str | None,
+    action: str,
+    strategy: str | None = None,
+    fast: int | None = None,
+    slow: int | None = None,
+    volume: float | None = None,
+    sl: float | None = None,
+    tp: float | None = None,
+    order_id: int | None = None,
+    deal_id: int | None = None,
+    retcode: int | None = None,
+    source: str | None = None,
+    reason: str | None = None,
+    result: dict | None = None,
+) -> dict:
+    q = (
+        """
+        INSERT INTO signal_trades (
+            symbol, timeframe, action, strategy, fast, slow, volume, sl, tp,
+            order_id, deal_id, retcode, source, reason, result
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            $10, $11, $12, $13, $14, $15::jsonb
+        )
+        RETURNING id, ts
+        """
+    )
+    import json as _json
+    res_json = _json.dumps(result) if isinstance(result, dict) else None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            q,
+            symbol,
+            timeframe,
+            action,
+            strategy,
+            fast,
+            slow,
+            volume,
+            sl,
+            tp,
+            order_id,
+            deal_id,
+            retcode,
+            source,
+            reason,
+            res_json,
+        )
+    return {"id": row["id"], "ts": row["ts"].isoformat() if hasattr(row["ts"], "isoformat") else str(row["ts"]) }
+
+
+async def list_signal_trades(
+    pool: asyncpg.pool.Pool,
+    *,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+    limit: int = 5,
+    offset: int = 0,
+) -> list[dict]:
+    if limit <= 0:
+        limit = 5
+    if offset < 0:
+        offset = 0
+    base = (
+        """
+        SELECT id, ts, symbol, timeframe, action, strategy, fast, slow, volume, sl, tp,
+               order_id, deal_id, retcode, source, reason, result
+        FROM signal_trades
+        WHERE ($1::text IS NULL OR symbol = $1)
+          AND ($2::text IS NULL OR timeframe = $2)
+        ORDER BY ts DESC
+        LIMIT $3 OFFSET $4
+        """
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(base, symbol, timeframe, int(limit), int(offset))
+    out: list[dict] = []
+    for r in rows:
+        item = {k: r[k] for k in r.keys()}
+        # normalize ts and numeric types for JSON
+        ts = item.get("ts")
+        if hasattr(ts, "isoformat"):
+            item["ts"] = ts.isoformat()
+        for fld in ("volume", "sl", "tp"):
+            v = item.get(fld)
+            if v is not None:
+                try:
+                    item[fld] = float(v)
+                except Exception:
+                    pass
+        # result is JSON already
+        out.append(item)
+    return out

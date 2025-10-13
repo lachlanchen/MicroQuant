@@ -378,6 +378,7 @@
             <label>Slow <input id="slow" type="number" min="3" value="{{ default_slow }}" /></label>
             <button class="btn" id="btnRunStrat">Run Strategy</button>
             <button class="btn secondary" id="btnTradeSignal" disabled>Trade Signal</button>
+            <button class="btn secondary" id="btnSignalHistory" style="padding:6px 10px;">History</button>
           </div>
           <div id="stratStatus" style="color:var(--muted)">Signal: —</div>
         </div>
@@ -499,6 +500,23 @@
       </div>
     </div>
 
+    <!-- Signal Trade History Modal -->
+    <div id="signalHistoryModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="modal-box" style="width:min(720px,94vw); max-height:86vh; overflow:auto;">
+        <div class="modal-head">
+          <h3>Signal Trade History</h3>
+          <button id="btnSignalHistoryClose" class="modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body" style="padding:12px;">
+          <div id="signalHistoryInfo" style="color:var(--muted); font-size:13px; margin-bottom:6px;"></div>
+          <div id="signalHistoryList" style="border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:300px; overflow:auto;"></div>
+          <div class="row" style="gap:8px; margin-top:8px;">
+            <button class="btn secondary" id="btnSignalHistoryMore" style="padding:6px 10px;">More</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Affiliate floating widgets -->
     <div id="rfBottomBanner" class="rf-floating rf-bottom rf-hidden" style="width:728px; height:90px;"
       data-rf-type="img"
@@ -547,6 +565,7 @@
         if (lastSignal === 'sell') color = getComputedStyle(document.documentElement).getPropertyValue('--sell').trim() || '#e74c3c';
         if (dot) dot.style.background = color;
         if (btn) btn.disabled = !(lastSignal === 'buy' || lastSignal === 'sell');
+        lastSignalReason = reason || '';
         if (reason && DEBUG_LOGS) console.log('[Strategy]', lastSignal, reason);
       }
 
@@ -690,6 +709,7 @@
       const lwContainer = document.getElementById('lwChart');
       let curType = (DEFAULT_CHART_TYPE === 'line') ? 'line' : 'candlestick';
       let chart = null;
+      let lastSignalReason = '';
       let lwChart = null;
       let lwLastTimes = [];
       let periodBoundaryTimes = [];
@@ -4533,21 +4553,33 @@ const ensureLwMacd = () => {
         });
       }
 
-      async function trade(side) {
+      async function trade(side, ctx = {}) {
         const symbol = currentSymbol();
         const volume = el('volume').value;
         queuePrefUpdate('last_volume', volume);
         queuePrefUpdate('last_sl', el('sl').value);
         queuePrefUpdate('last_tp', el('tp').value);
-        status(`${side.toUpperCase()} submitting...`);
+        const tf = currentTf();
+        status(`${side.toUpperCase()} submitting…`);
         const sl = el('sl').value; const tp = el('tp').value;
-        const body = new URLSearchParams({ symbol, side, volume, sl, tp });
+        const body = new URLSearchParams({ symbol, side, volume, sl, tp, tf });
+        // Optional signal context
+        if (ctx && typeof ctx === 'object') {
+          if (ctx.strategy) body.set('strategy', String(ctx.strategy));
+          if (ctx.fast != null) body.set('fast', String(ctx.fast));
+          if (ctx.slow != null) body.set('slow', String(ctx.slow));
+          if (ctx.reason) body.set('reason', String(ctx.reason));
+          if (ctx.source) body.set('source', String(ctx.source));
+        }
         const r = await fetch(`/api/trade`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
         const js = await r.json().catch(() => ({}));
         if (js.ok) {
-          status(`${side.toUpperCase()} ok: ${JSON.stringify(js.result)}`);
+          const ord = js && js.result ? ` order=${js.result.order||''} deal=${js.result.deal||''}` : '';
+          status(`${side.toUpperCase()} ok${ord}`);
           await refreshChart();
           await refreshPositions();
+          // Open history modal to show most recent executed orders for this symbol/TF
+          try { openSignalHistoryModal({ auto: true }); } catch (_) {}
         } else {
           status(`Trade error: ${js.error || r.statusText}`);
         }
@@ -4656,7 +4688,7 @@ const ensureLwMacd = () => {
       }
       document.getElementById('btnRunStratTop').addEventListener('click', runStrategyTop);
       document.getElementById('btnTradeSignalTop').addEventListener('click', () => {
-        if (lastSignal === 'buy' || lastSignal === 'sell') trade(lastSignal);
+        if (lastSignal === 'buy' || lastSignal === 'sell') trade(lastSignal, { source: 'topbar', strategy: 'sma_crossover', fast: 20, slow: 50, reason: lastSignalReason });
       });
       document.getElementById('btnAutoStrat').addEventListener('click', (ev) => {
         if (autoStratTimer) {
@@ -4702,8 +4734,72 @@ const ensureLwMacd = () => {
       if (btnRunStrat) btnRunStrat.addEventListener('click', runStrategy);
       const btnTradeSignal = document.getElementById('btnTradeSignal');
       if (btnTradeSignal) btnTradeSignal.addEventListener('click', () => {
-        if (lastSignal === 'buy' || lastSignal === 'sell') trade(lastSignal);
+        if (lastSignal === 'buy' || lastSignal === 'sell') {
+          const f = Number(el('fast').value || 20);
+          const s = Number(el('slow').value || 50);
+          trade(lastSignal, { source: 'panel', strategy: 'sma_crossover', fast: f, slow: s, reason: lastSignalReason });
+        }
       });
+
+      // Signal Trade History helpers
+      let signalHistoryOffset = 0;
+      const signalHistoryLimit = 5;
+      function renderSignalTradeItem(item) {
+        const ts = item.ts ? new Date(item.ts).toLocaleString() : '';
+        const fields = [];
+        if (item.strategy) fields.push(`strat=${esc(item.strategy)}`);
+        if (item.fast != null && item.slow != null) fields.push(`(${item.fast}/${item.slow})`);
+        if (item.volume != null) fields.push(`vol=${item.volume}`);
+        if (item.sl != null) fields.push(`SL=${item.sl}`);
+        if (item.tp != null) fields.push(`TP=${item.tp}`);
+        if (item.order_id) fields.push(`#${item.order_id}`);
+        if (item.deal_id) fields.push(`deal=${item.deal_id}`);
+        if (item.retcode != null) fields.push(`ret=${item.retcode}`);
+        if (item.reason) fields.push(`reason=${esc(item.reason)}`);
+        return `<div class="row" style="justify-content:space-between; border-bottom:1px dashed var(--line); padding:6px 0;">
+          <div><strong>${esc(item.symbol)}</strong> ${esc(item.timeframe||'')} • <span class="pill" style="background:${item.action==='buy'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${item.action==='buy'?'#2ecc71':'#e74c3c'};">${item.action.toUpperCase()}</span></div>
+          <div style="color:var(--muted); font-size:12px;">${esc(ts)}</div>
+        </div>
+        <div style="color:var(--muted); font-size:12px; margin:4px 0 8px 0;">${fields.map(esc).join(' · ')}</div>`;
+      }
+      async function loadSignalTrades({ append = false } = {}) {
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const r = await fetch(`/api/trades/signal?symbol=${encodeURIComponent(symbol)}&tf=${encodeURIComponent(tf)}&limit=${signalHistoryLimit}&offset=${signalHistoryOffset}`, { cache: 'no-store' });
+        const js = await r.json().catch(()=>({}));
+        const list = el('signalHistoryList');
+        if (!list) return;
+        if (!append) list.innerHTML = '';
+        const rows = (js && js.rows) || [];
+        if (rows.length === 0 && !append) {
+          list.innerHTML = '<div style="color:var(--muted);">No recent signal trades.</div>';
+        } else {
+          list.insertAdjacentHTML('beforeend', rows.map(renderSignalTradeItem).join(''));
+        }
+        // Manage more button
+        const btnMore = el('btnSignalHistoryMore');
+        if (btnMore) btnMore.disabled = rows.length < signalHistoryLimit;
+        if (rows.length > 0) signalHistoryOffset += rows.length;
+      }
+      function openSignalHistoryModal({ auto = false } = {}) {
+        signalHistoryOffset = 0;
+        const modal = el('signalHistoryModal');
+        if (!modal) return;
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        const info = el('signalHistoryInfo');
+        if (info) info.textContent = `${symbol} • TF ${tf}`;
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden','false');
+        loadSignalTrades({ append: false });
+      }
+      function hideSignalHistoryModal() { const m = el('signalHistoryModal'); if (m) { m.style.display = 'none'; m.setAttribute('aria-hidden','true'); } }
+      const btnSigHist = document.getElementById('btnSignalHistory');
+      if (btnSigHist) btnSigHist.addEventListener('click', () => openSignalHistoryModal());
+      const btnSigHistClose = document.getElementById('btnSignalHistoryClose');
+      if (btnSigHistClose) btnSigHistClose.addEventListener('click', hideSignalHistoryModal);
+      const btnSigHistMore = document.getElementById('btnSignalHistoryMore');
+      if (btnSigHistMore) btnSigHistMore.addEventListener('click', () => loadSignalTrades({ append: true }));
 
       // Initial load
       // News & intel helpers

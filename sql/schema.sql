@@ -100,3 +100,27 @@ CREATE TABLE IF NOT EXISTS account_balances (
 
 CREATE INDEX IF NOT EXISTS idx_account_balances_acct_ts
     ON account_balances(account_id, ts DESC);
+
+-- Signal-triggered trade logs (UI/strategy-originated orders)
+CREATE TABLE IF NOT EXISTS signal_trades (
+    id         BIGSERIAL     PRIMARY KEY,
+    ts         TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    symbol     TEXT          NOT NULL,
+    timeframe  TEXT,
+    action     TEXT          NOT NULL,            -- 'buy' | 'sell'
+    strategy   TEXT,                              -- e.g., 'sma_crossover'
+    fast       INTEGER,
+    slow       INTEGER,
+    volume     DOUBLE PRECISION,
+    sl         DOUBLE PRECISION,
+    tp         DOUBLE PRECISION,
+    order_id   BIGINT,                            -- MT5 order id (if any)
+    deal_id    BIGINT,                            -- MT5 deal id (if any)
+    retcode    INTEGER,
+    source     TEXT,                              -- 'panel' | 'topbar' | 'auto'
+    reason     TEXT,                              -- signal reason (e.g., 'fast_cross_up')
+    result     JSONB                              -- raw broker response or extra metadata
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_trades_sym_tf_ts
+    ON signal_trades(symbol, COALESCE(timeframe, ''), ts DESC);
