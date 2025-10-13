@@ -319,7 +319,7 @@
               <button class="btn secondary" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
               <span id="healthFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <label class="switch" style="margin-left:8px;">
-                <input type="checkbox" id="chkAutoBasic" class="toggle-input" />
+                <input type="checkbox" id="chkAutoBasic" class="toggle-input" disabled />
                 <span class="toggle"></span>
                 <span>Auto Check</span>
               </label>
@@ -352,7 +352,7 @@
               <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
               <span id="techFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <label class="switch" style="margin-left:8px;">
-                <input type="checkbox" id="chkAutoTech" class="toggle-input" />
+                <input type="checkbox" id="chkAutoTech" class="toggle-input" disabled />
                 <span class="toggle"></span>
                 <span>Auto Check</span>
               </label>
@@ -2805,8 +2805,8 @@ const ensureLwMacd = () => {
       // --- Auto Check (per symbol × timeframe) ---
       const getAutoBasicKey = () => `auto_check_basic:${currentSymbol()}:${currentTf()}`;
       const getAutoTechKey = () => `auto_check_tech:${currentSymbol()}:${currentTf()}`;
-      const isAutoBasicEnabled = () => !!(autoBasicToggle && autoBasicToggle.checked);
-      const isAutoTechEnabled = () => !!(autoTechToggle && autoTechToggle.checked);
+      const isAutoBasicEnabled = () => !!(autoBasicToggle && !autoBasicToggle.disabled && autoBasicToggle.checked);
+      const isAutoTechEnabled = () => !!(autoTechToggle && !autoTechToggle.disabled && autoTechToggle.checked);
       const applyAutoBasicState = (on) => { if (autoBasicToggle) autoBasicToggle.checked = !!on; };
       const applyAutoTechState = (on) => { if (autoTechToggle) autoTechToggle.checked = !!on; };
       async function loadAutoBasicPref() {
