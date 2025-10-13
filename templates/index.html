@@ -360,10 +360,6 @@
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
-                <span style="display:inline-block; width:120px; text-align:right;">Leverage</span>
-                <input id="aiLeverage" type="number" min="1" max="100" value="10" style="width:80px;" />
-              </label>
-              <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">Trade AI model</span>
                 <select id="aiModelSelect" style="min-width:220px; padding:4px 6px;">
                   <option value="gpt-5">gpt-5</option>
@@ -382,6 +378,14 @@
             <div class="row" style="margin-top:8px;">
               <button class="btn secondary" id="btnExecutePlan" disabled style="padding:6px 10px;">Execute Plan</button>
             </div>
+            <!-- Leverage + position size hint -->
+            <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Leverage</span>
+                <input id="aiLeverage" type="number" min="1" max="100" value="10" style="width:80px;" />
+              </label>
+            </div>
+            <div id="posSizeHint" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
           </div>
         </div>
         <!-- STL panel -->
@@ -966,6 +970,12 @@
           } catch {}
         })();
       }
+      // Initialize balance and hook calculators
+      (async () => { try { await refreshAccountBalanceQuick(); } finally { updatePositionSizeHint(); } })();
+      setInterval(() => { refreshAccountBalanceQuick().then(updatePositionSizeHint).catch(()=>{}); }, 60000);
+      if (symbolSelect) symbolSelect.addEventListener('change', () => { updatePositionSizeHint(); });
+      if (tfSelect) tfSelect.addEventListener('change', () => { updatePositionSizeHint(); });
+      if (aiLeverageInput) aiLeverageInput.addEventListener('input', () => { updatePositionSizeHint(); });
 
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
@@ -3019,11 +3029,60 @@ const ensureLwMacd = () => {
       let lastAiPlan = null;
       let aiPlanReqSeq = 0;
       const btnExecutePlan = document.getElementById('btnExecutePlan');
+      const posSizeHint = document.getElementById('posSizeHint');
+      let lastAccountBalance = null;
+      let lastAccountCurrency = null;
       const updateExecuteBtn = () => {
         if (!btnExecutePlan) return;
         const ok = !!(lastAiPlan && lastAiPlan.position && (lastAiPlan.position === 'BUY' || lastAiPlan.position === 'SELL'));
         btnExecutePlan.disabled = !ok;
       };
+
+      // Position size hint helpers
+      const contractSizeForSymbol = (sym) => {
+        const s = (sym || '').toUpperCase();
+        if (/^[A-Z]{6,7}$/.test(s)) return 100000; // FX standard lot
+        if (s.startsWith('XAU')) return 100; // gold
+        if (s.startsWith('XAG')) return 5000; // silver (common CFD size)
+        return 100; // default
+      };
+      const latestClose = () => {
+        if (Array.isArray(lastPriceRows) && lastPriceRows.length) {
+          const v = Number(lastPriceRows[lastPriceRows.length - 1]?.close);
+          return Number.isFinite(v) ? v : null;
+        }
+        return null;
+      };
+      async function refreshAccountBalanceQuick() {
+        try {
+          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1', { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const rows = Array.isArray(js.rows) ? js.rows : [];
+          if (rows.length) {
+            const last = rows[rows.length - 1];
+            lastAccountBalance = Number(last.balance);
+            lastAccountCurrency = last.currency || null;
+          }
+        } catch {}
+      }
+      function updatePositionSizeHint() {
+        if (!posSizeHint) return;
+        const sym = currentSymbol();
+        const lev = Math.max(1, Math.min(100, Number(aiLeverageInput && aiLeverageInput.value || 10)));
+        const px = latestClose();
+        const bal = Number(lastAccountBalance);
+        if (!Number.isFinite(px) || !Number.isFinite(bal)) {
+          posSizeHint.textContent = 'Position size: — (awaiting price/balance)';
+          return;
+        }
+        const contract = contractSizeForSymbol(sym);
+        const denom = px * contract;
+        const lots = denom > 0 ? (bal * lev) / denom : 0;
+        const lotsStr = (lots || 0).toFixed(2);
+        const pxStr = Number(px).toFixed(2);
+        const cur = lastAccountCurrency ? lastAccountCurrency : '$';
+        posSizeHint.textContent = `${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} units/lot) ≈ ${lotsStr} lots (safe max)`;
+      }
       async function updateAiPlanPreview() {
         const outBox = el('aiTradePlanBox');
         if (!outBox) return;
@@ -3591,6 +3650,7 @@ const ensureLwMacd = () => {
             chart.data.datasets.forEach((ds) => { ds.data = []; });
             chart.update('none');
           }
+          try { updatePositionSizeHint(); } catch {}
           return;
         }
         // Compute inputs
@@ -3606,6 +3666,7 @@ const ensureLwMacd = () => {
         ensureLwRsi();
         ensureLwMacd();
         ensureLwDeriv();
+        try { updatePositionSizeHint(); } catch {}
         // Volume histogram
         if (lwVolSeries) {
           const volPoints = rows.map((row, idx) => {
