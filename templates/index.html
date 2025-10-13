@@ -2548,6 +2548,8 @@ const ensureLwMacd = () => {
         const outBox = el('healthResultsBox');
         outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
         try {
+          // Optimistically show running state on Basic freshness
+          if (typeof setHealthFreshRunning === 'function') setHealthFreshRunning();
           // Optional model override for Basic Health
           const basicModelSel = document.getElementById('basicAiModel');
           const basicModel = basicModelSel && basicModelSel.value ? basicModelSel.value : '';
@@ -2564,7 +2566,8 @@ const ensureLwMacd = () => {
           }
           renderHealthOutcome(outBox, data);
           loadHealthHistory();
-          refreshHealthFreshness();
+          await refreshTechFreshness();
+          await refreshHealthFreshness();
           refreshTechFreshness();
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e}</em>`;
@@ -2587,6 +2590,7 @@ const ensureLwMacd = () => {
           const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
           if (techModel) body.model = techModel;
           console.log('[Health][TechAI] running tech snapshot for', sym, currentTf());
+          if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
           outBox.innerHTML = '<div style="color:var(--muted)">Running Tech+AI…</div>';
           const res = await fetch('/api/health/run', {
             method: 'POST',
@@ -2677,6 +2681,14 @@ const ensureLwMacd = () => {
       let tradeState = { action: 'BUY', offset: 0 };
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
       const healthFreshEl = document.getElementById('healthFreshIndicator');
+      const setHealthFreshRunning = () => {
+        if (!healthFreshEl) return;
+        healthFreshEl.textContent = 'Checking…';
+        healthFreshEl.style.background = 'rgba(158,158,158,0.12)';
+        healthFreshEl.style.borderColor = '#9e9e9e';
+        healthFreshEl.style.color = '#424242';
+        healthFreshEl.title = 'Running Basic Health…';
+      };
       const renderHealthFresh = (info) => {
         if (!healthFreshEl) return;
         const freshCount = Number((info && info.new_count) || 0);
@@ -2717,6 +2729,14 @@ const ensureLwMacd = () => {
 
       // Tech+AI freshness (bars outdated)
       const techFreshEl = document.getElementById('techFreshIndicator');
+      const setTechFreshRunning = () => {
+        if (!techFreshEl) return;
+        techFreshEl.textContent = 'Computing…';
+        techFreshEl.style.background = 'rgba(158,158,158,0.12)';
+        techFreshEl.style.borderColor = '#9e9e9e';
+        techFreshEl.style.color = '#424242';
+        techFreshEl.title = 'Running Tech+AI…';
+      };
       const renderTechFresh = (info) => {
         if (!techFreshEl) return;
         let label = '—';
