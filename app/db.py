@@ -513,6 +513,119 @@ async def fetch_account_balances(
         })
     return out
 
+# --- Closed deals ---
+async def upsert_closed_deals(
+    pool: asyncpg.pool.Pool,
+    *,
+    account_id: int,
+    rows: list[dict],
+) -> int:
+    if not rows:
+        return 0
+    q = (
+        """
+        INSERT INTO closed_deals (account_id, deal_id, order_id, ts, symbol, profit, commission, swap, volume, entry, comment)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT (account_id, deal_id) DO UPDATE SET
+            order_id = EXCLUDED.order_id,
+            ts = EXCLUDED.ts,
+            symbol = EXCLUDED.symbol,
+            profit = EXCLUDED.profit,
+            commission = EXCLUDED.commission,
+            swap = EXCLUDED.swap,
+            volume = EXCLUDED.volume,
+            entry = EXCLUDED.entry,
+            comment = EXCLUDED.comment
+        """
+    )
+    args = []
+    from datetime import datetime, timezone
+    for r in rows:
+        ts = r.get("ts")
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts)
+        if ts and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        args.append(
+            (
+                int(account_id),
+                int(r.get("deal") or r.get("deal_id") or 0),
+                (int(r.get("order") or 0) if r.get("order") is not None else None),
+                ts,
+                r.get("symbol"),
+                float(r.get("profit") or 0.0),
+                float(r.get("commission") or 0.0),
+                float(r.get("swap") or 0.0),
+                float(r.get("volume") or 0.0),
+                (int(r.get("entry") or 0) if r.get("entry") is not None else None),
+                r.get("comment"),
+            )
+        )
+    async with pool.acquire() as conn:
+        await conn.executemany(q, args)
+    return len(args)
+
+
+async def fetch_closed_deals_between(
+    pool: asyncpg.pool.Pool,
+    *,
+    account_id: int,
+    start_ts,
+    end_ts,
+) -> list[dict]:
+    q = (
+        """
+        SELECT account_id, deal_id, order_id, ts, symbol, profit, commission, swap, volume, entry, comment
+        FROM closed_deals
+        WHERE account_id=$1
+          AND ($2::timestamptz IS NULL OR ts >= $2)
+          AND ($3::timestamptz IS NULL OR ts <= $3)
+        ORDER BY ts ASC
+        """
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, int(account_id), start_ts, end_ts)
+    out = []
+    for r in rows:
+        item = dict(r)
+        ts = item.get("ts")
+        if hasattr(ts, "isoformat"):
+            item["ts"] = ts.isoformat()
+        for k in ("profit", "commission", "swap", "volume"):
+            if item.get(k) is not None:
+                try:
+                    item[k] = float(item[k])
+                except Exception:
+                    pass
+        out.append(item)
+    return out
+
+
+async def latest_balance_before(
+    pool: asyncpg.pool.Pool,
+    *,
+    user_name: str,
+    account_id: int,
+    ts,
+) -> dict | None:
+    q = (
+        """
+        SELECT ts, balance
+        FROM account_balances
+        WHERE user_name=$1 AND account_id=$2 AND ts <= $3
+        ORDER BY ts DESC
+        LIMIT 1
+        """
+    )
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(q, user_name, int(account_id), ts)
+    if not row:
+        return None
+    return {
+        "ts": row["ts"].isoformat() if hasattr(row["ts"], "isoformat") else str(row["ts"]),
+        "balance": float(row["balance"]) if row["balance"] is not None else None,
+    }
+
 async def insert_health_run(
     pool: asyncpg.pool.Pool,
     *,

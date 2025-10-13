@@ -40,6 +40,9 @@ from app.db import (
     fetch_news_db,
     upsert_account_balance,
     fetch_account_balances,
+    upsert_closed_deals,
+    fetch_closed_deals_between,
+    latest_balance_before,
     insert_signal_trade,
     list_signal_trades,
 )
@@ -1758,6 +1761,7 @@ async def make_app():
             (r"/api/health/freshness", HealthFreshnessHandler, dict(pool=pool)),
             (r"/api/tech/freshness", TechFreshnessHandler, dict(pool=pool)),
             (r"/api/account/balance_series", AccountBalanceHandler, dict(pool=pool)),
+            (r"/api/account/closed_deals_sync", ClosedDealsSyncHandler),
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
@@ -2032,15 +2036,25 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         days = int(self.get_argument("days", default="90"))
         start_arg = self.get_argument("from", default=None)
         end_arg = self.get_argument("to", default=None)
+        user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
         start_dt = _normalize_dt(start_arg) if start_arg else None
         end_dt = _normalize_dt(end_arg) if end_arg else None
         if not end_dt:
             end_dt = datetime.now(timezone.utc)
         if not start_dt:
             start_dt = end_dt - timedelta(days=max(1, days))
+        # Resolve account id
+        try:
+            info = mt5_client.account_info()
+            account_id = int(info.get("login") or 0)
+        except Exception:
+            account_id = 0
         try:
             logger.info("/api/account/closed_deals from=%s to=%s days=%s", start_dt, end_dt, days)
-            deals = mt5_client.closed_deals(start_dt, end_dt)
+            # Prefer DB
+            deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+            if not deals:
+                deals = mt5_client.closed_deals(start_dt, end_dt)
         except Exception as e:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
@@ -2056,8 +2070,18 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             s = float(d.get("swap") or 0.0)
             cum += (p + c + s)
             cum_points.append({"ts": d.get("ts"), "value": cum})
+        # Synthetic overlay: baseline balance + cumulative deals
+        synthetic_points: list[dict] = []
         try:
-            logger.info("/api/account/closed_deals ok deals=%d cum_points=%d", len(deals), len(cum_points))
+            base_row = await latest_balance_before(GLOBAL_POOL, user_name=user, account_id=account_id, ts=start_dt)
+            base_val = float(base_row.get("balance")) if base_row else None
+            if base_val is not None:
+                for pt in cum_points:
+                    synthetic_points.append({"ts": pt.get("ts"), "value": base_val + float(pt.get("value") or 0.0)})
+        except Exception:
+            synthetic_points = []
+        try:
+            logger.info("/api/account/closed_deals ok deals=%d cum_points=%d synthetic=%d", len(deals), len(cum_points), len(synthetic_points))
         except Exception:
             pass
         self.set_header("Content-Type", "application/json")
@@ -2070,7 +2094,50 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             "deals_count": len(deals),
             "cum": cum_points,
             "cum_count": len(cum_points),
+            "synthetic": synthetic_points,
         }))
+
+
+class ClosedDealsSyncHandler(tornado.web.RequestHandler):
+    async def post(self):
+        # Full or ranged sync; default from 5 years ago to now
+        start_arg = self.get_argument("from", default=None)
+        end_arg = self.get_argument("to", default=None)
+        step_days = int(self.get_argument("step", default="90"))
+        start_dt = _normalize_dt(start_arg) if start_arg else datetime.now(timezone.utc) - timedelta(days=5*365)
+        end_dt = _normalize_dt(end_arg) if end_arg else datetime.now(timezone.utc)
+        # Resolve account id
+        try:
+            info = mt5_client.account_info()
+            account_id = int(info.get("login") or 0)
+        except Exception as e:
+            self.set_status(503)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": f"account unavailable: {e}"}))
+            return
+        logger.info("/api/account/closed_deals_sync from=%s to=%s step=%sd", start_dt, end_dt, step_days)
+        async def runner():
+            try:
+                total = 0
+                cur = start_dt
+                while cur < end_dt:
+                    nxt = min(end_dt, cur + timedelta(days=step_days))
+                    deals = mt5_client.closed_deals(cur, nxt)
+                    if deals:
+                        try:
+                            await upsert_closed_deals(GLOBAL_POOL, account_id=account_id, rows=deals)
+                            total += len(deals)
+                            logger.info("[closed_sync] %s-%s inserted=%d total=%d", cur, nxt, len(deals), total)
+                        except Exception as exc:
+                            logger.warning("[closed_sync] upsert failed: %s", exc)
+                    cur = nxt
+                await emit_closed_deals_event()
+                logger.info("[closed_sync] completed total=%d", total)
+            except Exception as exc:
+                logger.exception("[closed_sync] failed: %s", exc)
+        tornado.ioloop.IOLoop.current().spawn_callback(runner)
+        self.set_header("Content-Type", "application/json")
+        self.finish(json.dumps({"ok": True, "scheduled": True}))
 
 
 class STLHandler(tornado.web.RequestHandler):

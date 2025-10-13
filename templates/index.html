@@ -238,6 +238,7 @@
             <h4>Account Balance</h4>
             <div class="row" style="gap:8px; align-items:center; margin:4px 0 8px 0;">
               <button class="btn secondary" id="btnFetchClosed" style="padding:4px 8px;">Fetch Closed</button>
+              <button class="btn secondary" id="btnSyncClosed" style="padding:4px 8px;">Sync</button>
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="font-size:12px; color:var(--muted);">Interval (min)</span>
                 <input id="closedPollMin" type="number" min="1" value="{{ default_closed_orders_poll_min }}" style="width:72px;" />
@@ -1524,7 +1525,8 @@
         if (lwBalanceChart && !lwBalanceSeries) {
           lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2, priceScaleId: 'right' });
           const LS = (LightweightCharts && LightweightCharts.LineStyle) ? LightweightCharts.LineStyle : {};
-          lwClosedPnlSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0), priceScaleId: 'left' });
+          // Use right scale for synthetic overlay so it aligns with balance values
+          lwClosedPnlSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0), priceScaleId: 'right' });
         }
         if (!lwBalanceSubscribed && lwBalanceChart) {
           lwBalanceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -1558,8 +1560,10 @@
           const js = await r.json().catch(()=>({}));
           ensureLwBalance();
           if (!lwClosedPnlSeries || !lwBalanceSeries) return;
-          const cum = (js.cum || []).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.value||0) }));
-          lwClosedPnlSeries.setData(cum);
+          // Prefer synthetic (balance baseline + cumulative PnL) if present
+          const syn = Array.isArray(js.synthetic) ? js.synthetic : [];
+          const points = (syn.length ? syn : (js.cum || [])).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.value||0) }));
+          lwClosedPnlSeries.setData(points);
           // Markers at each deal time
           const deals = js.deals || [];
           const markers = deals.map(d => {
@@ -1574,9 +1578,9 @@
             };
           });
           lwClosedPnlSeries.setMarkers(markers);
-          const msg = `Closed orders: deals=${(js.deals_count||deals.length)} points=${(js.cum_count||cum.length)}`;
+          const msg = `Closed orders: deals=${(js.deals_count||deals.length)} points=${(syn.length? syn.length : (js.cum_count||points.length))}`;
           console.log('[Closed]', msg);
-          status(cum.length ? `Loaded ${cum.length} PnL point(s) from ${deals.length} deal(s).` : 'No closed orders found in window.');
+          status(points.length ? `Loaded ${points.length} point(s) from ${deals.length} deal(s).` : 'No closed orders found in window.');
         } catch (e) {
           console.warn('Closed deals fetch failed', e);
           status('Closed deals fetch failed.');
@@ -4823,6 +4827,18 @@ const ensureLwMacd = () => {
       // Closed orders controls
       const btnFetchClosed = document.getElementById('btnFetchClosed');
       if (btnFetchClosed) btnFetchClosed.addEventListener('click', refreshClosedDealsSeries);
+      const btnSyncClosed = document.getElementById('btnSyncClosed');
+      if (btnSyncClosed) btnSyncClosed.addEventListener('click', async () => {
+        const prev = btnSyncClosed.textContent;
+        btnSyncClosed.disabled = true; btnSyncClosed.textContent = 'Syncing…';
+        try {
+          const r = await fetch('/api/account/closed_deals_sync', { method:'POST' });
+          const js = await r.json().catch(()=>({}));
+          if (js && js.ok) { status('Closed orders sync scheduled.'); }
+          else { status(`Closed sync error: ${js && js.error ? js.error : r.statusText}`); }
+        } catch (e) { status('Closed sync error'); }
+        finally { btnSyncClosed.disabled = false; btnSyncClosed.textContent = prev; }
+      });
       const btnUpdateClosed = document.getElementById('btnUpdateClosed');
       if (btnUpdateClosed) btnUpdateClosed.addEventListener('click', async () => {
         const min = Number(document.getElementById('closedPollMin').value || 30);

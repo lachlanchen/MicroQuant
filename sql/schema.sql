@@ -101,6 +101,25 @@ CREATE TABLE IF NOT EXISTS account_balances (
 CREATE INDEX IF NOT EXISTS idx_account_balances_acct_ts
     ON account_balances(account_id, ts DESC);
 
+-- Closed deals history (persisted from MT5)
+CREATE TABLE IF NOT EXISTS closed_deals (
+    account_id   BIGINT       NOT NULL,
+    deal_id      BIGINT       NOT NULL,
+    order_id     BIGINT,
+    ts           TIMESTAMPTZ  NOT NULL,
+    symbol       TEXT,
+    profit       DOUBLE PRECISION,
+    commission   DOUBLE PRECISION,
+    swap         DOUBLE PRECISION,
+    volume       DOUBLE PRECISION,
+    entry        INTEGER,
+    comment      TEXT,
+    PRIMARY KEY (account_id, deal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_closed_deals_acct_ts
+    ON closed_deals(account_id, ts ASC);
+
 -- Signal-triggered trade logs (UI/strategy-originated orders)
 CREATE TABLE IF NOT EXISTS signal_trades (
     id         BIGSERIAL     PRIMARY KEY,
