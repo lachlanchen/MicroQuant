@@ -970,12 +970,6 @@
           } catch {}
         })();
       }
-      // Initialize balance and hook calculators
-      (async () => { try { await refreshAccountBalanceQuick(); } finally { updatePositionSizeHint(); } })();
-      setInterval(() => { refreshAccountBalanceQuick().then(updatePositionSizeHint).catch(()=>{}); }, 60000);
-      if (symbolSelect) symbolSelect.addEventListener('change', () => { updatePositionSizeHint(); });
-      if (tfSelect) tfSelect.addEventListener('change', () => { updatePositionSizeHint(); });
-      if (aiLeverageInput) aiLeverageInput.addEventListener('input', () => { updatePositionSizeHint(); });
 
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
@@ -3099,6 +3093,13 @@ const ensureLwMacd = () => {
         const cur = lastAccountCurrency ? lastAccountCurrency : '$';
         posSizeHint.textContent = `${sym} • ${cur}${bal.toFixed(2)} × lev ${lev} ÷ (${pxStr} × ${contract.toLocaleString()} units/lot) ≈ ${lotsStr} lots (safe max)`;
       }
+      // Initialize balance and hook calculators (run after dependencies are defined)
+      (async () => { try { await refreshAccountBalanceQuick(); } finally { updatePositionSizeHint(); } })();
+      setInterval(() => { refreshAccountBalanceQuick().then(updatePositionSizeHint).catch(()=>{}); }, 60000);
+      if (symbolSelect) symbolSelect.addEventListener('change', () => { updatePositionSizeHint(); });
+      if (tfSelect) tfSelect.addEventListener('change', () => { updatePositionSizeHint(); });
+      const aiLevEl = document.getElementById('aiLeverage');
+      if (aiLevEl) aiLevEl.addEventListener('input', () => { updatePositionSizeHint(); });
       async function updateAiPlanPreview() {
         const outBox = el('aiTradePlanBox');
         if (!outBox) return;
