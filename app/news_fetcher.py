@@ -68,8 +68,12 @@ def _normalize_item(
 
 
 def _is_fx_pair(symbol: str) -> bool:
+    """Return True only for 6–7 char FX-like pairs (e.g., XAUUSD, EURUSD).
+
+    Single codes like 'XAU' or 'USD' should NOT be treated as pairs.
+    """
     sym = (symbol or '').upper()
-    return bool(re.fullmatch(r'[A-Z]{3}[A-Z]{3}', sym)) or sym.startswith(('XAU', 'XAG', 'XPT', 'XPD'))
+    return bool(re.fullmatch(r'[A-Z]{3}[A-Z]{3,4}', sym))
 
 
 def _fx_synonyms(ccy: str) -> list[str]:
@@ -119,7 +123,8 @@ def fetch_fmp_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List[D
         logger.info("[news] FMP key missing; skip fetch_fmp_news(%s)", symbol)
         return []
     sym = (symbol or '').upper()
-    if _is_fx_pair(sym):
+    # Use the broad news feed for FX pairs and for standalone 3-letter codes (USD, XAU, etc.)
+    if _is_fx_pair(sym) or len(sym) == 3:
         url = f'https://financialmodelingprep.com/api/v3/stock_news?limit=50&apikey={key}'
     else:
         url = f'https://financialmodelingprep.com/api/v3/stock_news?tickers={sym}&limit=50&apikey={key}'
@@ -160,7 +165,8 @@ def fetch_alpha_news(symbol: str, limit: int = 20, timeout: float = 5.0) -> List
         return []
     # Use broad FOREX topic and filter client-side
     sym = (symbol or '').upper()
-    if _is_fx_pair(sym):
+    # Use FOREX topic for pairs and standalone 3-letter codes
+    if _is_fx_pair(sym) or len(sym) == 3:
         url = f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&topics=FOREX&sort=LATEST&apikey={key}'
     else:
         url = f'https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers={sym}&sort=LATEST&apikey={key}'
@@ -210,7 +216,7 @@ def fetch_news_for_symbol(symbol: str, limit: int = 20) -> List[Dict[str, Any]]:
             out.append(it)
             if len(out) >= limit:
                 break
-    # Extra filtering for FX pairs to reduce equity/ETF noise
+    # Extra filtering only for true FX pairs (not for standalone 3-letter codes)
     sym = (symbol or '').upper()
     if _is_fx_pair(sym):
         base = sym[:3]
