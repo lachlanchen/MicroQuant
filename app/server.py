@@ -37,6 +37,7 @@ from app.db import (
     fetch_stl_run_data,
     insert_health_run,
     list_health_runs,
+    get_health_run_by_id,
     upsert_news_articles,
     fetch_news_db,
     upsert_account_balance,
@@ -3414,6 +3415,15 @@ class HealthRunHandler(tornado.web.RequestHandler):
         # Special strategy: technical snapshot analysis (10Q), uses client-provided snapshot text
         # Prefer this branch whenever a tech_snapshot is provided, regardless of 'strategy' value.
         snapshot_text = str(payload.get("tech_snapshot") or "").strip()
+        # Optional explicit run selections
+        try:
+            basic_run_id = int(payload.get("basic_run_id")) if payload.get("basic_run_id") is not None else None
+        except Exception:
+            basic_run_id = None
+        try:
+            tech_run_id = int(payload.get("tech_run_id")) if payload.get("tech_run_id") is not None else None
+        except Exception:
+            tech_run_id = None
         if snapshot_text or strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json", ""}:
             symbol = (payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
             timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
@@ -4156,7 +4166,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
             self.finish(json.dumps({"ok": False, "error": "tech_snapshot required"}))
             return
 
-        # Compose Basic and Tech+AI blocks from latest runs
+        # Compose Basic and Tech+AI blocks from selected or latest runs
         kind = "forex_pair" if _is_fx_symbol(symbol) else "stock"
         base = quote = None
         if kind == "forex_pair":
@@ -4180,8 +4190,22 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 runs = await list_health_runs(self.pool, kind="stock", symbol=symbol, limit=1, offset=0, strategy=strategy)
             return runs[0] if runs else None
 
-        basic_run = await _latest_run(basic_strategy)
-        tech_run = await _latest_run("tech_snapshot_10q.json")
+        basic_run = None
+        tech_run = None
+        if basic_run_id is not None:
+            try:
+                basic_run = await get_health_run_by_id(self.pool, basic_run_id)
+            except Exception:
+                basic_run = None
+        if tech_run_id is not None:
+            try:
+                tech_run = await get_health_run_by_id(self.pool, tech_run_id)
+            except Exception:
+                tech_run = None
+        if basic_run is None:
+            basic_run = await _latest_run(basic_strategy)
+        if tech_run is None:
+            tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
 
         # Ensure prerequisite reports exist: if missing, trigger them via the same API
         # so they are persisted to history just like a frontend click.
@@ -4215,7 +4239,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 logger.debug("failed to auto-run basic/tech reports before trade plan", exc_info=True)
             # Requery after attempted creation
             basic_run = await _latest_run(basic_strategy)
-            tech_run = await _latest_run("tech_snapshot_10q.json")
+            tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
 
         def _format_run_block(run: dict | None) -> str:
             if not run:

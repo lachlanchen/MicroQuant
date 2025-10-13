@@ -747,6 +747,41 @@ async def list_health_runs(
     return result
 
 
+async def get_health_run_by_id(pool: asyncpg.pool.Pool, run_id: int) -> dict | None:
+    q = (
+        """
+        SELECT id, kind, symbol, base_ccy, quote_ccy, news_count, news_ids, answers_json, created_at
+        FROM health_runs
+        WHERE id = $1
+        """
+    )
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(q, int(run_id))
+    if not row:
+        return None
+    created_at = row["created_at"]
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    ans = row["answers_json"]
+    try:
+        if isinstance(ans, str):
+            import json as _json
+            ans = _json.loads(ans)
+    except Exception:
+        pass
+    return {
+        "id": row["id"],
+        "kind": row["kind"],
+        "symbol": row["symbol"],
+        "base_ccy": row["base_ccy"],
+        "quote_ccy": row["quote_ccy"],
+        "news_count": row["news_count"],
+        "news_ids": list(row["news_ids"] or []),
+        "answers_json": ans,
+        "created_at": created_at,
+    }
+
+
 # --- Signal trade logs ---
 async def insert_signal_trade(
     pool: asyncpg.pool.Pool,
