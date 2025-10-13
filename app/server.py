@@ -429,6 +429,31 @@ def _is_fx_symbol(sym: str | None) -> bool:
     return s.startswith(("XAU", "XAG", "XPT", "XPD"))
 
 
+def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: str | None) -> str:
+    blk = _articles_to_text(items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
+        "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
+        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        f"Pair: {pair_symbol}\n{tf_line}\n\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        "Task: Based on the evidence above, provide the trade orientation JSON."
+    )
+
+
+def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str | None) -> str:
+    blk = _articles_to_text(items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
+        "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
+        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        f"Ticker: {ticker}\n{tf_line}\n\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        "Task: Based on the evidence above, provide the trade orientation JSON."
+    )
+
 def _build_pair_prompt_one_combined(question_text: str, pair_symbol: str, items: list[dict], timeframe: str | None) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
@@ -3651,6 +3676,23 @@ class HealthRunHandler(tornado.web.RequestHandler):
             except Exception:
                 logger.debug("[health.run.basic] trace logging failed", exc_info=True)
 
+            # Optional final position (BUY/SELL with SL/TP) when strategy defines a position_response_schema
+            position_obj = None
+            try:
+                pos_schema = (strat or {}).get("position_response_schema")
+                if isinstance(pos_schema, dict):
+                    pos_prompt = _build_pair_position_prompt(sym, items, timeframe)
+                    position_obj = AI_CLIENT.send_request_with_json_schema(
+                        pos_prompt,
+                        pos_schema,
+                        system_content="You are a decisive FX analyst. Reply only with JSON that matches the schema.",
+                        schema_name="fx_position",
+                        model=model_override,
+                        provider=provider_override,
+                    )
+            except Exception:
+                position_obj = None
+
             answers_json = {
                 "questions": ans_struct,
                 "score": score_value,
@@ -3660,6 +3702,8 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 "scores": scores_payload,
                 "meta": {"timeframe": timeframe, "base": base, "quote": quote, "news_count": news_count, "last_used_news_ts": latest_used_iso},
             }
+            if position_obj:
+                answers_json["position"] = position_obj
 
             ins = await insert_health_run(
                 self.pool,
@@ -3851,6 +3895,23 @@ class HealthRunHandler(tornado.web.RequestHandler):
         except Exception:
             logger.debug("[health.run.basic.stock] trace logging failed", exc_info=True)
 
+        # Optional final position (BUY/SELL with SL/TP) when strategy defines a position_response_schema
+        position_obj = None
+        try:
+            pos_schema = (strat or {}).get("position_response_schema")
+            if isinstance(pos_schema, dict):
+                pos_prompt = _build_stock_position_prompt(symbol, items, timeframe)
+                position_obj = AI_CLIENT.send_request_with_json_schema(
+                    pos_prompt,
+                    pos_schema,
+                    system_content="You are a precise equity analyst. Reply only with JSON that matches the schema.",
+                    schema_name="stock_position",
+                    model=model_override,
+                    provider=provider_override,
+                )
+        except Exception:
+            position_obj = None
+
         answers_json = {
             "questions": ans_struct,
             "score": score_value,
@@ -3860,6 +3921,8 @@ class HealthRunHandler(tornado.web.RequestHandler):
             "scores": scores_payload,
             "meta": {"timeframe": timeframe, "symbol": symbol, "news_count": news_count, "last_used_news_ts": latest_used_iso_stock},
         }
+        if position_obj:
+            answers_json["position"] = position_obj
         ins = await insert_health_run(
             self.pool,
             kind="stock",
