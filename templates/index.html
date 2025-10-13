@@ -527,6 +527,12 @@
           <select id="selectTechRun" style="flex:1; min-width:220px;"></select>
           <button class="btn secondary" id="btnNewTechRun" style="padding:6px 10px;">New Check</button>
         </div>
+        <!-- Plan selection (latest 5, lazy load with More) -->
+        <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
+          <span style="min-width:110px; color:var(--muted);">Plan</span>
+          <select id="selectPlanRun" style="flex:1; min-width:260px;"></select>
+          <button class="btn secondary" id="btnPlanMore" style="padding:6px 10px;">More</button>
+        </div>
         <!-- Plan JSON hint/selector (moved below Tech+AI row) -->
         <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
           <span style="min-width:110px; color:var(--muted);">Plan JSON</span>
@@ -2789,6 +2795,8 @@ const ensureLwMacd = () => {
       const tradeHistoryBox = document.getElementById('tradeHistoryBox');
       const btnTradeStartBuy = document.getElementById('btnTradeStartBuy');
       const btnTradeStartSell = document.getElementById('btnTradeStartSell');
+      const planSelect = document.getElementById('selectPlanRun');
+      const btnPlanMore = document.getElementById('btnPlanMore');
       const btnTradeClose = document.getElementById('btnTradeClose');
       const btnTradeMore = document.getElementById('btnTradeMore');
       let tradeState = { action: 'BUY', offset: 0, basicRunId: null, techRunId: null };
@@ -3169,6 +3177,67 @@ const ensureLwMacd = () => {
           return parts.join(' • ');
         } catch { return 'run'; }
       }
+      let planSelectOffset = 0;
+      async function loadPlanDropdown({ append = false, selectRunId = null } = {}) {
+        if (!planSelect) return;
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','ai_trade_plan'); params.set('tf', tf); params.set('limit','5'); params.set('offset', String(planSelectOffset));
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = Array.isArray(js.runs) ? js.runs : [];
+          if (!append) planSelect.innerHTML = '';
+          if (!runs.length && !append) {
+            planSelect.innerHTML = '<option value="">(no plans)</option>';
+            return;
+          }
+          const opts = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
+          planSelect.insertAdjacentHTML('beforeend', opts);
+          // Default to latest when first load, or to provided run id
+          if (!append) {
+            const defVal = selectRunId ? String(selectRunId) : (runs.length ? String(runs[0].id) : '');
+            if (defVal) planSelect.value = defVal;
+          } else if (selectRunId) {
+            planSelect.value = String(selectRunId);
+          }
+          // Render the selected plan
+          if (planSelect.value) {
+            const selectedId = Number(planSelect.value);
+            await renderSelectedPlan(selectedId);
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      async function renderSelectedPlan(runId) {
+        const sym = currentSymbol();
+        const tf = currentTf();
+        // We already have the run list in the dropdown; in absence of a direct by-id API, fetch the window and pick the selected
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','ai_trade_plan'); params.set('tf', tf); params.set('limit', String(planSelectOffset + 5)); params.set('offset','0');
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const all = Array.isArray(js.runs) ? js.runs : [];
+          const run = all.find(x => Number(x.id) === Number(runId));
+          if (!run) return;
+          const ans = run.answers || run.answers_json || {};
+          const p = ans.plan || {};
+          const created = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+          const outBox = el('tradeResultsBox');
+          const enforced = (ans.meta && ans.meta.enforced) ? ' (risk cap applied)' : '';
+          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${(p.position||'').toUpperCase()==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${(p.position||'').toUpperCase()==='BUY'?'#2ecc71':'#e74c3c'};\">${esc((p.position||'').toUpperCase())}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
+          // Sync Execute Plan state
+          lastAiPlan = { position: String(p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
+          updateExecuteBtn();
+        } catch (e) { /* ignore */ }
+      }
       async function loadTradeSourceDropdowns() {
         const sym = currentSymbol();
         const tf = currentTf();
@@ -3271,6 +3340,8 @@ const ensureLwMacd = () => {
         if (tradeResultsBox) tradeResultsBox.innerHTML = '';
         if (tradeModal) tradeModal.style.display = 'flex';
         loadTradeSourceDropdowns();
+        planSelectOffset = 0;
+        loadPlanDropdown({ append: false });
         loadTradeHistory();
       }
       async function loadTradeHistory() {
@@ -3314,6 +3385,8 @@ const ensureLwMacd = () => {
       const btnNewTechRun = document.getElementById('btnNewTechRun');
       if (btnNewBasicRun) btnNewBasicRun.addEventListener('click', newBasicCheckForTrade);
       if (btnNewTechRun) btnNewTechRun.addEventListener('click', newTechCheckForTrade);
+      if (planSelect) planSelect.addEventListener('change', () => { const v = Number(planSelect.value); if (Number.isFinite(v)) renderSelectedPlan(v); });
+      if (btnPlanMore) btnPlanMore.addEventListener('click', () => { planSelectOffset += 5; loadPlanDropdown({ append: true }); });
       if (btnTradeStartBuy) btnTradeStartBuy.addEventListener('click', ()=> runAiTradePlan('BUY'));
       if (btnTradeStartSell) btnTradeStartSell.addEventListener('click', ()=> runAiTradePlan('SELL'));
       if (btnTradeClose) btnTradeClose.addEventListener('click', ()=> { if (tradeModal) tradeModal.style.display = 'none'; });
