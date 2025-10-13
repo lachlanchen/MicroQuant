@@ -170,7 +170,14 @@
           <label><input type="radio" name="ctype" value="candlestick"{% if default_chart_type != 'line' %} checked{% end %}> Candlestick</label>
         </span>
         <label class="switch" title="Shift end of chart from right border">
-          <input type="checkbox" id="chkChartShift"{% if default_chart_shift != '0' %} checked{% end %} />
+          {% _chk_shift = True %}
+          {%
+            try:
+                _chk_shift = (default_chart_shift != '0')
+            except Exception:
+                _chk_shift = True
+          %}
+          <input type="checkbox" id="chkChartShift"{% if _chk_shift %} checked{% end %} />
           <span>Chart shift</span>
         </label>
       </div>
