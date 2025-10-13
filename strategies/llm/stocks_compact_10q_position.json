@@ -5,7 +5,7 @@
   "schema_version": 1,
   "type": "llm_strategy",
   "created_at": "2025-10-13T00:00:00Z",
-  "description": "Condensed stock analysis (10 bullish/bearish questions) with a final trade-orientation output schema that includes position, SL, and TP.",
+  "description": "Condensed stock analysis (10 questions). Each question returns a trade orientation JSON {position, sl, tp, explanation}. A final summary position may also be produced.",
   "questions": [
     { "id": "cp_01", "category": "company", "text": "Analyzing recent earnings reports, revenue/profit trends, analyst estimate beats/misses, and management guidance - does the company's fundamental performance trajectory appear bullish or bearish?" },
     { "id": "cp_02", "category": "company", "text": "Evaluating new product launches, strategic partnerships, market share trends, and competitive positioning announcements - is the company's strategic momentum bullish or bearish?" },
@@ -21,7 +21,6 @@
     { "id": "risk_09", "category": "risk", "text": "Assessing debt levels, balance sheet health, cash flow trends, and financial stability indicators - does the financial risk profile appear bullish or bearish?" },
     { "id": "risk_10", "category": "risk", "text": "Examining supply chain conditions, geopolitical exposure, customer concentration risks, and operational vulnerabilities - is the operational risk landscape bullish or bearish?" }
   ],
-  "answer_options": ["BULLISH", "BEARISH"],
   "scoring": {
     "thresholds": [
       { "min": 8,  "max": 10, "signal": "VERY_STRONG_BUY" },
@@ -33,6 +32,18 @@
       { "min": -10,"max": -8, "signal": "VERY_STRONG_SELL" }
     ]
   },
+  "question_response_schema": {
+    "type": "object",
+    "properties": {
+      "position": { "type": "string", "enum": ["BUY", "SELL"], "description": "uppercase position keyword" },
+      "sl": { "type": "number", "description": "stop loss level (numeric)" },
+      "tp": { "type": "number", "description": "take profit level (numeric)" },
+      "explanation": { "type": "string", "description": "one concise sentence citing strongest evidence" }
+    },
+    "required": ["position", "sl", "tp", "explanation"],
+    "additionalProperties": false
+  }
+  ,
   "position_response_schema": {
     "type": "object",
     "properties": {
@@ -53,9 +64,9 @@
       "Provide numeric placeholders for sl/tp if exact levels are unavailable.",
       "Keep the explanation to one concise sentence citing the strongest evidence from the provided texts."
     ],
-    "choice_instructions": [
-      "For each of the 10 questions, answer strictly with JSON matching: {answer: 'BULLISH'|'BEARISH', explanation: string}.",
-      "Choose exactly one per question; do not return both.",
+    "question_instructions": [
+      "For each of the 10 questions, answer strictly with JSON matching the Position schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.",
+      "Use uppercase BUY/SELL in 'position'.",
       "Keep explanations short and fact-based."
     ]
   }

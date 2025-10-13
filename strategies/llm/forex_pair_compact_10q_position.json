@@ -5,7 +5,7 @@
   "schema_version": 1,
   "type": "llm_strategy",
   "created_at": "2025-10-13T00:00:00Z",
-  "description": "Condensed FX pair assessment (10 binary questions) with a final trade-orientation output schema that includes position, SL, and TP.",
+  "description": "Condensed FX pair assessment (10 questions). Each question returns a trade orientation JSON {position, sl, tp, explanation}. A final summary position may also be produced.",
   "input": {
     "variables": [
       { "name": "base_currency", "type": "string", "example": "EUR" },
@@ -29,7 +29,6 @@
     { "id": "md_09", "category": "market", "weight": 1, "text": "Evaluating foreign capital flows, safe-haven demand, institutional positioning, and ETF/asset flows - which currency is attracting stronger investor demand?" },
     { "id": "md_10", "category": "market", "weight": 1, "text": "Reviewing analyst forecasts, strategist recommendations, sentiment surveys, and positioning - which currency has more bullish market consensus?" }
   ],
-  "answer_options": ["${base_currency}", "${quote_currency}"],
   "scoring": {
     "thresholds": [
       { "min": 7,  "max": 10, "signal": "BUY_BASE" },
@@ -41,6 +40,18 @@
       { "min": -10,"max": -7, "signal": "SELL_BASE" }
     ]
   },
+  "question_response_schema": {
+    "type": "object",
+    "properties": {
+      "position": { "type": "string", "enum": ["BUY", "SELL"], "description": "uppercase position keyword" },
+      "sl": { "type": "number", "description": "stop loss level (numeric)" },
+      "tp": { "type": "number", "description": "take profit level (numeric)" },
+      "explanation": { "type": "string", "description": "one concise sentence citing strongest evidence" }
+    },
+    "required": ["position", "sl", "tp", "explanation"],
+    "additionalProperties": false
+  }
+  ,
   "position_response_schema": {
     "type": "object",
     "properties": {
@@ -61,9 +72,9 @@
       "Provide numeric placeholders for sl/tp if exact levels are unavailable.",
       "Keep the explanation to one concise sentence citing the strongest evidence from the provided texts."
     ],
-    "choice_instructions": [
-      "For each of the 10 questions, answer strictly with JSON matching: {answer: '${base_currency}|${quote_currency}', explanation: string}.",
-      "Choose exactly one currency code per question; do not return both.",
+    "question_instructions": [
+      "For each of the 10 questions, answer strictly with JSON matching the Position schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.",
+      "Use uppercase BUY/SELL in 'position'.",
       "Keep explanations short and fact-based."
     ]
   }

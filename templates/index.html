@@ -2419,7 +2419,14 @@ const ensureLwMacd = () => {
           let bg;
           let border;
           let textColor;
-          if (typeof val === 'boolean') {
+          if (val && typeof val === 'object' && Object.prototype.hasOwnProperty.call(val, 'position')) {
+            const pos = String(val.position || '').toUpperCase();
+            const isBuy = pos !== 'SELL';
+            label = isBuy ? 'BUY' : 'SELL';
+            bg = isBuy ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
+            border = isBuy ? '#2ecc71' : '#e74c3c';
+            textColor = isBuy ? '#1b5e20' : '#b71c1c';
+          } else if (typeof val === 'boolean') {
             const isTrue = val === true;
             label = isTrue ? 'YES' : 'NO';
             bg = isTrue ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
@@ -2463,6 +2470,7 @@ const ensureLwMacd = () => {
         if (scoresObj && typeof scoresObj === 'object') {
           const hasBaseQuote = Object.prototype.hasOwnProperty.call(scoresObj, 'BASE') || Object.prototype.hasOwnProperty.call(scoresObj, 'QUOTE');
           const hasBullBear = Object.prototype.hasOwnProperty.call(scoresObj, 'BULLISH') || Object.prototype.hasOwnProperty.call(scoresObj, 'BEARISH');
+          const hasBuySell = Object.prototype.hasOwnProperty.call(scoresObj, 'BUY') || Object.prototype.hasOwnProperty.call(scoresObj, 'SELL');
           const netVal = Object.prototype.hasOwnProperty.call(scoresObj, 'NET') ? scoresObj.NET : null;
           const segments = [];
           if (hasBaseQuote) {
@@ -2476,6 +2484,12 @@ const ensureLwMacd = () => {
             const bear = Object.prototype.hasOwnProperty.call(scoresObj, 'BEARISH') ? scoresObj.BEARISH : null;
             if (bull != null) segments.push(`BULLISH=${bull}`);
             if (bear != null) segments.push(`BEARISH=${bear}`);
+          }
+          if (hasBuySell) {
+            const buy = Object.prototype.hasOwnProperty.call(scoresObj, 'BUY') ? scoresObj.BUY : null;
+            const sell = Object.prototype.hasOwnProperty.call(scoresObj, 'SELL') ? scoresObj.SELL : null;
+            if (buy != null) segments.push(`BUY=${buy}`);
+            if (sell != null) segments.push(`SELL=${sell}`);
           }
           if (netVal != null) segments.push(`NET=${netVal}`);
           if (segments.length) {

@@ -441,6 +441,18 @@ def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: 
         "Task: Based on the evidence above, provide the trade orientation JSON."
     )
 
+def _build_pair_prompt_position_question(question_text: str, pair_symbol: str, items: list[dict], timeframe: str | None) -> str:
+    blk = _articles_to_text(items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
+        "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
+        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        f"Pair: {pair_symbol}\n{tf_line}\n\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Question: {question_text}\n"
+    )
+
 
 def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str | None) -> str:
     blk = _articles_to_text(items)
@@ -452,6 +464,18 @@ def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str 
         f"Ticker: {ticker}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
         "Task: Based on the evidence above, provide the trade orientation JSON."
+    )
+
+def _build_stock_prompt_position_question(question_text: str, ticker: str, items: list[dict], timeframe: str | None) -> str:
+    blk = _articles_to_text(items)
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
+        "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
+        "Use uppercase BUY/SELL for 'position'. Keep explanation one concise sentence citing strongest evidence.\n\n"
+        f"Ticker: {ticker}\n{tf_line}\n\n"
+        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Question: {question_text}\n"
     )
 
 def _build_pair_prompt_one_combined(question_text: str, pair_symbol: str, items: list[dict], timeframe: str | None) -> str:
@@ -3515,6 +3539,8 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 logger.warning("[health] failed to load strategy %s, falling back to default", strategy_name)
                 strategy_name = DEFAULT_STRATEGIES["forex_pair"]
                 strat = _load_strategy_json(strategy_name)
+            # Detect per-question position schema (BUY/SELL with SL/TP)
+            question_schema = strat.get("question_response_schema") if isinstance(strat, dict) else None
             answer_type = _strategy_answer_type(strat)
             if answer_type not in {"bool", "choice"}:
                 answer_type = "bool"
@@ -3528,7 +3554,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 pair_symbol = f"{base}{quote}"
                 combined_items = []
                 seen_urls: set[str] = set()
-                for it in (base_items + quote_items):
+                for it in items:
                     u = (it or {}).get("url")
                     if not u or u in seen_urls:
                         continue
@@ -3545,6 +3571,18 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 qid = str(qobj.get("id") or "")
                 raw_text = str(qobj.get("text") or "")
                 question_text = _substitute_currency_tokens(raw_text, base, quote)
+                # Per-question position schema overrides the legacy choice/bool behavior
+                if isinstance(question_schema, dict):
+                    prompt = _build_pair_prompt_position_question(question_text, sym, items, timeframe)
+                    out = AI_CLIENT.send_request_with_json_schema(
+                        prompt,
+                        question_schema,
+                        system_content="You are a decisive FX analyst. Reply only with JSON that matches the schema.",
+                        schema_name="fx_question_position",
+                        model=model_override,
+                        provider=provider_override,
+                    )
+                    return (qid, out, str((out or {}).get("explanation") or ""))
                 if answer_type == "choice":
                     resolved_options = choice_template or [base, quote]
                     resolved_options = [
@@ -3593,7 +3631,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
             ans_struct: list[dict[str, Any]] = []
             for q in questions:
                 qid = q.get("id")
-                if answer_type == "choice":
+                if isinstance(question_schema, dict):
+                    default_val = {"position": "BUY", "sl": 0, "tp": 0, "explanation": ""}
+                elif answer_type == "choice":
                     default_val: Any = base.upper()
                 else:
                     default_val = False
@@ -3606,7 +3646,12 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "explanation": str(expl),
                 })
 
-            if answer_type == "choice":
+            if isinstance(question_schema, dict):
+                buy_count = sum(1 for a in ans_struct if isinstance(a.get("answer"), dict) and str(a["answer"].get("position") or "").upper() == "BUY")
+                sell_count = sum(1 for a in ans_struct if isinstance(a.get("answer"), dict) and str(a["answer"].get("position") or "").upper() == "SELL")
+                score_value = buy_count - sell_count
+                scores_payload = {"BUY": buy_count, "SELL": sell_count, "NET": score_value}
+            elif answer_type == "choice":
                 base_upper = base.upper()
                 quote_upper = quote.upper()
                 base_count = sum(1 for a in ans_struct if isinstance(a["answer"], str) and a["answer"].upper() == base_upper)
@@ -3655,13 +3700,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                                 vv = vv.replace(' ', 'T')
                         return _dt.fromisoformat(vv)
                     latest_used_iso = max((_parse(x) for x in used_ts_values)).isoformat()
-                    # base/quote min/max for trace
-                    base_ts = [t for t in map(_extract_pub, base_items) if t]
-                    quote_ts = [t for t in map(_extract_pub, quote_items) if t]
-                    base_min = min((_parse(x) for x in base_ts)).isoformat() if base_ts else None
-                    base_max = max((_parse(x) for x in base_ts)).isoformat() if base_ts else None
-                    quote_min = min((_parse(x) for x in quote_ts)).isoformat() if quote_ts else None
-                    quote_max = max((_parse(x) for x in quote_ts)).isoformat() if quote_ts else None
+                    # only combined trace here (base/quote splits not used)
                 except Exception:
                     latest_used_iso = None
                     base_min = base_max = quote_min = quote_max = None
@@ -3772,6 +3811,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
         logger.info("[health] strategy=%s kind=stock symbol=%s news=%d", strategy_name, symbol, news_count)
         questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
+        question_schema_stock = strat.get("question_response_schema") if isinstance(strat, dict) else None
         answer_type = _strategy_answer_type(strat)
         use_choice = (answer_type == "choice")
         choice_options = [str(o).strip().upper() for o in (strat.get("answer_options") or ["BULLISH","BEARISH"]) if o]
@@ -3810,11 +3850,27 @@ class HealthRunHandler(tornado.web.RequestHandler):
             expl = str((out or {}).get("explanation") or "").strip()
             return (qid, ans_raw, expl)
 
+        def _call_one_stock_position(qobj: dict) -> tuple[str, dict, str]:
+            qid = str(qobj.get("id") or "")
+            qtext = str(qobj.get("text") or "")
+            prompt = _build_stock_prompt_position_question(qtext, symbol, items, timeframe)
+            out = AI_CLIENT.send_request_with_json_schema(
+                prompt,
+                question_schema_stock,
+                system_content="You are a precise equity analyst. Reply only with JSON that matches the schema.",
+                schema_name="stock_question_position",
+                model=model_override,
+                provider=provider_override,
+            )
+            return (qid, out, str((out or {}).get("explanation") or ""))
+
         from concurrent.futures import ThreadPoolExecutor as _TPE
         local_workers = min(8, max(1, len(questions)))
         if questions:
             with _TPE(max_workers=local_workers) as ex:
-                if use_choice:
+                if isinstance(question_schema_stock, dict):
+                    futs = [loop.run_in_executor(ex, _call_one_stock_position, q) for q in questions]
+                elif use_choice:
                     futs = [loop.run_in_executor(ex, _call_one_stock_choice, q) for q in questions]
                 else:
                     futs = [loop.run_in_executor(ex, _call_one_stock_bool, q) for q in questions]
@@ -3825,7 +3881,22 @@ class HealthRunHandler(tornado.web.RequestHandler):
         ans_struct: list[dict[str, Any]] = []
         scores_payload = None
         score_value = 0
-        if use_choice:
+        if isinstance(question_schema_stock, dict):
+            a_map: dict[str, tuple[dict, str]] = {qid: (val, expl) for qid, val, expl in answers}  # type: ignore
+            buy = 0
+            sell = 0
+            for q in questions:
+                qid = str(q.get("id"))
+                val, expl = a_map.get(qid, ({"position": "BUY", "sl": 0, "tp": 0, "explanation": ""}, ""))
+                pos = str((val or {}).get("position") or "").upper()
+                if pos == "BUY":
+                    buy += 1
+                elif pos == "SELL":
+                    sell += 1
+                ans_struct.append({"id": qid, "answer": val, "explanation": str(expl)})
+            score_value = buy - sell
+            scores_payload = {"BUY": buy, "SELL": sell, "NET": score_value}
+        elif use_choice:
             a_map: dict[str, tuple[str, str]] = {qid: (val, expl) for qid, val, expl in answers}  # type: ignore
             bullish = 0
             bearish = 0
