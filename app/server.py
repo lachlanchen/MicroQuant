@@ -2699,6 +2699,7 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
 
         baseline_ts = None
         baseline_iso = None
+        baseline_src = None
         # 1) Prefer explicit meta timestamp if present on the run (newer runs store this)
         try:
             if last_run:
@@ -2712,6 +2713,7 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                         v = v[:-1] + '+00:00'
                     baseline_ts = _dt.fromisoformat(v)
                     baseline_iso = baseline_ts.isoformat()
+                    baseline_src = "meta"
         except Exception:
             baseline_ts = None
             baseline_iso = None
@@ -2727,6 +2729,7 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                     if db_ts is not None and hasattr(db_ts, "isoformat"):
                         baseline_ts = db_ts
                         baseline_iso = db_ts.isoformat()
+                        baseline_src = "urls_db"
             except Exception:
                 baseline_ts = None
                 baseline_iso = None
@@ -2734,6 +2737,7 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
         if baseline_ts is None and last_run_at_dt is not None:
             baseline_ts = last_run_at_dt
             baseline_iso = last_run_at
+            baseline_src = "run_created_at"
 
         # Latest news timestamp and count since last run (match the News panel: per current symbol)
         latest_news_iso = None
@@ -2763,6 +2767,26 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                     new_count = int(new_count_val or 0)
         except Exception:
             pass
+
+        # Emit a concise trace to help diagnose freshness calcs
+        try:
+            logger.info(
+                "[freshness.basic] symbol=%s kind=%s strat=%s run_id=%s last_run_at=%s meta_last=%s urls=%d baseline_at=%s baseline_src=%s latest_at=%s new_count=%s used_syms=%s",
+                symbol,
+                kind,
+                str(strategy) if strategy else None,
+                (last_run.get("id") if last_run else None),
+                last_run_at,
+                ((last_run.get("answers_json") or {}).get("meta", {}).get("last_used_news_ts") if last_run else None),
+                len(base_url_list),
+                baseline_iso,
+                baseline_src,
+                latest_news_iso,
+                new_count,
+                sorted(list(used_symbols)) if used_symbols else [],
+            )
+        except Exception:
+            logger.debug("[freshness.basic] trace logging failed", exc_info=True)
 
         status = "unknown"
         if last_run_at_dt is not None:
@@ -3531,6 +3555,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 return str(v) if v else None
             used_ts_values = [t for t in map(_extract_pub, (base_items + quote_items)) if t]
             latest_used_iso = None
+            base_min = base_max = quote_min = quote_max = None
             if used_ts_values:
                 try:
                     from datetime import datetime as _dt
@@ -3550,8 +3575,32 @@ class HealthRunHandler(tornado.web.RequestHandler):
                                 vv = vv.replace(' ', 'T')
                         return _dt.fromisoformat(vv)
                     latest_used_iso = max((_parse(x) for x in used_ts_values)).isoformat()
+                    # base/quote min/max for trace
+                    base_ts = [t for t in map(_extract_pub, base_items) if t]
+                    quote_ts = [t for t in map(_extract_pub, quote_items) if t]
+                    base_min = min((_parse(x) for x in base_ts)).isoformat() if base_ts else None
+                    base_max = max((_parse(x) for x in base_ts)).isoformat() if base_ts else None
+                    quote_min = min((_parse(x) for x in quote_ts)).isoformat() if quote_ts else None
+                    quote_max = max((_parse(x) for x in quote_ts)).isoformat() if quote_ts else None
                 except Exception:
                     latest_used_iso = None
+                    base_min = base_max = quote_min = quote_max = None
+            # Trace what we used for baseline on this run
+            try:
+                logger.info(
+                    "[health.run.basic] %s%s items base=%d(%s→%s) quote=%d(%s→%s) meta.last_used=%s",
+                    base,
+                    quote,
+                    len(base_items),
+                    base_min,
+                    base_max,
+                    len(quote_items),
+                    quote_min,
+                    quote_max,
+                    latest_used_iso,
+                )
+            except Exception:
+                logger.debug("[health.run.basic] trace logging failed", exc_info=True)
 
             answers_json = {
                 "questions": ans_struct,
@@ -3742,6 +3791,16 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 latest_used_iso_stock = max((_parse2(x) for x in used_ts_values_stock)).isoformat()
             except Exception:
                 latest_used_iso_stock = None
+        # Trace stock baseline as well
+        try:
+            logger.info(
+                "[health.run.basic.stock] %s items=%d meta.last_used=%s",
+                symbol,
+                len(items),
+                latest_used_iso_stock,
+            )
+        except Exception:
+            logger.debug("[health.run.basic.stock] trace logging failed", exc_info=True)
 
         answers_json = {
             "questions": ans_struct,
