@@ -2702,6 +2702,18 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                     baseline_iso = baseline_ts.isoformat()
         except Exception:
             baseline_iso = None
+        # Prefer explicit meta timestamp if present on the run (newer runs store this)
+        if last_run and not baseline_iso:
+            try:
+                ans = last_run.get("answers_json") or last_run.get("answers") or {}
+                meta = ans.get("meta") or {}
+                val = meta.get("last_used_news_ts")
+                if isinstance(val, str) and val:
+                    from datetime import datetime as _dt
+                    baseline_ts = _dt.fromisoformat(val)
+                    baseline_iso = val
+            except Exception:
+                pass
         # Fallback to run creation time if we couldn't resolve a baseline from news_ids
         if baseline_iso is None and last_run_at_dt is not None:
             baseline_ts = last_run_at_dt
@@ -3373,6 +3385,24 @@ class HealthRunHandler(tornado.web.RequestHandler):
 
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
+            # Upsert the used news into DB under the pair symbol (so freshness can resolve exact article times)
+            try:
+                pair_symbol = f"{base}{quote}"
+                combined_items = []
+                seen_urls: set[str] = set()
+                for it in (base_items + quote_items):
+                    u = (it or {}).get("url")
+                    if not u or u in seen_urls:
+                        continue
+                    seen_urls.add(u)
+                    row = dict(it)
+                    row["symbol"] = pair_symbol
+                    combined_items.append(row)
+                if combined_items:
+                    await upsert_news_articles(self.pool, combined_items)
+            except Exception:
+                logger.debug("[health] upsert of used news failed", exc_info=True)
+
             def _call_one(qobj: dict) -> tuple[str, Any, str]:
                 qid = str(qobj.get("id") or "")
                 raw_text = str(qobj.get("text") or "")
@@ -3465,6 +3495,19 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 if it.get("url"):
                     news_ids.append(f"{quote}:{it['url']}")
 
+            # Compute the newest used news timestamp for metadata (helps freshness without DB lookups)
+            def _extract_pub(it):
+                v = (it or {}).get("published_at") or (it or {}).get("published") or (it or {}).get("publishedAt")
+                return str(v) if v else None
+            used_ts_values = [t for t in map(_extract_pub, (base_items + quote_items)) if t]
+            latest_used_iso = None
+            if used_ts_values:
+                try:
+                    from datetime import datetime as _dt
+                    latest_used_iso = max((_dt.fromisoformat(x) for x in used_ts_values)).isoformat()
+                except Exception:
+                    latest_used_iso = None
+
             answers_json = {
                 "questions": ans_struct,
                 "score": score_value,
@@ -3472,7 +3515,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 "strategy": strategy_name,
                 "group": "basic",
                 "scores": scores_payload,
-                "meta": {"timeframe": timeframe, "base": base, "quote": quote, "news_count": news_count},
+                "meta": {"timeframe": timeframe, "base": base, "quote": quote, "news_count": news_count, "last_used_news_ts": latest_used_iso},
             }
 
             ins = await insert_health_run(
@@ -3513,6 +3556,22 @@ class HealthRunHandler(tornado.web.RequestHandler):
         symbol = str(payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
         items = await loop.run_in_executor(EXECUTOR, lambda: fetch_news_for_symbol(symbol, limit=news_count))
         items = items[:news_count]
+        # Upsert the used news under the stock symbol
+        try:
+            combined_items = []
+            seen_urls: set[str] = set()
+            for it in items:
+                u = (it or {}).get("url")
+                if not u or u in seen_urls:
+                    continue
+                seen_urls.add(u)
+                row = dict(it)
+                row["symbol"] = symbol
+                combined_items.append(row)
+            if combined_items:
+                await upsert_news_articles(self.pool, combined_items)
+        except Exception:
+            logger.debug("[health] upsert of used stock news failed", exc_info=True)
         allowed_stock = ALLOWED_STRATEGIES.get("stock", set())
         strategy_name = strategy_override if strategy_override and strategy_override in allowed_stock else DEFAULT_STRATEGIES["stock"]
         if strategy_override and strategy_override not in allowed_stock:
@@ -3609,6 +3668,19 @@ class HealthRunHandler(tornado.web.RequestHandler):
             except Exception:
                 continue
         news_ids = [it.get("url") for it in items if it.get("url")]
+        # Compute newest used news timestamp
+        def _extract_pub_stock(it):
+            v = (it or {}).get("published_at") or (it or {}).get("published") or (it or {}).get("publishedAt")
+            return str(v) if v else None
+        used_ts_values_stock = [t for t in map(_extract_pub_stock, items) if t]
+        latest_used_iso_stock = None
+        if used_ts_values_stock:
+            try:
+                from datetime import datetime as _dt
+                latest_used_iso_stock = max((_dt.fromisoformat(x) for x in used_ts_values_stock)).isoformat()
+            except Exception:
+                latest_used_iso_stock = None
+
         answers_json = {
             "questions": ans_struct,
             "score": score_value,
@@ -3616,7 +3688,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             "strategy": strategy_name,
             "group": "basic",
             "scores": scores_payload,
-            "meta": {"timeframe": timeframe, "symbol": symbol, "news_count": news_count},
+            "meta": {"timeframe": timeframe, "symbol": symbol, "news_count": news_count, "last_used_news_ts": latest_used_iso_stock},
         }
         ins = await insert_health_run(
             self.pool,
