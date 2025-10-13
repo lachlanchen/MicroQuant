@@ -2584,7 +2584,9 @@ const ensureLwMacd = () => {
       async function startHealthRun() {
         const sym = symbolSelect.value.toUpperCase();
         const n = Math.max(1, Math.min(20, Number(el('healthNewsCount').value || 10)));
-        const body = { symbol: sym, news_count: n };
+        const barsN = Math.max(10, Math.min(500, Number(resolveTechWindow && resolveTechWindow() || 50)));
+        const tfNow = currentTf();
+        const body = { symbol: sym, news_count: n, timeframe: tfNow, n_bars: barsN };
         const strategyName = healthStrategySelect ? healthStrategySelect.value : '';
         if (strategyName) {
           body.strategy = strategyName;
@@ -2594,7 +2596,7 @@ const ensureLwMacd = () => {
           try {
             const snapshot = buildTechSnapshotString();
             body.tech_snapshot = snapshot;
-            body.timeframe = currentTf();
+            body.timeframe = tfNow;
           } catch (err) {
             console.warn('Failed to build tech snapshot', err);
           }

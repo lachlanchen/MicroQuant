@@ -441,15 +441,18 @@ def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: 
         "Task: Based on the evidence above, provide the trade orientation JSON."
     )
 
-def _build_pair_prompt_position_question(question_text: str, pair_symbol: str, items: list[dict], timeframe: str | None) -> str:
+def _build_pair_prompt_position_question(question_text: str, pair_symbol: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    prices_line = ""
+    if closes:
+        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
         f"Question: {question_text}\n"
     )
 
@@ -466,15 +469,18 @@ def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str 
         "Task: Based on the evidence above, provide the trade orientation JSON."
     )
 
-def _build_stock_prompt_position_question(question_text: str, ticker: str, items: list[dict], timeframe: str | None) -> str:
+def _build_stock_prompt_position_question(question_text: str, ticker: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    prices_line = ""
+    if closes:
+        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
         f"Question: {question_text}\n"
     )
 
@@ -3552,6 +3558,21 @@ class HealthRunHandler(tornado.web.RequestHandler):
 
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
+            # Optional last-N closes to include in prompts
+            closes_series: list[float] | None = None
+            try:
+                n_bars = int(payload.get("n_bars") or 0)
+            except Exception:
+                n_bars = 0
+            tf_for_prices = timeframe if timeframe else "H1"
+            if isinstance(n_bars, int) and n_bars > 0:
+                try:
+                    rows_prices = await fetch_ohlc_bars(self.pool, sym, tf_for_prices, min(n_bars, 500))
+                    if rows_prices:
+                        closes_series = [float(r.get("close")) for r in rows_prices if r.get("close") is not None]
+                except Exception:
+                    closes_series = None
+
             # Upsert the used news into DB under the pair symbol (so freshness can resolve exact article times)
             try:
                 pair_symbol = f"{base}{quote}"
@@ -3576,7 +3597,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 question_text = _substitute_currency_tokens(raw_text, base, quote)
                 # Per-question position schema overrides the legacy choice/bool behavior
                 if isinstance(question_schema, dict):
-                    prompt = _build_pair_prompt_position_question(question_text, sym, items, timeframe)
+                    prompt = _build_pair_prompt_position_question(question_text, sym, items, timeframe, closes=closes_series)
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         question_schema,
@@ -3819,6 +3840,21 @@ class HealthRunHandler(tornado.web.RequestHandler):
         use_choice = (answer_type == "choice")
         choice_options = [str(o).strip().upper() for o in (strat.get("answer_options") or ["BULLISH","BEARISH"]) if o]
 
+        # Optional last-N closes to include in prompts
+        closes_series_stock: list[float] | None = None
+        try:
+            n_bars = int(payload.get("n_bars") or 0)
+        except Exception:
+            n_bars = 0
+        tf_for_prices = timeframe if timeframe else "H1"
+        if isinstance(n_bars, int) and n_bars > 0:
+            try:
+                rows_prices = await fetch_ohlc_bars(self.pool, symbol, tf_for_prices, min(n_bars, 500))
+                if rows_prices:
+                    closes_series_stock = [float(r.get("close")) for r in rows_prices if r.get("close") is not None]
+            except Exception:
+                closes_series_stock = None
+
         def _call_one_stock_bool(qobj: dict) -> tuple[str, bool, str]:
             qid = str(qobj.get("id") or "")
             qtext = str(qobj.get("text") or "")
@@ -3856,7 +3892,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
         def _call_one_stock_position(qobj: dict) -> tuple[str, dict, str]:
             qid = str(qobj.get("id") or "")
             qtext = str(qobj.get("text") or "")
-            prompt = _build_stock_prompt_position_question(qtext, symbol, items, timeframe)
+            prompt = _build_stock_prompt_position_question(qtext, symbol, items, timeframe, closes=closes_series_stock)
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 question_schema_stock,
