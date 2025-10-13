@@ -3309,7 +3309,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
         # Optional template override coming from the UI select (e.g. forex_pair_neutral_30q.json)
         strategy_override = str(payload.get("strategy") or payload.get("template") or "").strip()
         timeframe = str(payload.get("timeframe") or "30d")
-        news_count = int(payload.get("news_count") or 5)
+        news_count = int(payload.get("news_count") or 10)
         # Optional model override for health checks (basic and tech)
         model_override = str(payload.get("model") or "").strip() or None
         def _infer_provider(model_name: str | None) -> str | None:
