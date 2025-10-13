@@ -465,24 +465,25 @@
     </div>
   </div>
 
-  <!-- Close Positions Modal -->
-  <div id="closeModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal-box">
-      <div class="modal-head">
-        <h3>Close Positions</h3>
-        <button id="btnCloseModalX" class="modal-close" aria-label="Close">×</button>
-      </div>
-      <div class="modal-body" style="padding:12px;">
-        <div id="closeModalText" style="margin-bottom:10px; color:var(--muted);"></div>
-        <div class="row" style="gap:8px;">
-          <button class="btn" id="btnConfirmCloseCurrent" style="padding:6px 10px;">Close Current</button>
-          <button class="btn secondary" id="btnConfirmCloseAll" style="padding:6px 10px;">Close ALL</button>
-          <button class="btn secondary" id="btnCloseModalCancel" style="padding:6px 10px;">Cancel</button>
-        </div>
+        <div id="tradeResultsBox" style="margin-top:10px;"></div>
       </div>
     </div>
-  </div>
-        <div id="tradeResultsBox" style="margin-top:10px;"></div>
+
+    <!-- Close Positions Modal (standalone, not nested inside other modals) -->
+    <div id="closeModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="modal-box">
+        <div class="modal-head">
+          <h3>Close Positions</h3>
+          <button id="btnCloseModalX" class="modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body" style="padding:12px;">
+          <div id="closeModalText" style="margin-bottom:10px; color:var(--muted);"></div>
+          <div class="row" style="gap:8px;">
+            <button class="btn" id="btnConfirmCloseCurrent" style="padding:6px 10px;">Close Current</button>
+            <button class="btn secondary" id="btnConfirmCloseAll" style="padding:6px 10px;">Close ALL</button>
+            <button class="btn secondary" id="btnCloseModalCancel" style="padding:6px 10px;">Cancel</button>
+          </div>
+        </div>
       </div>
     </div>
 
