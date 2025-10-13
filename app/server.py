@@ -3534,10 +3534,20 @@ class HealthRunHandler(tornado.web.RequestHandler):
             if used_ts_values:
                 try:
                     from datetime import datetime as _dt
+                    import re as _re
                     def _parse(v: str):
-                        vv = v.strip()
-                        if vv.endswith('Z'):
-                            vv = vv[:-1] + '+00:00'
+                        vv = (v or '').strip()
+                        if not vv:
+                            raise ValueError('empty ts')
+                        m = _re.match(r"^(\d{8})T(\d{6})Z$", vv)
+                        if m:
+                            d,t = m.groups()
+                            vv = f"{d[0:4]}-{d[4:6]}-{d[6:8]}T{t[0:2]}:{t[2:4]}:{t[4:6]}+00:00"
+                        else:
+                            if vv.endswith('Z'):
+                                vv = vv[:-1] + '+00:00'
+                            if ' ' in vv and 'T' not in vv:
+                                vv = vv.replace(' ', 'T')
                         return _dt.fromisoformat(vv)
                     latest_used_iso = max((_parse(x) for x in used_ts_values)).isoformat()
                 except Exception:
@@ -3714,10 +3724,20 @@ class HealthRunHandler(tornado.web.RequestHandler):
         if used_ts_values_stock:
             try:
                 from datetime import datetime as _dt
+                import re as _re
                 def _parse2(v: str):
-                    vv = v.strip()
-                    if vv.endswith('Z'):
-                        vv = vv[:-1] + '+00:00'
+                    vv = (v or '').strip()
+                    if not vv:
+                        raise ValueError('empty ts')
+                    m = _re.match(r"^(\d{8})T(\d{6})Z$", vv)
+                    if m:
+                        d,t = m.groups()
+                        vv = f"{d[0:4]}-{d[4:6]}-{d[6:8]}T{t[0:2]}:{t[2:4]}:{t[4:6]}+00:00"
+                    else:
+                        if vv.endswith('Z'):
+                            vv = vv[:-1] + '+00:00'
+                        if ' ' in vv and 'T' not in vv:
+                            vv = vv.replace(' ', 'T')
                     return _dt.fromisoformat(vv)
                 latest_used_iso_stock = max((_parse2(x) for x in used_ts_values_stock)).isoformat()
             except Exception:

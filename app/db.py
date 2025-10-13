@@ -391,13 +391,32 @@ async def upsert_news_articles(pool: asyncpg.pool.Pool, rows: list[dict]) -> int
         """
     )
     args = []
+    import re as _re
+    def _parse_pub_str(s: str):
+        try:
+            v = (s or "").strip()
+            if not v:
+                return None
+            # AlphaVantage format: YYYYMMDDTHHMMSSZ
+            m = _re.match(r"^(\d{8})T(\d{6})Z$", v)
+            if m:
+                d, t = m.groups()
+                v = f"{d[0:4]}-{d[4:6]}-{d[6:8]}T{t[0:2]}:{t[2:4]}:{t[4:6]}+00:00"
+            else:
+                # Normalize trailing Z to +00:00 and space separator to 'T'
+                if v.endswith('Z'):
+                    v = v[:-1] + '+00:00'
+                if ' ' in v and 'T' not in v:
+                    v = v.replace(' ', 'T')
+            dt = datetime.fromisoformat(v)
+            return dt
+        except Exception:
+            return None
+
     for r in rows:
         pub = r.get("published_at") or r.get("published") or r.get("publishedAt")
         if isinstance(pub, str):
-            try:
-                pub_dt = datetime.fromisoformat(pub)
-            except Exception:
-                pub_dt = None
+            pub_dt = _parse_pub_str(pub)
         else:
             pub_dt = pub
         if pub_dt is not None and pub_dt.tzinfo is None:
