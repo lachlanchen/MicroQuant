@@ -375,8 +375,7 @@
               </label>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-              <button class="btn btn-buy" id="btnAiBuy" style="padding:6px 10px;">AI Buy</button>
-              <button class="btn btn-sell" id="btnAiSell" style="padding:6px 10px;">AI Sell</button>
+              <button class="btn" id="btnAiBuySell" style="padding:6px 10px;">AI Buy/Sell</button>
             </div>
             <div id="aiTradePlanBox" style="font-size:13px; color:var(--text);"></div>
             <div id="aiPlanHistoryBox" style="display:none; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:160px; overflow:auto; font-size:12px; color:var(--muted);"></div>
@@ -517,6 +516,18 @@
           <button class="btn secondary" id="btnTradeClose" style="padding:6px 10px;">Close</button>
         </div>
         <div id="tradeInfo" style="color:var(--muted); font-size:13px; margin-top:6px;"></div>
+        <!-- Plan JSON hint/selector -->
+        <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
+          <span style="min-width:110px; color:var(--muted);">Plan JSON</span>
+          <select id="tradePlanSchema" style="flex:1; min-width:260px;">
+            <option value="standard" selected>position • stop_loss • take_profit • explanation</option>
+          </select>
+        </div>
+        <!-- BUY/SELL triggers -->
+        <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
+          <button class="btn btn-buy" id="btnTradeStartBuy" style="padding:6px 10px;">Buy</button>
+          <button class="btn btn-sell" id="btnTradeStartSell" style="padding:6px 10px;">Sell</button>
+        </div>
         <!-- Source selections for Basic and Tech+AI -->
         <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
           <span style="min-width:110px; color:var(--muted);">Basic</span>
@@ -533,7 +544,7 @@
           <div id="tradeHistoryBox" style="border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:200px; overflow:auto;"></div>
           <div class="row" style="gap:8px; margin-top:6px;">
             <button class="btn secondary" id="btnTradeMore" style="padding:6px 10px;">More</button>
-            <button class="btn" id="btnTradeStart" style="padding:6px 10px;">Start</button>
+          </div>
     </div>
   </div>
 
@@ -2758,8 +2769,7 @@ const ensureLwMacd = () => {
       const btnHealthClose = document.getElementById('btnHealthClose');
       const btnTechHealth = document.getElementById('btnTechHealth');
       const btnTechAiHealth = document.getElementById('btnTechAiHealth');
-      const btnAiBuy = document.getElementById('btnAiBuy');
-      const btnAiSell = document.getElementById('btnAiSell');
+      const btnAiBuySell = document.getElementById('btnAiBuySell');
       const aiLeverageInput = document.getElementById('aiLeverage');
       const btnTechClose = document.getElementById('btnTechClose');
       const autoBasicToggle = document.getElementById('chkAutoBasic');
@@ -2777,7 +2787,8 @@ const ensureLwMacd = () => {
       const tradeInfo = document.getElementById('tradeInfo');
       const tradeResultsBox = document.getElementById('tradeResultsBox');
       const tradeHistoryBox = document.getElementById('tradeHistoryBox');
-      const btnTradeStart = document.getElementById('btnTradeStart');
+      const btnTradeStartBuy = document.getElementById('btnTradeStartBuy');
+      const btnTradeStartSell = document.getElementById('btnTradeStartSell');
       const btnTradeClose = document.getElementById('btnTradeClose');
       const btnTradeMore = document.getElementById('btnTradeMore');
       let tradeState = { action: 'BUY', offset: 0, basicRunId: null, techRunId: null };
@@ -3253,7 +3264,7 @@ const ensureLwMacd = () => {
       function openTradePlan(action) {
         tradeState.action = action || 'BUY';
         tradeState.offset = 0;
-        if (tradeInfo) tradeInfo.textContent = `${currentSymbol()} • TF ${currentTf()} • ${tradeState.action}`;
+        if (tradeInfo) tradeInfo.textContent = `${currentSymbol()} • TF ${currentTf()}`;
         if (tradeResultsBox) tradeResultsBox.innerHTML = '';
         if (tradeModal) tradeModal.style.display = 'flex';
         loadTradeSourceDropdowns();
@@ -3295,13 +3306,13 @@ const ensureLwMacd = () => {
           tradeHistoryBox.innerHTML = '<em style="color:var(--muted)">Failed to load</em>';
         }
       }
-      if (btnAiBuy) btnAiBuy.addEventListener('click', ()=> openTradePlan('BUY'));
-      if (btnAiSell) btnAiSell.addEventListener('click', ()=> openTradePlan('SELL'));
+      if (btnAiBuySell) btnAiBuySell.addEventListener('click', ()=> openTradePlan('BUY'));
       const btnNewBasicRun = document.getElementById('btnNewBasicRun');
       const btnNewTechRun = document.getElementById('btnNewTechRun');
       if (btnNewBasicRun) btnNewBasicRun.addEventListener('click', newBasicCheckForTrade);
       if (btnNewTechRun) btnNewTechRun.addEventListener('click', newTechCheckForTrade);
-      if (btnTradeStart) btnTradeStart.addEventListener('click', ()=> runAiTradePlan(tradeState.action||'BUY'));
+      if (btnTradeStartBuy) btnTradeStartBuy.addEventListener('click', ()=> runAiTradePlan('BUY'));
+      if (btnTradeStartSell) btnTradeStartSell.addEventListener('click', ()=> runAiTradePlan('SELL'));
       if (btnTradeClose) btnTradeClose.addEventListener('click', ()=> { if (tradeModal) tradeModal.style.display = 'none'; });
       if (btnTradeMore) btnTradeMore.addEventListener('click', ()=> { tradeState.offset = (tradeState.offset||0) + 5; loadTradeHistory(); });
       async function executeAiPlan() {
