@@ -3453,7 +3453,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
             tech_run_id = int(payload.get("tech_run_id")) if payload.get("tech_run_id") is not None else None
         except Exception:
             tech_run_id = None
-        if snapshot_text or strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json", ""}:
+        # Route to Tech+AI branch only when a snapshot is provided or an explicit
+        # tech strategy is requested. Do NOT treat empty strategy as tech.
+        if snapshot_text or strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json"}:
             symbol = (payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
             timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
             if not snapshot_text:

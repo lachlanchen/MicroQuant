@@ -3713,16 +3713,26 @@ const ensureLwMacd = () => {
           const m = document.getElementById('autoModal');
           if (m) {
             m.style.display = 'flex';
+            m.setAttribute('aria-hidden', 'false');
             const logBox = document.getElementById('autoLogBoxModal');
             if (logBox) {
               logBox.innerHTML = '';
               logBox.insertAdjacentHTML('beforeend', '<div>[Auto] Modal opened (fallback)</div>');
             }
+            const s = document.getElementById('btnAutoStart');
+            if (s) { try { s.focus(); } catch {} }
           }
         } catch {}
       }
       if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', openAutoModalSafe);
-      if (btnAutoClose) btnAutoClose.addEventListener('click', () => { if (autoModal) autoModal.style.display = 'none'; });
+      if (btnAutoClose) btnAutoClose.addEventListener('click', () => {
+        if (autoModal) {
+          autoModal.style.display = 'none';
+          autoModal.setAttribute('aria-hidden', 'true');
+        }
+        const t = document.getElementById('btnAutoAiTrade');
+        if (t) { try { t.focus(); } catch {} }
+      });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
       async function executeAiPlan() {
@@ -6501,7 +6511,7 @@ const ensureLwMacd = () => {
         autoHistoryOffset = 0;
         const sym = currentSymbol();
         const tf = currentTf();
-        if (autoModal) autoModal.style.display = 'flex';
+        if (autoModal) { autoModal.style.display = 'flex'; autoModal.setAttribute('aria-hidden', 'false'); }
         // meta line: symbol • TF • Open lots • Safe max lots (red)
         try {
           const posRes = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
@@ -6525,5 +6535,6 @@ const ensureLwMacd = () => {
         // history and clear log
         if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';
         loadAutoHistory(5, 0);
+        try { const s = document.getElementById('btnAutoStart'); if (s) s.focus(); } catch {}
       }
       try { window.openAutoModal = openAutoModal; } catch {}
