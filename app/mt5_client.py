@@ -373,9 +373,16 @@ class MT5Client:
             to_dt = _dt.datetime.now(_tz.utc)
         if from_dt is None:
             from_dt = to_dt - _dt.timedelta(days=180)
-        # MetaTrader expects naive datetimes in terminal timezone; fall back to UTC-naive
-        from_sel = from_dt.astimezone(_tz.utc).replace(tzinfo=None) if getattr(from_dt, "tzinfo", None) else from_dt
-        to_sel = to_dt.astimezone(_tz.utc).replace(tzinfo=None) if getattr(to_dt, "tzinfo", None) else to_dt
+        # MetaTrader expects naive datetimes expressed in the terminal's local timezone.
+        # Convert any timezone-aware inputs to local time, then drop tzinfo so we pass naive datetimes.
+        _local_tz = _dt.datetime.now().astimezone().tzinfo
+        def _to_local_naive(d: _dt.datetime) -> _dt.datetime:
+            if getattr(d, "tzinfo", None) is None:
+                return d
+            return d.astimezone(_local_tz).replace(tzinfo=None)
+
+        from_sel = _to_local_naive(from_dt)
+        to_sel = _to_local_naive(to_dt)
         # Ensure history window is selected for reliability across terminals
         try:
             mt5.history_select(from_sel, to_sel)
