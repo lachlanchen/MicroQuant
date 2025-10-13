@@ -62,6 +62,7 @@ logger = logging.getLogger("mt5app")
 WS_CLIENTS: set = set()
 NEWS_BACKFILL_CB = None
 BALANCE_CB = None
+CLOSED_ORDERS_CB = None
 
 
 NEWS_MICRO_QUESTIONS: list[dict[str, str]] = [
@@ -777,6 +778,14 @@ async def emit_balance_event(*, user: str, account_id: int, balance: float | Non
     await _broadcast_ws(event)
 
 
+async def emit_closed_deals_event() -> None:
+    event = {
+        "type": "closed_deals_update",
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    await _broadcast_ws(event)
+
+
 ALL_TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1", "Y1"]
 PREF_KEYS = [
     "last_symbol",
@@ -790,6 +799,7 @@ PREF_KEYS = [
     "last_slow",
     "chart_shift",
     "trade_ai_model",
+    "closed_orders_poll_min",
 ]
 
 def _default_backfill_days(tf: str) -> int:
@@ -1451,6 +1461,7 @@ class MainHandler(tornado.web.RequestHandler):
         stl_manual_pref = extras.get("stl_manual_period") or "30"
         auto_news_pref = extras.get("auto_news_backfill") or "1"
         chart_shift_pref = extras.get("chart_shift") or "1"
+        closed_orders_poll_pref = extras.get("closed_orders_poll_min") or os.getenv("CLOSED_ORDERS_POLL_MIN", "30")
 
         logger.debug("Render index with symbols=%s default=%s tf=%s", SUPPORTED_SYMBOLS, sym, tf)
         try:
@@ -1480,6 +1491,7 @@ class MainHandler(tornado.web.RequestHandler):
             default_stl_manual_period=stl_manual_pref,
             default_chart_shift=chart_shift_pref,
             default_auto_news=auto_news_pref,
+            default_closed_orders_poll_min=closed_orders_poll_pref,
         )
 
 
@@ -1750,6 +1762,7 @@ async def make_app():
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler, dict(pool=pool)),
+            (r"/api/account/closed_deals", ClosedDealsHandler),
             # Backfill latest forex + equities news into DB
             (r"/api/news/backfill_forex", NewsBackfillHandler, dict(pool=pool)),
             (r"/api/news/analyze", NewsAnalysisHandler, dict(ai_client=AI_CLIENT, questions=NEWS_MICRO_QUESTIONS)),
@@ -2011,6 +2024,40 @@ class AccountBalanceHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "user": user, "account": account_id, "rows": rows}))
+
+
+class ClosedDealsHandler(tornado.web.RequestHandler):
+    async def get(self):
+        # Optional time window
+        days = int(self.get_argument("days", default="90"))
+        start_arg = self.get_argument("from", default=None)
+        end_arg = self.get_argument("to", default=None)
+        start_dt = _normalize_dt(start_arg) if start_arg else None
+        end_dt = _normalize_dt(end_arg) if end_arg else None
+        if not end_dt:
+            end_dt = datetime.now(timezone.utc)
+        if not start_dt:
+            start_dt = end_dt - timedelta(days=max(1, days))
+        try:
+            deals = mt5_client.closed_deals(start_dt, end_dt)
+        except Exception as e:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": str(e)}))
+            return
+        # Build cumulative PnL series over time
+        cum = 0.0
+        cum_points: list[dict] = []
+        for d in deals:
+            p = float(d.get("profit") or 0.0)
+            c = float(d.get("commission") or 0.0)
+            s = float(d.get("swap") or 0.0)
+            cum += (p + c + s)
+            cum_points.append({"ts": d.get("ts"), "value": cum})
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "from": start_dt.isoformat(), "to": end_dt.isoformat(), "deals": deals, "cum": cum_points}))
 
 
 class STLHandler(tornado.web.RequestHandler):
@@ -2391,6 +2438,25 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     except Exception:
                         pass
                     NEWS_BACKFILL_CB = None
+            # Handle closed orders polling interval
+            if "closed_orders_poll_min" in updates:
+                try:
+                    minutes = int(str(updates.get("closed_orders_poll_min") or "30"))
+                except Exception:
+                    minutes = 30
+                minutes = max(1, minutes)
+                from tornado.ioloop import PeriodicCallback
+                global CLOSED_ORDERS_CB
+                try:
+                    if CLOSED_ORDERS_CB is not None:
+                        CLOSED_ORDERS_CB.stop()
+                except Exception:
+                    pass
+                try:
+                    CLOSED_ORDERS_CB = PeriodicCallback(lambda: tornado.ioloop.IOLoop.current().add_callback(emit_closed_deals_event), minutes * 60 * 1000)
+                    CLOSED_ORDERS_CB.start()
+                except Exception:
+                    CLOSED_ORDERS_CB = None
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "updated": sorted(updates.keys())}))
@@ -3724,6 +3790,18 @@ def main():
     if BALANCE_CB is None:
         BALANCE_CB = tornado.ioloop.PeriodicCallback(_schedule_balance_poll, max(5, balance_min) * 60 * 1000)
         BALANCE_CB.start()
+
+    # Closed orders update signal (default every 30 min)
+    try:
+        closed_min = int(os.getenv("CLOSED_ORDERS_POLL_MIN", "30"))
+    except Exception:
+        closed_min = 30
+    def _schedule_closed_emit():
+        tornado.ioloop.IOLoop.current().add_callback(emit_closed_deals_event)
+    global CLOSED_ORDERS_CB
+    if CLOSED_ORDERS_CB is None:
+        CLOSED_ORDERS_CB = tornado.ioloop.PeriodicCallback(_schedule_closed_emit, max(1, closed_min) * 60 * 1000)
+        CLOSED_ORDERS_CB.start()
 
     # Auto news backfill (default on)
     try:

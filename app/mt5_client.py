@@ -361,6 +361,53 @@ class MT5Client:
             "time": int(getattr(t, "time", 0)),
         }
 
+    def closed_deals(self, from_dt=None, to_dt=None) -> list[dict]:
+        """Return simplified closed deals within a time range.
+        Each item: {ts, symbol, profit, commission, swap, order, deal, volume, entry}
+        """
+        self._ensure_initialized()
+        # Default to last 180 days if not provided
+        import datetime as _dt
+        from datetime import timezone as _tz
+        if to_dt is None:
+            to_dt = _dt.datetime.now(_tz.utc)
+        if from_dt is None:
+            from_dt = to_dt - _dt.timedelta(days=180)
+        deals = mt5.history_deals_get(from_dt, to_dt) or []
+        out: list[dict] = []
+        for d in deals:
+            try:
+                ts = getattr(d, "time", 0)
+                # MetaTrader5 returns epoch seconds in some builds; also has time_msc. Use time if available.
+                if hasattr(d, "time_msc") and int(getattr(d, "time_msc", 0)):
+                    ts_ms = int(getattr(d, "time_msc", 0))
+                    ts_iso = _dt.datetime.fromtimestamp(ts_ms / 1000, _tz.utc).isoformat()
+                else:
+                    ts_iso = _dt.datetime.fromtimestamp(int(ts), _tz.utc).isoformat()
+                out.append({
+                    "ts": ts_iso,
+                    "symbol": str(getattr(d, "symbol", "")),
+                    "profit": float(getattr(d, "profit", 0.0)),
+                    "commission": float(getattr(d, "commission", 0.0)) if hasattr(d, "commission") else 0.0,
+                    "swap": float(getattr(d, "swap", 0.0)) if hasattr(d, "swap") else 0.0,
+                    "order": int(getattr(d, "order", 0)) if hasattr(d, "order") else None,
+                    "deal": int(getattr(d, "deal", 0)) if hasattr(d, "deal") else None,
+                    "volume": float(getattr(d, "volume", 0.0)) if hasattr(d, "volume") else None,
+                    "entry": int(getattr(d, "entry", 0)) if hasattr(d, "entry") else None,
+                })
+            except Exception:
+                continue
+        # Only keep closing deals (entry out=1) if entry flag available; otherwise return all
+        try:
+            outs = [r for r in out if r.get("entry") in (1, "1")]
+            if outs:
+                out = outs
+        except Exception:
+            pass
+        # Sort ascending by ts
+        out.sort(key=lambda r: r.get("ts") or "")
+        return out
+
     def account_info(self) -> dict:
         self._ensure_initialized()
         info = mt5.account_info()

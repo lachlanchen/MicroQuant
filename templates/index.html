@@ -236,6 +236,14 @@
           </div>
           <div class="indicator-panel">
             <h4>Account Balance</h4>
+            <div class="row" style="gap:8px; align-items:center; margin:4px 0 8px 0;">
+              <button class="btn secondary" id="btnFetchClosed" style="padding:4px 8px;">Fetch Closed</button>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="font-size:12px; color:var(--muted);">Interval (min)</span>
+                <input id="closedPollMin" type="number" min="1" value="{{ default_closed_orders_poll_min }}" style="width:72px;" />
+              </label>
+              <button class="btn secondary" id="btnUpdateClosed" style="padding:4px 8px;">Update</button>
+            </div>
             <div id="lwBalance" class="lw-pane"></div>
           </div>
         </div>
@@ -1482,6 +1490,7 @@
       // Account Balance pane
       let lwBalanceChart = null;
       let lwBalanceSeries = null;
+      let lwClosedPnlSeries = null;
       let lwBalanceSubscribed = false;
       const ensureLwBalance = () => {
         if (!lwBalanceChart) {
@@ -1496,6 +1505,8 @@
         }
         if (lwBalanceChart && !lwBalanceSeries) {
           lwBalanceSeries = lwBalanceChart.addLineSeries({ color: '#1b5e20', lineWidth: 2 });
+          const LS = (LightweightCharts && LightweightCharts.LineStyle) ? LightweightCharts.LineStyle : {};
+          lwClosedPnlSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0) });
         }
         if (!lwBalanceSubscribed && lwBalanceChart) {
           lwBalanceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -1516,6 +1527,33 @@
           lwBalanceSeries.setData(points);
         } catch (e) {
           // ignore
+        }
+      }
+
+      async function refreshClosedDealsSeries() {
+        try {
+          const r = await fetch('/api/account/closed_deals?days=180', { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          ensureLwBalance();
+          if (!lwClosedPnlSeries || !lwBalanceSeries) return;
+          const cum = (js.cum || []).map(row => ({ time: Math.floor(new Date(row.ts).getTime()/1000), value: Number(row.value||0) }));
+          lwClosedPnlSeries.setData(cum);
+          // Markers at each deal time
+          const deals = js.deals || [];
+          const markers = deals.map(d => {
+            const t = Math.floor(new Date(d.ts).getTime()/1000);
+            const profit = Number(d.profit || 0) + Number(d.commission || 0) + Number(d.swap || 0);
+            return {
+              time: t,
+              position: 'aboveBar',
+              color: profit >= 0 ? '#2ecc71' : '#e74c3c',
+              shape: 'circle',
+              text: `${profit>=0?'+':''}${profit.toFixed(2)}`,
+            };
+          });
+          lwBalanceSeries.setMarkers(markers);
+        } catch (e) {
+          console.warn('Closed deals fetch failed', e);
         }
       }
 
@@ -4079,6 +4117,8 @@ const ensureLwMacd = () => {
             handleStlEvent(data);
           } else if (data.type === 'balance_update') {
             refreshBalanceSeries();
+          } else if (data.type === 'closed_deals_update') {
+            refreshClosedDealsSeries();
           }
         });
 
@@ -4095,6 +4135,7 @@ const ensureLwMacd = () => {
 
       connectUpdates();
       refreshBalanceSeries();
+      try { await refreshClosedDealsSeries(); } catch {}
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
       (async () => { try { await refreshTechFreshness(); } catch {} })();
@@ -4740,6 +4781,21 @@ const ensureLwMacd = () => {
           const f = Number(el('fast').value || 20);
           const s = Number(el('slow').value || 50);
           trade(lastSignal, { source: 'panel', strategy: 'sma_crossover', fast: f, slow: s, reason: lastSignalReason });
+        }
+      });
+      // Closed orders controls
+      const btnFetchClosed = document.getElementById('btnFetchClosed');
+      if (btnFetchClosed) btnFetchClosed.addEventListener('click', refreshClosedDealsSeries);
+      const btnUpdateClosed = document.getElementById('btnUpdateClosed');
+      if (btnUpdateClosed) btnUpdateClosed.addEventListener('click', async () => {
+        const min = Number(document.getElementById('closedPollMin').value || 30);
+        try {
+          const r = await fetch('/api/preferences', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ closed_orders_poll_min: String(Math.max(1, Math.floor(min))) }) });
+          await r.json().catch(()=>({}));
+          status('Closed orders interval updated. Refreshing…');
+          await refreshClosedDealsSeries();
+        } catch (e) {
+          status('Failed to update closed orders interval');
         }
       });
 
