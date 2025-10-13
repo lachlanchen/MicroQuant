@@ -3412,10 +3412,11 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 kind = "stock"
 
         # Special strategy: technical snapshot analysis (10Q), uses client-provided snapshot text
-        if strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json", ""}:
+        # Prefer this branch whenever a tech_snapshot is provided, regardless of 'strategy' value.
+        snapshot_text = str(payload.get("tech_snapshot") or "").strip()
+        if snapshot_text or strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json", ""}:
             symbol = (payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
             timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
-            snapshot_text = str(payload.get("tech_snapshot") or "").strip()
             if not snapshot_text:
                 self.set_status(400)
                 self.set_header("Content-Type", "application/json")
@@ -3430,6 +3431,10 @@ class HealthRunHandler(tornado.web.RequestHandler):
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
             question_schema = strat.get("question_response_schema") if isinstance(strat, dict) else None
             choice_options = ["BULLISH", "BEARISH"]
+            try:
+                logger.info("[health.tech] strategy=%s symbol=%s tf=%s schema=%s", chosen_strategy, symbol, timeframe, "position" if isinstance(question_schema, dict) else "choice")
+            except Exception:
+                pass
 
             loop = tornado.ioloop.IOLoop.current()
             def _call_one(qobj: dict) -> tuple[str, object, str]:
