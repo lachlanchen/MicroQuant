@@ -4153,7 +4153,7 @@ const ensureLwMacd = () => {
 
       connectUpdates();
       refreshBalanceSeries();
-      try { await refreshClosedDealsSeries(); } catch {}
+      (async () => { try { await refreshClosedDealsSeries(); } catch {} })();
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
       (async () => { try { await refreshTechFreshness(); } catch {} })();
