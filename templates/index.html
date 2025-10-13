@@ -3706,7 +3706,7 @@ const ensureLwMacd = () => {
       if (btnTradeStartSell) btnTradeStartSell.addEventListener('click', ()=> runAiTradePlan('SELL'));
       if (btnTradeClose) btnTradeClose.addEventListener('click', ()=> { if (tradeModal) tradeModal.style.display = 'none'; });
       if (btnTradeMore) btnTradeMore.addEventListener('click', ()=> { tradeState.offset = (tradeState.offset||0) + 5; loadTradeHistory(); });
-      if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', openAutoModal);
+      if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', () => { try { if (typeof openAutoModal === 'function') openAutoModal(); } catch {} });
       if (btnAutoClose) btnAutoClose.addEventListener('click', () => { if (autoModal) autoModal.style.display = 'none'; });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
