@@ -419,6 +419,17 @@ def _build_tech_prompt(question_text: str, symbol: str, timeframe: str | None, s
         f"Question: {question_text}\\n"
     )
 
+def _build_tech_position_prompt(question_text: str, symbol: str, timeframe: str | None, snapshot: str) -> str:
+    tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    return (
+        "You are a technical analyst. Return only valid JSON that matches the schema.\n\n"
+        "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
+        "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
+        f"Symbol: {symbol}\n{tf_line}\n\n"
+        f"Snapshot (recent technical readings):\n---\n{snapshot}\n---\n\n"
+        f"Question: {question_text}\n"
+    )
+
 
 def _is_fx_symbol(sym: str | None) -> bool:
     if not sym:
@@ -3339,7 +3350,7 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 if grp:
                     return grp
                 strat = str((ans.get("strategy") or "")).lower()
-                if strat == "tech_snapshot_10q.json":
+                if strat in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json"}:
                     return "tech"
                 if strat == "ai_trade_plan":
                     return "plan"
@@ -3401,7 +3412,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 kind = "stock"
 
         # Special strategy: technical snapshot analysis (10Q), uses client-provided snapshot text
-        if strategy_override == "tech_snapshot_10q.json":
+        if strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json", ""}:
             symbol = (payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
             timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
             snapshot_text = str(payload.get("tech_snapshot") or "").strip()
@@ -3410,51 +3421,81 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 self.set_header("Content-Type", "application/json")
                 self.finish(json.dumps({"ok": False, "error": "tech_snapshot text required"}))
                 return
-            strat = _load_strategy_json("tech_snapshot_10q.json")
+            # Choose strategy (position variant by default)
+            chosen_strategy = strategy_override or "tech_snapshot_10q_position.json"
+            strat = _load_strategy_json(chosen_strategy)
+            if not strat:
+                chosen_strategy = "tech_snapshot_10q.json"
+                strat = _load_strategy_json(chosen_strategy)
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
+            question_schema = strat.get("question_response_schema") if isinstance(strat, dict) else None
             choice_options = ["BULLISH", "BEARISH"]
 
             loop = tornado.ioloop.IOLoop.current()
-            def _call_one(qobj: dict) -> tuple[str, str, str]:
+            def _call_one(qobj: dict) -> tuple[str, object, str]:
                 qid = str(qobj.get("id") or "")
                 raw_text = str(qobj.get("text") or "")
-                prompt = _build_tech_prompt(raw_text, symbol, timeframe, snapshot_text, choice_options)
-                out = AI_CLIENT.send_request_with_json_schema(
-                    prompt,
-                    _make_choice_schema(choice_options),
-                    system_content="You are a decisive technical analyst. Reply only with JSON that matches the schema.",
-                    schema_name="tech_choice_answer",
-                    model=model_override,
-                    provider=provider_override,
-                )
-                ans_raw = str((out or {}).get("answer") or "").strip().upper()
-                if ans_raw not in choice_options:
-                    ans_raw = choice_options[1]
-                expl = str((out or {}).get("explanation") or "").strip()
-                return (qid, ans_raw, expl)
+                if isinstance(question_schema, dict):
+                    prompt = _build_tech_position_prompt(raw_text, symbol, timeframe, snapshot_text)
+                    out = AI_CLIENT.send_request_with_json_schema(
+                        prompt,
+                        question_schema,
+                        system_content="You are a decisive technical analyst. Reply only with JSON that matches the schema.",
+                        schema_name="tech_position_answer",
+                        model=model_override,
+                        provider=provider_override,
+                    )
+                    expl = str((out or {}).get("explanation") or "").strip()
+                    return (qid, out or {}, expl)
+                else:
+                    prompt = _build_tech_prompt(raw_text, symbol, timeframe, snapshot_text, choice_options)
+                    out = AI_CLIENT.send_request_with_json_schema(
+                        prompt,
+                        _make_choice_schema(choice_options),
+                        system_content="You are a decisive technical analyst. Reply only with JSON that matches the schema.",
+                        schema_name="tech_choice_answer",
+                        model=model_override,
+                        provider=provider_override,
+                    )
+                    ans_raw = str((out or {}).get("answer") or "").strip().upper()
+                    if ans_raw not in choice_options:
+                        ans_raw = choice_options[1]
+                    expl = str((out or {}).get("explanation") or "").strip()
+                    return (qid, ans_raw, expl)
 
             from concurrent.futures import ThreadPoolExecutor as _TPE
             local_workers = min(8, max(1, len(questions)))
-            answers: list[tuple[str, str, str]] = []
+            answers: list[tuple[str, object, str]] = []
             if questions:
                 with _TPE(max_workers=local_workers) as ex:
                     futs = [loop.run_in_executor(ex, _call_one, q) for q in questions]
                     answers = await asyncio.gather(*futs, return_exceptions=False)
 
-            a_map: dict[str, tuple[str, str]] = {qid: (val, expl) for qid, val, expl in answers}
+            a_map: dict[str, tuple[object, str]] = {qid: (val, expl) for qid, val, expl in answers}
             ans_struct: list[dict[str, Any]] = []
             bullish = 0
             bearish = 0
+            buy = 0
+            sell = 0
             for q in questions:
                 qid = str(q.get("id"))
-                val, expl = a_map.get(qid, ("BEARISH", ""))
-                if isinstance(val, str) and val.upper() == "BULLISH":
-                    bullish += 1
-                elif isinstance(val, str) and val.upper() == "BEARISH":
-                    bearish += 1
-                ans_struct.append({"id": qid, "answer": str(val).upper(), "explanation": str(expl)})
+                val, expl = a_map.get(qid, ({} if question_schema else "BEARISH", ""))
+                if isinstance(question_schema, dict):
+                    # position response per question
+                    ans_struct.append({"id": qid, "answer": val, "explanation": str(expl)})
+                    pos = str((val or {}).get("position") or "").upper()
+                    if pos == "BUY":
+                        buy += 1
+                    elif pos == "SELL":
+                        sell += 1
+                else:
+                    if isinstance(val, str) and val.upper() == "BULLISH":
+                        bullish += 1
+                    elif isinstance(val, str) and val.upper() == "BEARISH":
+                        bearish += 1
+                    ans_struct.append({"id": qid, "answer": str(val).upper(), "explanation": str(expl)})
 
-            score_value = bullish - bearish
+            score_value = (buy - sell) if isinstance(question_schema, dict) else (bullish - bearish)
             # Determine signal via thresholds in JSON if present
             signal = "NEUTRAL"
             thresholds = (strat.get("scoring") or {}).get("thresholds", [])
@@ -3490,9 +3531,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     "questions": ans_struct,
                     "score": score_value,
                     "signal": signal,
-                    "strategy": "tech_snapshot_10q.json",
+                    "strategy": chosen_strategy,
                     "group": "tech",
-                    "scores": {"BULLISH": bullish, "BEARISH": bearish, "NET": score_value},
+                    "scores": ({"BUY": buy, "SELL": sell, "NET": score_value} if isinstance(question_schema, dict) else {"BULLISH": bullish, "BEARISH": bearish, "NET": score_value}),
                     "meta": {"timeframe": timeframe, "symbol": symbol, "source": "snapshot", "last_bar_ts": last_bar_ts_iso},
                 },
             )
@@ -3507,9 +3548,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         "symbol": symbol,
                         "answers": ans_struct,
                         "score": score_value,
-                        "scores": {"BULLISH": bullish, "BEARISH": bearish, "NET": score_value},
+                        "scores": ({"BUY": buy, "SELL": sell, "NET": score_value} if isinstance(question_schema, dict) else {"BULLISH": bullish, "BEARISH": bearish, "NET": score_value}),
                         "signal": signal,
-                        "strategy": "tech_snapshot_10q.json",
+                        "strategy": chosen_strategy,
                         "run_id": ins.get("id"),
                         "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
                     }

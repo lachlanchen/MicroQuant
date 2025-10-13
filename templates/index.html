@@ -335,6 +335,7 @@
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">Tech template</span>
                 <select id="techAiStrategy" style="min-width:220px; padding:4px 6px;">
+                  <option value="tech_snapshot_10q_position.json" selected>Tech Snapshot + Position (10)</option>
                   <option value="tech_snapshot_10q.json">Tech Snapshot (10)</option>
                 </select>
               </label>
@@ -2636,12 +2637,12 @@ const ensureLwMacd = () => {
         const outBox = el('healthResultsBox');
         try {
           const snapshot = buildTechSnapshotString();
-          const body = {
-            symbol: sym,
-            strategy: (document.getElementById('techAiStrategy') && document.getElementById('techAiStrategy').value) ? document.getElementById('techAiStrategy').value : 'tech_snapshot_10q.json',
-            timeframe: currentTf(),
-            tech_snapshot: snapshot
-          };
+            const body = {
+              symbol: sym,
+              strategy: (document.getElementById('techAiStrategy') && document.getElementById('techAiStrategy').value) ? document.getElementById('techAiStrategy').value : 'tech_snapshot_10q_position.json',
+              timeframe: currentTf(),
+              tech_snapshot: snapshot
+            };
           // Optional model override for Tech+AI
           const techModelSel = document.getElementById('techAiModel');
           const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';

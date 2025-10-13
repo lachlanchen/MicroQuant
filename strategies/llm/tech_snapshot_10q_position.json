@@ -1,0 +1,50 @@
+{
+  "name": "tech_snapshot_10q_position",
+  "title": "Tech Snapshot (10) + Position (SL/TP)",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-13T00:00:00Z",
+  "description": "Interpretive technical analysis using recent snapshot values for trend, momentum, volatility, and volume. Each question returns a trade orientation JSON.",
+  "questions": [
+    { "id": "tq_01", "category": "trend", "text": "Looking at the relationship between close price, STL trend, and STL speed - does the overall trend structure favor BUY or SELL?" },
+    { "id": "tq_02", "category": "trend", "text": "Examining STL residuals over the past N bars - do residuals support a BUY or SELL bias?" },
+    { "id": "tq_03", "category": "trend", "text": "Considering both STL speed and acceleration together - does momentum skew toward BUY or SELL?" },
+    { "id": "mom_04", "category": "momentum", "text": "Analyzing RSI, MACD, and their recent trajectory - do momentum indicators favor BUY or SELL?" },
+    { "id": "mom_05", "category": "momentum", "text": "Looking at MACD line, signal line, and histogram development - does the structure favor BUY or SELL?" },
+    { "id": "mom_06", "category": "momentum", "text": "Comparing RSI positioning and directional movement - does recent momentum favor BUY or SELL?" },
+    { "id": "ts_07", "category": "trend_strength", "text": "Evaluating ADX level and the spread between +DI/-DI - does trend strength favor BUY or SELL?" },
+    { "id": "ts_08", "category": "trend_strength", "text": "Considering ADX, DI lines, and recent price action together - is conviction stronger for BUY or SELL?" },
+    { "id": "vv_09", "category": "vol_vol", "text": "Analyzing volume pattern alongside price movement - does volume confirm BUY or SELL?" },
+    { "id": "vv_10", "category": "vol_vol", "text": "Looking at ATR changes and price volatility - do volatility patterns favor BUY or SELL?" }
+  ],
+  "question_response_schema": {
+    "type": "object",
+    "properties": {
+      "position": { "type": "string", "enum": ["BUY", "SELL"], "description": "uppercase position keyword" },
+      "sl": { "type": "number", "description": "stop loss level (numeric)" },
+      "tp": { "type": "number", "description": "take profit level (numeric)" },
+      "explanation": { "type": "string", "description": "one concise sentence citing strongest evidence" }
+    },
+    "required": ["position", "sl", "tp", "explanation"],
+    "additionalProperties": false
+  },
+  "scoring": {
+    "thresholds": [
+      { "min": 7,  "max": 10, "signal": "STRONG_BUY" },
+      { "min": 3,  "max": 6,  "signal": "BUY" },
+      { "min": -2, "max": 2, "signal": "NEUTRAL" },
+      { "min": -6, "max": -3, "signal": "SELL" },
+      { "min": -10, "max": -7, "signal": "STRONG_SELL" }
+    ]
+  },
+  "prompt": {
+    "system": "You are a decisive technical analyst. Return only valid JSON that matches the provided schema.",
+    "question_instructions": [
+      "For each of the 10 questions, answer strictly with JSON matching the Position schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.",
+      "Use uppercase BUY/SELL in 'position'.",
+      "Explanation cites strongest evidence."
+    ]
+  }
+}
+
