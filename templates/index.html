@@ -1518,9 +1518,10 @@
           const elBal = document.getElementById('lwBalance');
           if (!elBal) return;
           lwBalanceChart = LightweightCharts.createChart(elBal, {
+            layout: { background: { color: '#ffffff' }, textColor: '#111' },
             rightPriceScale: { visible: true },
             leftPriceScale: { visible: true },
-            timeScale: { rightOffset: getRightOffset(), fixRightEdge: false },
+            timeScale: { rightOffset: 2, fixRightEdge: false },
             grid: { vertLines: { color: '#efefef' }, horzLines: { color: '#efefef' } },
           });
         }
@@ -1530,12 +1531,8 @@
           // Cumulative closed PnL on left scale
           lwClosedCumSeries = lwBalanceChart.addLineSeries({ color: '#ff9800', lineWidth: 2, lineStyle: (LS.Dotted || 0), priceScaleId: 'left' });
         }
-        if (!lwBalanceSubscribed && lwBalanceChart) {
-          lwBalanceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-            handleChartRangeChange(lwBalanceChart);
-          });
-          lwBalanceSubscribed = true;
-        }
+        // Do not sync balance pane with other charts
+        lwBalanceSubscribed = true;
       };
 
       async function refreshBalanceSeries() {
@@ -1546,7 +1543,7 @@
           const js = await r.json();
           if (!r.ok || !js || js.ok !== true) return;
           ensureLwBalance();
-          if (!lwBalanceSeries) return;
+          if (!lwBalanceSeries) { setTimeout(refreshBalanceSeries, 250); return; }
           const points = (js.rows || [])
             .map(row => {
               const tsMs = Date.parse(row.ts);
@@ -1578,7 +1575,7 @@
           const r = await fetch('/api/account/closed_deals?days=5000&source=mt5&debug=1&comment=auto-quant', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           ensureLwBalance();
-          if (!lwClosedCumSeries || !lwBalanceSeries) return;
+          if (!lwClosedCumSeries || !lwBalanceSeries) { setTimeout(refreshClosedDealsSeries, 250); return; }
           // Cumulative realized PnL line
           const cum = (js.cum || [])
             .map(row => {
@@ -4206,8 +4203,10 @@ const ensureLwMacd = () => {
       }
 
       connectUpdates();
-      refreshBalanceSeries();
-      (async () => { try { await refreshClosedDealsSeries(); } catch {} })();
+      window.addEventListener('load', () => {
+        refreshBalanceSeries();
+        (async () => { try { await refreshClosedDealsSeries(); } catch {} })();
+      });
       // Initialize freshness indicators
       (async () => { try { await refreshHealthFreshness(); } catch {} })();
       (async () => { try { await refreshTechFreshness(); } catch {} })();
@@ -4480,7 +4479,6 @@ const ensureLwMacd = () => {
             if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwAtrChart) lwAtrChart.applyOptions({ timeScale: { rightOffset: ro } });
             if (lwAdxChart) lwAdxChart.applyOptions({ timeScale: { rightOffset: ro } });
-            if (lwBalanceChart) lwBalanceChart.applyOptions({ timeScale: { rightOffset: ro } });
           } catch (e) { /* ignore */ }
           // persist preference
           try { queuePrefUpdate('chart_shift', chartShiftOn ? '1' : '0'); } catch (e) {}
