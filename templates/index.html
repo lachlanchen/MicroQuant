@@ -4427,7 +4427,33 @@ const ensureLwMacd = () => {
               else if (sig.includes('SELL')) side = 'SELL';
             }
           }
-          if (!side) { status('Tech+AI is neutral — no trade.'); appendAutoLog('Neutral signal — no trade.', 'warn'); return; }
+          if (!side) { status('Tech+AI is neutral — no trade.'); appendAutoLog('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
+          // Check Basic alignment with Tech
+          let basicSide = null;
+          if (basicId) {
+            try {
+              const pb = new URLSearchParams();
+              if (isFxPair(sym)) { const pq = splitPair(sym); pb.set('kind','forex_pair'); pb.set('base', pq.base); pb.set('quote', pq.quote); }
+              else { pb.set('kind','stock'); pb.set('symbol', sym); }
+              pb.set('group','basic'); pb.set('tf', tf); pb.set('limit','50'); pb.set('offset','0');
+              const rb = await fetch(`/api/health/runs?${pb.toString()}`, { cache:'no-store' });
+              const jb = await rb.json().catch(()=>({}));
+              const runsB = Array.isArray(jb.runs) ? jb.runs : [];
+              const b = runsB.find(x => Number(x.id) === Number(basicId)) || (runsB.length ? runsB[0] : null);
+              if (b) {
+                const ansb = b.answers || b.answers_json || {};
+                const scoresb = ansb.scores || {};
+                if (typeof scoresb.NET === 'number') {
+                  if (scoresb.NET > 0) basicSide = 'BUY'; else if (scoresb.NET < 0) basicSide = 'SELL';
+                } else if (typeof ansb.signal === 'string') {
+                  const sigb = String(ansb.signal).toUpperCase();
+                  if (sigb.includes('BUY')) basicSide = 'BUY'; else if (sigb.includes('SELL')) basicSide = 'SELL';
+                }
+              }
+            } catch {}
+          }
+          if (!basicSide) { appendAutoLog('Skip: Basic is neutral — not aligned with Tech.', 'warn'); status('Basic check neutral — no trade.'); return; }
+          if (basicSide !== side) { appendAutoLog(`Skip: Tech (${side}) and Basic (${basicSide}) not aligned.`, 'warn'); status('Tech and Basic not aligned — no trade.'); return; }
           appendAutoLog(`Signal: ${side}`);
           appendAutoLog(`Drafting ${side} plan…`);
           const planResp = await (async ()=>{
@@ -4476,7 +4502,15 @@ const ensureLwMacd = () => {
           const slEnabled = !!((inlineSl && inlineSl.checked === true) || (slToggle && slToggle.checked === true));
           if (slEnabled && p.stop_loss != null) body.set('sl', String(p.stop_loss));
           if (p.take_profit != null) body.set('tp', String(p.take_profit));
-          appendAutoLog(`Order params: vol=${vol} ${slEnabled? `SL=${String(p.stop_loss)}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
+          // Fetch current price for log context
+          let mkt = null;
+          try {
+            const rt = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+            const jt = await rt.json().catch(()=>({}));
+            if (jt && (jt.bid!=null || jt.ask!=null || jt.last!=null)) mkt = jt;
+          } catch {}
+          const px = mkt ? (sideLower==='buy' ? (mkt.ask ?? mkt.last ?? mkt.bid) : (mkt.bid ?? mkt.last ?? mkt.ask)) : null;
+          appendAutoLog(`Order params: acct=${(acct||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${String(p.stop_loss)}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
           const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
           const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
