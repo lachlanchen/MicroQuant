@@ -1860,16 +1860,40 @@
           const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!ensurePnlChart()) return;
-          const cum = (js.cum || [])
+          // Recompute cumulative on the client too, to cross-check any server-side filtering/mismatch.
+          const deals = Array.isArray(js.deals) ? js.deals.slice() : [];
+          // Sort by timestamp just in case
+          deals.sort((a,b) => (Date.parse(a.ts||0) - Date.parse(b.ts||0)));
+          let cumFromDeals = [];
+          {
+            let acc = 0;
+            for (const d of deals) {
+              const p = Number(d.profit||0), c = Number(d.commission||0), s = Number(d.swap||0);
+              if (Number.isFinite(p) && Number.isFinite(c) && Number.isFinite(s)) acc += (p+c+s);
+              cumFromDeals.push({ ts: d.ts, value: acc });
+            }
+          }
+          const cumServer = Array.isArray(js.cum) ? js.cum : [];
+          const useCum = (cumServer.length >= cumFromDeals.length ? cumServer : cumFromDeals);
+          const cum = useCum
             .map((row, i) => {
               const v = Number(row.value ?? 0);
               if (!Number.isFinite(v)) return null;
-              // Use index on x-axis for even spacing; 1-based for readability
               return { x: i + 1, y: v };
             })
             .filter(Boolean);
-          try { console.debug('[PnL] cum points (indexed)', cum); } catch {}
+          try {
+            const headDeals = deals.slice(0, 4).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
+            const tailDeals = deals.slice(-4).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
+            const headCum = useCum.slice(0, 4).map(c => ({ ts: c.ts, v: Number(c.value||0) }));
+            const tailCum = useCum.slice(-4).map(c => ({ ts: c.ts, v: Number(c.value||0) }));
+            console.debug('[PnL] acct=', acct || '(session)', 'deals=', deals.length, 'cum(server)=', cumServer.length, 'cum(recomp)=', cumFromDeals.length);
+            console.debug('[PnL] deals head=', headDeals, 'tail=', tailDeals);
+            console.debug('[PnL] cum head=', headCum, 'tail=', tailCum);
+          } catch {}
           pnlChart.data.datasets[0].data = cum;
+          try { console.debug('[PnL] chart dataset points=', pnlChart.data.datasets[0].data.length); } catch {}
+          try { status(`PnL updated: ${cum.length} pts${acct ? ` (acct ${acct})` : ''}`); } catch {}
           pnlChart.update('none');
         } catch (e) {
           // swallow UI errors

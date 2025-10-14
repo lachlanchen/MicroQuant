@@ -2363,6 +2363,18 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
                 # Log short cumulative sample
                 cum_samp = (cum_points[:5] + cum_points[-5:]) if len(cum_points) > 10 else cum_points
                 logger.info("[closed_deals debug] cum sample=%s", cum_samp)
+                try:
+                    head = deals[:5]
+                    tail = deals[-5:] if len(deals) > 5 else []
+                    logger.info("[closed_deals debug] deals head=%s", [
+                        {"ts": d.get("ts"), "symbol": d.get("symbol"), "profit": d.get("profit")} for d in head
+                    ])
+                    if tail:
+                        logger.info("[closed_deals debug] deals tail=%s", [
+                            {"ts": d.get("ts"), "symbol": d.get("symbol"), "profit": d.get("profit")} for d in tail
+                        ])
+                except Exception:
+                    pass
         except Exception:
             pass
         self.set_header("Content-Type", "application/json")
