@@ -2214,6 +2214,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         debug_flag = self.get_argument("debug", default="0").lower() in ("1", "true", "yes")
         source = self.get_argument("source", default="auto").lower()  # auto|db|mt5
         purge_flag = self.get_argument("purge", default="0").lower() in ("1", "true", "yes", "on")
+        nonzero_flag = self.get_argument("nonzero", default="0").lower() in ("1", "true", "yes", "on")
         comment_filters = [c for c in self.get_arguments("comment") if c]
         user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
         account_arg = self.get_argument("account", default=None)
@@ -2345,6 +2346,16 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         if comment_filters:
             lf = [c.lower() for c in comment_filters]
             deals = [d for d in deals if any(f in str(d.get("comment", "")).lower() for f in lf)]
+        if nonzero_flag:
+            def _nz(d: dict) -> bool:
+                try:
+                    p = float(d.get("profit") or 0.0)
+                    c = float(d.get("commission") or 0.0)
+                    s = float(d.get("swap") or 0.0)
+                    return abs(p + c + s) > 1e-12
+                except Exception:
+                    return True
+            deals = [d for d in deals if _nz(d)]
         # Build cumulative PnL series over time
         cum = 0.0
         cum_points: list[dict] = []

@@ -1855,13 +1855,18 @@
           // Use auto source for refresh; ensure selected account session so server resolves correct account_id
           await ensureSelectedAccountSession?.();
           const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
-          let url = '/api/account/closed_deals?days=5000&source=auto&debug=1';
+          let url = '/api/account/closed_deals?days=5000&source=auto&debug=1&nonzero=1';
           if (acct) url += `&account=${encodeURIComponent(acct)}`;
           const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!ensurePnlChart()) return;
           // Recompute cumulative on the client too, to cross-check any server-side filtering/mismatch.
-          const deals = Array.isArray(js.deals) ? js.deals.slice() : [];
+          let deals = Array.isArray(js.deals) ? js.deals.slice() : [];
+          // Apply the same nonzero filter on the client side (skip p+c+s == 0)
+          deals = deals.filter(d => {
+            const p = Number(d.profit||0), c = Number(d.commission||0), s = Number(d.swap||0);
+            return Math.abs(p + c + s) > 1e-12;
+          });
           // Sort by timestamp just in case
           deals.sort((a,b) => (Date.parse(a.ts||0) - Date.parse(b.ts||0)));
           let cumFromDeals = [];
@@ -6366,7 +6371,7 @@ const ensureLwMacd = () => {
         try {
           // Hit MT5 to upsert latest into DB for selected account, then reload
           const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
-          let url = '/api/account/closed_deals?days=5000&source=mt5&debug=1';
+          let url = '/api/account/closed_deals?days=5000&source=mt5&debug=1&nonzero=1';
           if (acct) url += `&account=${encodeURIComponent(acct)}`;
           const mt5Res = await fetch(url, { cache: 'no-store' });
           const mt5Js = await mt5Res.json().catch(()=>({}));
@@ -6392,7 +6397,7 @@ const ensureLwMacd = () => {
           const js = await r.json().catch(()=>({}));
           console.debug('[PnL] purge result', js);
           // Fetch latest from MT5 then refresh chart
-          let url = `/api/account/closed_deals?days=5000&source=mt5&debug=1&account=${encodeURIComponent(acct)}`;
+          let url = `/api/account/closed_deals?days=5000&source=mt5&debug=1&nonzero=1&account=${encodeURIComponent(acct)}`;
           const mt5Res = await fetch(url, { cache:'no-store' });
           const mt5Js = await mt5Res.json().catch(()=>({}));
           console.debug('[PnL] after purge, mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length);
