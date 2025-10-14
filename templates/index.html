@@ -3086,15 +3086,18 @@ const ensureLwMacd = () => {
         ];
 
         box.innerHTML = sections.join('');
-        // After rendering, inject cross‑TF STL rows (M1, prev TF, next TF, Y1) below Latest Tick
+        // After rendering, inject cross‑TF STL rows (M1, prev TF, next TF, D1) below Latest Tick
         try {
-          const tfList = [];
           const prev = prevTimeframe(tf);
           const next = nextTimeframe(tf);
-          if (tf !== 'M1') tfList.push('M1');
-          if (prev && !tfList.includes(prev)) tfList.push(prev);
-          if (next && !tfList.includes(next)) tfList.push(next);
-          if (!tfList.includes('Y1')) tfList.push('Y1');
+          const order = ['M1', prev, next, 'D1'];
+          const tfList = [];
+          for (const t of order) {
+            const tt = (t || '').toUpperCase();
+            if (!tt) continue;
+            if (tt === tf.toUpperCase()) continue; // avoid showing current TF
+            if (!tfList.includes(tt)) tfList.push(tt);
+          }
           // Create a placeholder status row after Latest Tick
           try {
             const anchorIndex = (box.children && box.children.length >= 2) ? 1 : 0;
@@ -3114,7 +3117,7 @@ const ensureLwMacd = () => {
             }
           };
 
-          // Create deterministic placeholders after the status line to preserve order (M1, prev, next, Y1)
+          // Create deterministic placeholders after the status line to preserve order (M1, prev, next, D1)
           try {
             const statusNode = document.getElementById('crossTfStatus');
             if (statusNode && statusNode.parentElement) {
@@ -3588,14 +3591,17 @@ const ensureLwMacd = () => {
         } catch {}
         let base = '';
         try { base = buildTechSnapshotStringSync(); } catch { base = ''; }
-        // Add cross-timeframe STL mini-rows: M1, prev TF, next TF, Y1 (last 10)
-        const tfList = [];
+        // Add cross-timeframe STL mini-rows: M1, prev TF, next TF, D1 (last 10) with de-dup and excluding current TF
         const prev = prevTimeframe(tf);
         const next = nextTimeframe(tf);
-        if (tf !== 'M1') tfList.push('M1');
-        if (prev && !tfList.includes(prev)) tfList.push(prev);
-        if (next && !tfList.includes(next)) tfList.push(next);
-        if (!tfList.includes('Y1')) tfList.push('Y1');
+        const ordered = ['M1', prev, next, 'D1'];
+        const tfList = [];
+        for (const t of ordered) {
+          const tt = (t || '').toUpperCase();
+          if (!tt) continue;
+          if (tt === tf.toUpperCase()) continue; // skip current TF
+          if (!tfList.includes(tt)) tfList.push(tt);
+        }
         const blocks = [];
         const toBlock = (title, headers, dataRows) => {
           const fmtRow = (ts, vals) => `${formatDateTime(ts)}\t${vals.map((v)=> (Number.isFinite(Number(v)) ? formatTechNumber(Number(v)) : '—')).join('\t')}`;
