@@ -3386,8 +3386,8 @@ const ensureLwMacd = () => {
       // Load saved leverage on startup and whenever the symbol/TF changes
       loadLeveragePref();
       loadRiskPrefs();
-      if (symbolSelect) symbolSelect.addEventListener('change', () => { loadLeveragePref(); loadRiskPrefs(); });
-      if (tfSelect) tfSelect.addEventListener('change', () => { loadLeveragePref(); loadRiskPrefs(); });
+      if (symbolSelect) symbolSelect.addEventListener('change', () => { loadLeveragePref(); loadRiskPrefs(); loadSafeLotsPref(); });
+      if (tfSelect) tfSelect.addEventListener('change', () => { loadLeveragePref(); loadRiskPrefs(); loadSafeLotsPref(); });
       const riskEl = document.getElementById('riskPercent');
       const riskVal = document.getElementById('riskPercentVal');
       if (riskEl) riskEl.addEventListener('input', () => { if (riskVal) riskVal.textContent = `${Number(riskEl.value).toFixed(1)}%`; updatePositionSizeHint(); try { queuePrefUpdate(getRiskKey(), String(riskEl.value)); } catch {} });
@@ -3404,7 +3404,13 @@ const ensureLwMacd = () => {
           const r = await fetch(`${PREF_ENDPOINT}?keys=${key}`, { cache: 'no-store' });
           const js = await r.json();
           const raw = js && js.prefs ? js.prefs[getSafeLotsKey()] : null;
-          if (raw != null && raw !== '') safeLotsEl.value = String(raw);
+          if (raw != null && raw !== '') {
+            safeLotsEl.value = String(raw);
+          } else {
+            // Set a sensible default and persist it so other panels see it
+            safeLotsEl.value = '0.10';
+            try { queuePrefUpdate(getSafeLotsKey(), '0.10'); } catch {}
+          }
         } catch {}
       }
       loadSafeLotsPref();
