@@ -7545,6 +7545,7 @@ const ensureLwMacd = () => {
         } catch {
           if (autoMeta) autoMeta.textContent = `${currentSymbol()} • TF ${currentTf()}`;
         }
+        try { await updateAutoMirrors(); } catch {}
         // history and clear log
         if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';
         loadAutoHistory(5, 0);

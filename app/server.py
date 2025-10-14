@@ -42,6 +42,7 @@ from app.db import (
     fetch_news_db,
     upsert_account_balance,
     fetch_account_balances,
+    fetch_account_balances_daily,
     upsert_closed_deals,
     fetch_closed_deals_between,
     latest_balance_before,
