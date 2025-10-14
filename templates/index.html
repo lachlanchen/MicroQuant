@@ -5231,6 +5231,45 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         // Minimal clone of autoAiTrade without UI dependence; logs prefixed by [SYM]
         const log = (m, lvl='info') => appendAutoLog(`[${sym}] ${m}`, lvl);
         log(`Auto AI Trade started (${tf})`);
+        // Preflight: Safe max lots (global cap short-circuits work to avoid churn)
+        try {
+          let safeMax = NaN; let useGlobal = false;
+          const inline = document.getElementById('autoPeriodicSafeMaxInput');
+          if (inline && Number(inline.value) > 0) { safeMax = Number(inline.value); useGlobal = true; }
+          if (!Number.isFinite(safeMax) || !(safeMax > 0)) {
+            const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
+            const pref = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
+            const pj = await pref.json().catch(()=>({}));
+            const map = (pj && pj.prefs) || pj || {};
+            const vg = Number(map['safe_max_lots:global']);
+            const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
+            if (Number.isFinite(vg) && vg > 0) { safeMax = vg; useGlobal = true; }
+            else if (Number.isFinite(vs) && vs > 0) { safeMax = vs; useGlobal = false; }
+          }
+          if (Number.isFinite(safeMax) && safeMax > 0) {
+            let arr = [];
+            if (useGlobal) {
+              const ra = await fetch('/api/positions/all', { cache:'no-store' });
+              const ja = await ra.json().catch(()=>({}));
+              arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
+            } else {
+              const rp = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+              const jp = await rp.json().catch(()=>({}));
+              arr = Array.isArray(jp && jp.positions) ? jp.positions : (Array.isArray(jp && jp.rows) ? jp.rows : []);
+            }
+            const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
+            log(`Safe lots check (preflight): open=${openLots} safe_max=${safeMax}${useGlobal?' [global]':''}`);
+            if (openLots >= safeMax) {
+              log('Skip: safe max lots reached — no trade (preflight).', 'warn');
+              try {
+                const save = await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, skipped: true, skip_reason: 'safe_max', periodic: true, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax, global: !!useGlobal } }) });
+                const saved = await save.json().catch(()=>({}));
+                if (saved && saved.ok && saved.run_id) { autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
+              } catch {}
+              return;
+            }
+          }
+        } catch {}
         try { setPeriodicStatus(`[${sym}] Checking freshness…`, true); } catch {}
         // Pre-step: refresh news and fetch latest bars before freshness
         try { log('Refreshing news…'); await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}

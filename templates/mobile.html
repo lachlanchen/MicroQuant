@@ -475,6 +475,31 @@
       for (const sym of symbols){
         try {
           info.textContent = `[${sym}] Tech+AI…`;
+          // Preflight: Safe max account cap
+          try {
+            const keys = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
+            const pref = await fetch(`/api/preferences?keys=${keys}`, { cache:'no-store' });
+            const pj = await pref.json().catch(()=>({}));
+            const map = (pj && pj.prefs) || pj || {};
+            const vg = Number(map['safe_max_lots:global']);
+            const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
+            const useGlobal = Number.isFinite(vg) && vg>0;
+            const safeMax = useGlobal ? vg : (Number.isFinite(vs) && vs>0 ? vs : NaN);
+            if (Number.isFinite(safeMax) && safeMax > 0) {
+              let arr = [];
+              if (useGlobal) {
+                const ra = await fetch('/api/positions/all', { cache:'no-store' });
+                const ja = await ra.json().catch(()=>({}));
+                arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
+              } else {
+                const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+                const pjs = await pr.json().catch(()=>({}));
+                arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
+              }
+              const openLots = arr.reduce((acc, x)=>acc+(Number(x && x.volume)||0), 0);
+              if (openLots >= safeMax) { info.textContent = `[${sym}] Skip: safe max lots reached — no trade.`; continue; }
+            }
+          } catch {}
           // Build snapshot
           const data = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=300`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
           const closes = (data.rows||[]).map(r=>+r.close);
