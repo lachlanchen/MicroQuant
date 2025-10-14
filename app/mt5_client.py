@@ -454,6 +454,10 @@ class MT5Client:
     def closed_deals(self, from_dt=None, to_dt=None) -> list[dict]:
         """Return simplified closed deals within a time range.
         Each item: {ts, symbol, profit, commission, swap, order, deal, volume, entry}
+
+        Notes:
+        - Extends the query window by +/- MT5_HISTORY_FUTURE_HOURS (default 12) to avoid
+          timezone boundary truncation (MT5 expects local-naive datetimes).
         """
         self._ensure_initialized()
         # Default to last 180 days if not provided
@@ -463,6 +467,17 @@ class MT5Client:
             to_dt = _dt.datetime.now(_tz.utc)
         if from_dt is None:
             from_dt = to_dt - _dt.timedelta(days=180)
+        # Apply a future/past buffer to reduce risk of missing near-boundary items
+        try:
+            _fwd_hours = int(os.getenv("MT5_HISTORY_FUTURE_HOURS", "12"))
+        except Exception:
+            _fwd_hours = 12
+        try:
+            _back_hours = int(os.getenv("MT5_HISTORY_BACK_HOURS", str(_fwd_hours)))
+        except Exception:
+            _back_hours = _fwd_hours
+        from_dt_buf = from_dt - _dt.timedelta(hours=max(0, _back_hours))
+        to_dt_buf = to_dt + _dt.timedelta(hours=max(0, _fwd_hours))
         # MetaTrader expects naive datetimes expressed in the terminal's local timezone.
         # Convert any timezone-aware inputs to local time, then drop tzinfo so we pass naive datetimes.
         _local_tz = _dt.datetime.now().astimezone().tzinfo
@@ -471,10 +486,11 @@ class MT5Client:
                 return d
             return d.astimezone(_local_tz).replace(tzinfo=None)
 
-        from_sel = _to_local_naive(from_dt)
-        to_sel = _to_local_naive(to_dt)
+        from_sel = _to_local_naive(from_dt_buf)
+        to_sel = _to_local_naive(to_dt_buf)
         # Ensure history window is selected for reliability across terminals
         try:
+            self.logger.debug("history_select local %s -> %s (buffered)", from_sel, to_sel)
             mt5.history_select(from_sel, to_sel)
         except Exception:
             pass
