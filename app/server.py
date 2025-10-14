@@ -1271,6 +1271,10 @@ async def _maybe_auto_stl(
     Runs non-blocking by default. Emits STL websocket events for UI feedback.
     """
     try:
+        # Only auto-recompute for H1 and higher timeframes
+        allowed = {"H1", "H4", "D1", "W1", "MN1", "Y1"}
+        if (timeframe or "").upper() not in allowed:
+            return
         if not isinstance(inserted, int) or inserted <= 0:
             return
         event_scope = "auto_stl"

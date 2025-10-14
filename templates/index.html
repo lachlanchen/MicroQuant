@@ -1012,6 +1012,10 @@
       const DEFAULT_CHART_SHIFT = "{{ default_chart_shift }}";
       const ALL_TFS = ['M1','M5','M15','M30','H1','H4','D1','W1','MN1','Y1'];
       const DEFAULT_TECH_WINDOW = 7;
+      const isHighTf = (tf) => {
+        const t = String(tf || '').toUpperCase();
+        return t === 'H1' || t === 'H4' || t === 'D1' || t === 'W1' || t === 'MN1' || t === 'Y1';
+      };
       const TF_SECONDS = {
         M1: 60,
         M5: 300,
@@ -2934,6 +2938,17 @@ const ensureLwMacd = () => {
         </div>`;
       };
 
+      // Throttle repeated STL compute calls per symbol/TF
+      const __stlComputeAt = new Map(); // key: sym:tf -> timestamp ms
+      function shouldComputeStlNow(sym, tf, minGapMs = 2500) {
+        const k = `${String(sym).toUpperCase()}:${String(tf).toUpperCase()}`;
+        const now = Date.now();
+        const last = __stlComputeAt.get(k) || 0;
+        if (now - last < minGapMs) return false;
+        __stlComputeAt.set(k, now);
+        return true;
+      }
+
       async function openTechHealth() {
         applyTechWindowDefault(false);
         const modal = el('techModal');
@@ -2945,14 +2960,18 @@ const ensureLwMacd = () => {
         // Show a lightweight loading state immediately
         box.innerHTML = '<div style="padding:12px; color:var(--muted)">Building Technical Snapshot… fetching latest bars and recomputing STL</div>';
         modal.style.display = 'flex';
-        // Ensure latest bars are in DB for current TF (incremental upsert)
+        // Optionally prefetch latest bars (only for H1+ and when auto is running)
         try {
-          const params = new URLSearchParams({ symbol, tf, count: String(Math.min(1500, Math.max(200, currentBarsLimit()))) , mode: 'inc', persist: '1' });
-          await fetch(`/api/fetch?${params.toString()}`, { cache: 'no-store' });
+          if (isHighTf(tf) && autoTimer) {
+            const params = new URLSearchParams({ symbol, tf, count: String(Math.min(1500, Math.max(200, currentBarsLimit()))) , mode: 'inc', persist: '1' });
+            await fetch(`/api/fetch?${params.toString()}`, { cache: 'no-store' });
+          }
         } catch {}
-        // Ensure STL is freshly computed for current TF (limit 1500)
+        // Compute STL only if not throttled
         try {
-          await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
+          if (shouldComputeStlNow(symbol, tf)) {
+            await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
+          }
         } catch {}
         const rows = Array.isArray(lastPriceRows) ? lastPriceRows : [];
         const windowSize = Math.max(1, resolveTechWindow());
@@ -3111,13 +3130,10 @@ const ensureLwMacd = () => {
           } catch {}
 
           const buildMini = async (t) => {
-            // Fetch latest bars for each TF before STL compute
             try {
-              const p = new URLSearchParams({ symbol, tf: t, count: '1500', mode: 'inc', persist: '1' });
-              await fetch(`/api/fetch?${p.toString()}`, { cache: 'no-store' });
-            } catch {}
-            try {
-              await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
+              if (shouldComputeStlNow(symbol, t)) {
+                await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
+              }
             } catch {}
             try {
               const p = new URLSearchParams({ symbol, tf: t, include_runs: '1', include_data: '1', all_data: '1' });
@@ -3561,10 +3577,14 @@ const ensureLwMacd = () => {
         const sym = currentSymbol();
         const tf = currentTf();
         try {
-          // Ensure latest bars (incremental upsert) before STL compute
-          const p = new URLSearchParams({ symbol: sym, tf, count: '1500', mode: 'inc', persist: '1' });
-          await fetch(`/api/fetch?${p.toString()}`, { cache: 'no-store' });
-          await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
+          // Only fetch new bars if auto is running and TF is H1+
+          if (isHighTf(tf) && autoTimer) {
+            const p = new URLSearchParams({ symbol: sym, tf, count: '1500', mode: 'inc', persist: '1' });
+            await fetch(`/api/fetch?${p.toString()}`, { cache: 'no-store' });
+          }
+          if (shouldComputeStlNow(sym, tf)) {
+            await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
+          }
         } catch {}
         let base = '';
         try { base = buildTechSnapshotStringSync(); } catch { base = ''; }
@@ -3585,10 +3605,10 @@ const ensureLwMacd = () => {
         };
         for (const t of tfList) {
           try {
-            // Ensure latest bars for each TF before compute
-            try { const pFetch = new URLSearchParams({ symbol: sym, tf: t, count: '1500', mode: 'inc', persist: '1' }); await fetch(`/api/fetch?${pFetch.toString()}`, { cache: 'no-store' }); } catch {}
-            // Compute blocking to ensure freshness
-            await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
+            // Do not auto-fetch other timeframes here; only compute if not throttled
+            if (shouldComputeStlNow(sym, t)) {
+              await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
+            }
           } catch {}
           try {
             const p = new URLSearchParams({ symbol: sym, tf: t, include_runs: '1', include_data: '1', all_data: '1' });
@@ -7866,7 +7886,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         try {
           debugLog('[App] Auto-fetch on symbol change');
           lwInitialFitted = false;
-          await fetchAndSave();
+          if (isHighTf(currentTf())) await fetchAndSave();
           await refreshPositions();
         } catch (e) {
           debugWarn('[App] Auto-fetch failed', e);
@@ -7899,7 +7919,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         try {
           debugLog('[App] Auto-fetch on timeframe change');
           lwInitialFitted = false;
-          await fetchAndSave();
+          if (isHighTf(currentTf())) await fetchAndSave();
         } catch (e) {
           debugWarn('[App] Auto-fetch failed', e);
         } finally {
@@ -8105,10 +8125,15 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (announce) status('Auto stopped');
       };
       const startAuto = ({ announce = true, immediate = false } = {}) => {
+        // Only auto-fetch for H1 and higher timeframes
+        if (!isHighTf(currentTf())) {
+          stopAuto({ announce: false });
+          return;
+        }
         const ms = computeAutoInterval();
         if (!ms) return;
         if (autoTimer) clearInterval(autoTimer);
-        autoTimer = setInterval(fetchAndSave, ms);
+        autoTimer = setInterval(() => { if (isHighTf(currentTf())) fetchAndSave(); }, ms);
         updateAutoUi(true);
         if (announce) status('Auto started');
         if (immediate) fetchAndSave();
@@ -9123,7 +9148,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       refreshChart();
       refreshNews();
       refreshPositions();
-      startAuto({ announce: false, immediate: true });
+      // Start auto only for H1 and higher
+      if (isHighTf(currentTf())) startAuto({ announce: false, immediate: true });
       startTickPoll();
 
       // Auto AI Trade history loader and modal opener (moved inside script)
