@@ -5172,6 +5172,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const log = (m, lvl='info') => appendAutoLog(`[${sym}] ${m}`, lvl);
         log(`Auto AI Trade started (${tf})`);
         try { setPeriodicStatus(`[${sym}] Checking freshness…`, true); } catch {}
+        // Pre-step: refresh news and fetch latest bars before freshness
+        try { log('Refreshing news…'); await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
+        try { log('Fetching latest bars…'); await fetch(`/api/fetch?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&mode=inc&count=1000&persist=1`, { cache:'no-store' }); } catch {}
         try {
           const model = getTradeAiModel();
           const lev = getLeverageValue();
@@ -5590,6 +5593,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (autoLogBox) autoLogBox.innerHTML = '';
           tradeState.autoSteps = [];
           appendAutoLog(`Auto AI Trade started for ${sym} ${tf}`);
+          // Pre-step: refresh news and fetch latest bars so freshness reflects newest data
+          try { appendAutoLog('Refreshing news…'); await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
+          try { appendAutoLog('Fetching latest bars…'); await fetch(`/api/fetch?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&mode=inc&count=1000&persist=1`, { cache:'no-store' }); } catch {}
           // Context summary: account, leverage, model, volume, safe max, SL/nudge
           try {
             const acctNow = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
