@@ -5747,12 +5747,12 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           log(`SL preflight: side=${side} price=${pxStr} SL=${slStr} → ${invalid ? 'INVALID' : 'OK'}` , invalid ? 'error' : 'info');
           if (invalid) { log('Skip: invalid stops', 'error'); return; }
         }
-        // Safe max lots guard
+        // Safe max lots guard (per account; inline value is treated as global cap)
         try {
           let safeMax = NaN;
           const inline = document.getElementById('autoPeriodicSafeMaxInput');
-          if (inline && Number(inline.value) > 0) safeMax = Number(inline.value);
           let useGlobal = false;
+          if (inline && Number(inline.value) > 0) { safeMax = Number(inline.value); useGlobal = true; }
           if (!Number.isFinite(safeMax) || !(safeMax > 0)) {
             // Prefer global cap, then per-symbol×TF fallback
             const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
@@ -5776,13 +5776,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
             }
             const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
-            log(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
-            if (openLots >= safeMax) {
+            const reqVol = Number(vol || '0') || 0;
+            log(`Safe lots check: open=${openLots} req=${reqVol} safe_max=${safeMax}${useGlobal?' [global]':''}`);
+            if ((openLots + reqVol) > safeMax || openLots >= safeMax) {
               log('Skip: safe max lots reached — no trade.', 'warn');
               try {
                 await fetch('/api/auto_trade/log', {
                   method:'POST', headers:{'Content-Type':'application/json'},
-                  body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: !!slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax }, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' })
+                  body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: !!slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, req_volume: reqVol, safe_max: safeMax, global: !!useGlobal }, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' })
                 });
               } catch {}
               try { await updateOpenLotsSummary(); } catch {}
@@ -6349,13 +6350,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
                 arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
               }
               const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
-              appendAutoLog(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
-              if (openLots >= safeMax) {
+              const reqVol = Number(vol || '0') || 0;
+              appendAutoLog(`Safe lots check: open=${openLots} req=${reqVol} safe_max=${safeMax}${useGlobal?' [global]':''}`);
+              if ((openLots + reqVol) > safeMax || openLots >= safeMax) {
                 appendAutoLog('Skip: safe max lots reached — no trade.', 'warn');
                 try {
                   const save = await fetch('/api/auto_trade/log', {
                     method:'POST', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax }, steps: (tradeState.autoSteps || []) })
+                    body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, req_volume: reqVol, safe_max: safeMax, global: !!useGlobal }, steps: (tradeState.autoSteps || []) })
                   });
                   const saved = await save.json().catch(()=>({}));
                   if (saved && saved.ok && saved.run_id) { appendAutoLog(`Saved log run id=${saved.run_id}`); autoHistoryOffset = 0; await loadAutoHistory(5, 0); }

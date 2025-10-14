@@ -2376,14 +2376,15 @@ class TradeHandler(tornado.web.RequestHandler):
                             open_lots += float(v)
                 except Exception:
                     pass
-                if open_lots >= safe_max:
+                # Enforce strict cap: block if already at/over, or if this request would exceed
+                if (open_lots + float(volume)) > safe_max or open_lots >= safe_max:
                     logger.info("/api/trade skip: safe_max reached (global=%s open=%.3f safe=%.3f)", use_global, open_lots, safe_max)
                     self.set_header("Content-Type", "application/json")
                     self.set_header("Cache-Control", "no-store")
                     self.finish(json.dumps({
                         "ok": False,
                         "error": "safe_max_exceeded",
-                        "result": {"ok": False, "skipped": True, "retcode": "SKIP_SAFE_MAX", "open_lots": open_lots, "safe_max": safe_max, "global": use_global},
+                        "result": {"ok": False, "skipped": True, "retcode": "SKIP_SAFE_MAX", "open_lots": open_lots, "req_volume": float(volume), "safe_max": safe_max, "global": use_global},
                     }))
                     return
         except Exception:
