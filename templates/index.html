@@ -1824,10 +1824,10 @@
           const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           try {
-            console.debug('[PnL] auto refresh deals=', (js.deals||[]).length, 'cum=', (js.cum||[]).length);
+            console.log('[PnL] auto refresh deals=', (js.deals||[]).length, 'cum=', (js.cum||[]).length);
             const deals = Array.isArray(js.deals) ? js.deals : [];
             const samp = deals.slice(-10).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
-            console.debug('[PnL] auto deals sample (last 10)=', samp);
+            console.log('[PnL] auto deals sample (last 10)=', samp);
           } catch {}
           if (!r.ok || !js || js.ok !== true) return;
           if (!ensureBalanceChart()) return;
@@ -1887,12 +1887,12 @@
             const tailDeals = deals.slice(-4).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
             const headCum = useCum.slice(0, 4).map(c => ({ ts: c.ts, v: Number(c.value||0) }));
             const tailCum = useCum.slice(-4).map(c => ({ ts: c.ts, v: Number(c.value||0) }));
-            console.debug('[PnL] acct=', acct || '(session)', 'deals=', deals.length, 'cum(server)=', cumServer.length, 'cum(recomp)=', cumFromDeals.length);
-            console.debug('[PnL] deals head=', headDeals, 'tail=', tailDeals);
-            console.debug('[PnL] cum head=', headCum, 'tail=', tailCum);
+            console.log('[PnL] acct=', acct || '(session)', 'deals=', deals.length, 'cum(server)=', cumServer.length, 'cum(recomp)=', cumFromDeals.length);
+            console.log('[PnL] deals head=', headDeals, 'tail=', tailDeals);
+            console.log('[PnL] cum head=', headCum, 'tail=', tailCum);
           } catch {}
           pnlChart.data.datasets[0].data = cum;
-          try { console.debug('[PnL] chart dataset points=', pnlChart.data.datasets[0].data.length); } catch {}
+          try { console.log('[PnL] chart dataset points=', pnlChart.data.datasets[0].data.length); } catch {}
           try { status(`PnL updated: ${cum.length} pts${acct ? ` (acct ${acct})` : ''}`); } catch {}
           pnlChart.update('none');
         } catch (e) {

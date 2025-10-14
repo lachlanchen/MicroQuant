@@ -2223,6 +2223,12 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             end_dt = datetime.now(timezone.utc)
         if not start_dt:
             start_dt = end_dt - timedelta(days=max(1, days))
+        # Small future buffer to match MT5 history window expansion so DB reads include just-inserted rows
+        try:
+            _fwd_hours = int(os.getenv("MT5_HISTORY_FUTURE_HOURS", "12"))
+        except Exception:
+            _fwd_hours = 12
+        end_dt_plus = end_dt + timedelta(hours=max(0, _fwd_hours))
         # Resolve account id
         account_id = 0
         current_login = 0
@@ -2244,7 +2250,8 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             deals = []
             from_db = False
             if source in ("auto", "db"):
-                deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+                # Expand end by future buffer so newly upserted MT5 rows with slightly-ahead timestamps are included
+                deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt_plus if source == "auto" else end_dt)
                 from_db = bool(deals)
             # For 'auto': proactively top up from MT5 when we can (matching terminal login)
             if source == "auto" and account_id == current_login:
@@ -2266,7 +2273,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
                         except Exception as exc:
                             logger.warning("/api/account/closed_deals upsert (auto) failed: %s", exc)
                         # reload from DB after top-up
-                        deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+                        deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt_plus)
                         from_db = True
                 except Exception as exc:
                     logger.debug("auto top-up from MT5 skipped: %s", exc)
@@ -2305,7 +2312,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
                         await upsert_closed_deals(GLOBAL_POOL, account_id=account_id, rows=deals)
                         if debug_flag:
                             try:
-                                db_after = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+                                db_after = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt_plus)
                                 logger.info("[closed_deals debug] db count after upsert=%d (acct=%s)", len(db_after), account_id)
                             except Exception:
                                 pass
@@ -2420,6 +2427,12 @@ class ClosedDealsSyncHandler(tornado.web.RequestHandler):
                 self.finish(json.dumps({"ok": False, "error": f"account unavailable: {e}"}))
                 return
         logger.info("/api/account/closed_deals_sync from=%s to=%s step=%sd", start_dt, end_dt, step_days)
+        # Match DB list window to MT5 future buffer to avoid head/tail missing in immediate readback
+        try:
+            _fwd_hours = int(os.getenv("MT5_HISTORY_FUTURE_HOURS", "12"))
+        except Exception:
+            _fwd_hours = 12
+        end_dt_plus = end_dt + timedelta(hours=max(0, _fwd_hours))
         async def runner():
             try:
                 if purge_flag:
@@ -2449,7 +2462,7 @@ class ClosedDealsSyncHandler(tornado.web.RequestHandler):
                 logger.info("[closed_sync] completed total=%d", total)
                 # Print DB rows used by frontend (count + samples)
                 try:
-                    rows = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+                    rows = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt_plus)
                     head = rows[:5]
                     tail = rows[-5:] if len(rows) > 5 else []
                     logger.info("[closed_sync debug] db count=%d acct=%s", len(rows), account_id)
