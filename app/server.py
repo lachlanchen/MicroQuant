@@ -3060,12 +3060,30 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
                 runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=1, strategy=str(strategy) if strategy else None)
             else:
                 runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=1, strategy=str(strategy) if strategy else None)
+            # Filter out Tech snapshot strategies to keep Basic independent
+            def _is_tech_run(run: dict) -> bool:
+                try:
+                    meta = run.get("answers_json") or run.get("answers") or {}
+                    strat = str(meta.get("strategy") or "").strip()
+                    return strat in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json"}
+                except Exception:
+                    return False
+
+            if runs:
+                runs = [r for r in runs if not _is_tech_run(r)]
             # Fallback: if no run found for the requested strategy, use the latest non-tech run
             if not runs:
                 if kind == "stock":
-                    runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=1, exclude_strategy="tech_snapshot_10q.json")
+                    runs = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, exclude_strategy=None)
                 else:
-                    runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=1, exclude_strategy="tech_snapshot_10q.json")
+                    runs = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, exclude_strategy=None)
+                # Remove any Tech snapshot runs from fallback pool and take the most recent remaining
+                try:
+                    runs = [r for r in runs if not _is_tech_run(r)]
+                    # Sort by created_at desc just in case
+                    runs = sorted(runs, key=lambda r: r.get("created_at") or 0, reverse=True)[:1]
+                except Exception:
+                    runs = runs[:1]
         except Exception:
             runs = []
         last_run = runs[0] if runs else None

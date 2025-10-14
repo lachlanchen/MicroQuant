@@ -3002,9 +3002,8 @@ const ensureLwMacd = () => {
             healthState.offset = 0;
           }
           loadHealthHistory();
-          // Update freshness badges now that the Tech run completed
+          // Update Tech freshness badge (Basic is independent; do not touch here)
           try { await refreshTechFreshness(); } catch {}
-          try { await refreshHealthFreshness(); } catch {}
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         }
@@ -4782,8 +4781,8 @@ const ensureLwMacd = () => {
           appendAutoLog(`Auto AI Trade failed: ${e && e.message || e}`, 'error');
         } finally {
           if (btnAutoStart) { btnAutoStart.disabled = false; btnAutoStart.textContent = 'Start'; }
+          // Refresh Tech freshness; leave Basic untouched (independent)
           try { await refreshTechFreshness(); } catch {}
-          try { await refreshHealthFreshness(); } catch {}
         }
       }
       // (removed duplicate autoAiTrade definition)
