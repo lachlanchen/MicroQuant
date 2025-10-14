@@ -2942,6 +2942,14 @@ const ensureLwMacd = () => {
         if (!modal || !box || !metaBox) return;
         const symbol = currentSymbol();
         const tf = currentTf();
+        // Show a lightweight loading state immediately
+        box.innerHTML = '<div style="padding:12px; color:var(--muted)">Building Technical Snapshot… fetching latest bars and recomputing STL</div>';
+        modal.style.display = 'flex';
+        // Ensure latest bars are in DB for current TF (incremental upsert)
+        try {
+          const params = new URLSearchParams({ symbol, tf, count: String(Math.min(1500, Math.max(200, currentBarsLimit()))) , mode: 'inc', persist: '1' });
+          await fetch(`/api/fetch?${params.toString()}`, { cache: 'no-store' });
+        } catch {}
         // Ensure STL is freshly computed for current TF (limit 1500)
         try {
           await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
@@ -3068,7 +3076,31 @@ const ensureLwMacd = () => {
           if (prev && !tfList.includes(prev)) tfList.push(prev);
           if (next && !tfList.includes(next)) tfList.push(next);
           if (!tfList.includes('Y1')) tfList.push('Y1');
+          // Create a placeholder status row after Latest Tick
+          try {
+            const anchorIndex = (box.children && box.children.length >= 2) ? 1 : 0;
+            const anchor = box.children[anchorIndex];
+            if (anchor && anchor.insertAdjacentHTML) {
+              anchor.insertAdjacentHTML('afterend', `<div id="crossTfStatus" style="padding:8px; color:var(--muted);">Loading cross‑timeframe STL… (${tfList.join(', ')})</div>`);
+            }
+          } catch {}
+
+          const injectAfterTick = (html) => {
+            const anchorIndex = (box.children && box.children.length >= 2) ? 1 : 0;
+            const anchor = box.children[anchorIndex];
+            if (anchor && anchor.insertAdjacentHTML) {
+              anchor.insertAdjacentHTML('afterend', html);
+            } else {
+              box.insertAdjacentHTML('beforeend', html);
+            }
+          };
+
           const buildMini = async (t) => {
+            // Fetch latest bars for each TF before STL compute
+            try {
+              const p = new URLSearchParams({ symbol, tf: t, count: '1500', mode: 'inc', persist: '1' });
+              await fetch(`/api/fetch?${p.toString()}`, { cache: 'no-store' });
+            } catch {}
             try {
               await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
             } catch {}
@@ -3083,18 +3115,13 @@ const ensureLwMacd = () => {
               return buildTechTable(`${t} STL (last 10)`, ['Trend','Seasonal','Residual'], merged);
             } catch { return ''; }
           };
-          const htmlBlocks = [];
-          for (const t of tfList) { const h = await buildMini(t); if (h) htmlBlocks.push(h); }
-          if (htmlBlocks.length) {
-            const anchorIndex = tickRows.length ? 1 : 0; // after Latest Tick, else after OHLC
-            const anchor = box.children && box.children[anchorIndex];
-            const html = htmlBlocks.join('');
-            if (anchor && anchor.insertAdjacentHTML) {
-              anchor.insertAdjacentHTML('afterend', html);
-            } else {
-              box.innerHTML = [sections[0], html, ...sections.slice(1)].join('');
-            }
-          }
+          // Build and inject each TF block as soon as it is ready (parallel)
+          const tasks = tfList.map(async (t) => {
+            const html = await buildMini(t);
+            if (html) injectAfterTick(html);
+            try { const s = el('crossTfStatus'); if (s) s.textContent = `Loaded ${t}`; } catch {}
+          });
+          Promise.allSettled(tasks).then(() => { try { const s = el('crossTfStatus'); if (s) s.remove(); } catch {} });
         } catch {}
         const metaParts = [symbol, `TF ${tf}`, 'Seasonal-Trend decomposition using Loess (STL)'];
         if (stlLastMeta && Number.isFinite(Number(stlLastMeta.period))) {
@@ -3516,6 +3543,9 @@ const ensureLwMacd = () => {
         const sym = currentSymbol();
         const tf = currentTf();
         try {
+          // Ensure latest bars (incremental upsert) before STL compute
+          const p = new URLSearchParams({ symbol: sym, tf, count: '1500', mode: 'inc', persist: '1' });
+          await fetch(`/api/fetch?${p.toString()}`, { cache: 'no-store' });
           await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
         } catch {}
         let base = '';
@@ -3537,6 +3567,8 @@ const ensureLwMacd = () => {
         };
         for (const t of tfList) {
           try {
+            // Ensure latest bars for each TF before compute
+            try { const pFetch = new URLSearchParams({ symbol: sym, tf: t, count: '1500', mode: 'inc', persist: '1' }); await fetch(`/api/fetch?${pFetch.toString()}`, { cache: 'no-store' }); } catch {}
             // Compute blocking to ensure freshness
             await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
           } catch {}
