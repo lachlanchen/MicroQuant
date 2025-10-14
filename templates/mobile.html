@@ -99,16 +99,52 @@
           <button class="btn" id="mRunTech">Tech+AI</button>
           <span id="mTechPill" class="pill">—</span>
         </div>
+        <div class="row" style="margin-top:6px;">
+          <label>Leverage <input id="mLev" type="number" min="1" max="1000" value="10" style="width:96px;"/></label>
+          <label>Trade model <select id="mTradeModel"><option value="deepseek-chat">deepseek-chat</option><option value="deepseek-reasoner">deepseek-reasoner</option><option value="gpt-4o">gpt-4o</option></select></label>
+          <button class="btn" id="mDraftPlan">Draft Plan</button>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <label>Volume <input id="mVol" type="number" min="0.01" step="0.01" value="0.01" style="width:96px;"/></label>
+          <label>Account <select id="mAcctSelect" style="min-width:160px;"></select></label>
+          <button class="btn" id="mAcctLogin">Login</button>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <button class="btn buy" id="mExecutePlan" style="flex:1;">Execute Plan</button>
+        </div>
       </div>
       <div id="mAiOut" style="margin-top:8px;"></div>
+      <div id="mPlanBox" style="margin-top:8px; font-size:13px;"></div>
     </section>
     <section id="page-auto" class="page">
       <div class="panel">
         <div class="row" style="margin-bottom:6px;">
-          <label>Trade model <select id="mTradeModel"><option value="deepseek-chat">deepseek-chat</option><option value="deepseek-reasoner">deepseek-reasoner</option><option value="gpt-4o">gpt-4o</option></select></label>
-          <button class="btn" id="mDraftPlan">Draft Plan</button>
+          <label class="switch" style="gap:6px; align-items:center;">
+            <input type="checkbox" id="mPeriodicToggle" />
+            <span>Periodic Auto Trade</span>
+          </label>
+          <label>Period
+            <select id="mPeriodicPeriod" style="min-width:120px;">
+              <option value="15">15m</option>
+              <option value="30">30m</option>
+              <option value="60" selected>1h</option>
+            </select>
+          </label>
         </div>
-        <div id="mPlanBox" style="font-size:13px;"></div>
+        <div class="row" style="margin-bottom:6px;">
+          <label>Symbols
+            <select id="mPeriodicSymbols" multiple size="4" style="min-width:200px;"></select>
+          </label>
+          <label>Accounts
+            <select id="mPeriodicAccounts" multiple size="3" style="min-width:200px;"></select>
+          </label>
+        </div>
+        <div class="row" style="margin-bottom:6px;">
+          <label>Volume <input id="mPeriodicVol" type="number" min="0.01" step="0.01" value="0.01" style="width:96px;"/></label>
+          <button class="btn" id="mPeriodicTrigger">Danger Trigger</button>
+          <button class="btn" id="mManageAccounts">Manage Accounts</button>
+        </div>
+        <div id="mAutoStatus" style="font-size:12px; color:var(--muted);"></div>
       </div>
     </section>
   </main>
@@ -193,8 +229,17 @@
       }
       return lwChart;
     }
+    function applyChartSize(){
+      const landscape = window.matchMedia && window.matchMedia('(orientation: landscape)').matches;
+      const h = landscape ? Math.max(220, Math.round(window.innerHeight * 0.45)) : Math.max(300, Math.round(window.innerHeight * 0.65));
+      chartEl.style.height = h + 'px';
+      if (lwChart) {
+        lwChart.applyOptions({ height: h, width: chartEl.clientWidth });
+      }
+    }
     async function loadChart(){
       ensureChart();
+      applyChartSize();
       const sym = curSymbol(), tf = curTf();
       const r = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=${curBars()}`, { cache:'no-store' });
       const js = await r.json().catch(()=>({}));
@@ -329,20 +374,161 @@
       const tick = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
       const tline = tick && (Number.isFinite(+tick.bid) && Number.isFinite(+tick.ask)) ? `Latest Tick — Bid ${tick.bid} • Ask ${tick.ask}` : '';
       const snapshot = `Close Price\n` + closes.slice(-50).map(v=>String(v)).join(', ') + (tline?`\n${tline}`:'');
-      const body = { symbol:sym, timeframe:tf, action:'BUY', tech_snapshot:snapshot, model };
+      const lev = Number(document.getElementById('mLev').value||'10');
+      const body = { symbol:sym, timeframe:tf, action:'BUY', tech_snapshot:snapshot, model, leverage: lev };
       try {
         const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
         const js = await r.json().catch(()=>({}));
         out.textContent = JSON.stringify(js, null, 2);
+        try { const p = (js && js.plan) || {}; mLastPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit }; } catch {}
       } catch (e) { out.textContent = String(e); }
     }
     document.getElementById('mDraftPlan').addEventListener('click', draftPlan);
 
+    // Accounts
+    async function loadAccounts(){
+      try {
+        const r = await fetch('/api/accounts', { cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        const arr = Array.isArray(js.accounts) ? js.accounts : [];
+        const last = js.last || '';
+        const acctSel = document.getElementById('mAcctSelect');
+        const perSel = document.getElementById('mPeriodicAccounts');
+        if (acctSel) {
+          acctSel.innerHTML = arr.map(a=>`<option value="${String(a.login)}">${a.login}${a.server?(' ('+a.server+')'):''}</option>`).join('');
+          if (last) acctSel.value = String(last);
+        }
+        if (perSel) {
+          perSel.innerHTML = arr.map(a=>`<option value="${String(a.login)}">${a.login}${a.server?(' ('+a.server+')'):''}</option>`).join('');
+          // Preselect last if present
+          if (last) { Array.from(perSel.options).forEach(o=>{ o.selected = (o.value===String(last)); }); }
+        }
+      } catch {}
+    }
+    async function loginSelectedAccount(){
+      const sel = document.getElementById('mAcctSelect');
+      const login = sel && sel.value ? sel.value : '';
+      if (!login) return alert('Select an account first');
+      const r = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login }) });
+      const js = await r.json().catch(()=>({}));
+      alert(js && js.ok ? `Logged in: ${login}` : `Login failed: ${(js && js.error) || 'unknown'}`);
+    }
+    document.getElementById('mAcctLogin').addEventListener('click', loginSelectedAccount);
+
+    // Execute plan
+    let mLastPlan = null;
+    document.getElementById('mExecutePlan').addEventListener('click', async ()=>{
+      try {
+        if (!mLastPlan || !mLastPlan.position) { alert('Draft a plan first'); return; }
+        const sym = curSymbol(); const tf = curTf();
+        const vol = Number(document.getElementById('mVol').value||'0.01');
+        const side = String(mLastPlan.position||'').toLowerCase();
+        const sl = Number(mLastPlan.stop_loss||0)||undefined;
+        const tp = Number(mLastPlan.take_profit||0)||undefined;
+        // Ensure account session
+        await loginSelectedAccount();
+        const params = new URLSearchParams({ symbol: sym, side, volume: String(vol) });
+        if (Number.isFinite(sl)) params.set('sl', String(sl));
+        if (Number.isFinite(tp)) params.set('tp', String(tp));
+        params.set('tf', tf);
+        params.set('strategy', 'ai_trade_plan');
+        const r = await fetch(`/api/trade?${params.toString()}`, { cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        alert(js && js.ok ? 'Order placed' : `Order failed: ${(js && js.error) || 'unknown'}`);
+      } catch (e) { alert('Error: '+ (e && e.message || e)); }
+    });
+
+    // Periodic
+    function fillPeriodicSymbols(){
+      const sel = document.getElementById('mPeriodicSymbols');
+      if (sel) sel.innerHTML = APP_SYMBOLS.map(s=>`<option>${s}</option>`).join('');
+      // default to current symbol
+      try { Array.from(sel.options).forEach(o=>{ o.selected = (o.value===curSymbol()); }); } catch {}
+    }
+    function selectedValues(sel){ return Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); }
+    async function runPeriodicBatch(){
+      const info = document.getElementById('mAutoStatus');
+      const symSel = document.getElementById('mPeriodicSymbols');
+      const acctSel = document.getElementById('mPeriodicAccounts');
+      const symbols = selectedValues(symSel);
+      const accounts = selectedValues(acctSel);
+      const vol = Number(document.getElementById('mPeriodicVol').value||'0.01');
+      const tf = curTf();
+      for (const sym of symbols){
+        try {
+          info.textContent = `[${sym}] Tech+AI…`;
+          // Build snapshot
+          const data = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=300`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+          const closes = (data.rows||[]).map(r=>+r.close);
+          const tick = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+          const tline = tick && (Number.isFinite(+tick.bid) && Number.isFinite(+tick.ask)) ? `Latest Tick — Bid ${tick.bid} • Ask ${tick.ask}` : '';
+          const snapshot = `Close Price\n` + closes.slice(-50).map(v=>String(v)).join(', ') + (tline?`\n${tline}`:'');
+          // Tech+AI run (signal)
+          const techRes = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol:sym, timeframe:tf, tech_snapshot:snapshot, strategy:'tech_snapshot_10q_position.json' }), cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+          const techSignal = (techRes && techRes.signal) ? String(techRes.signal).toUpperCase() : '';
+          // Basic run
+          const basicRes = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol:sym, timeframe:tf, n_bars:50 }), cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+          const basicSignal = (basicRes && basicRes.signal) ? String(basicRes.signal).toUpperCase() : '';
+          const aligned = (techSignal==='BUY' && basicSignal==='BULLISH') || (techSignal==='SELL' && basicSignal==='BEARISH');
+          if (!aligned){ info.textContent = `[${sym}] Skip: not aligned (Tech=${techSignal} Basic=${basicSignal})`; continue; }
+          // Draft plan
+          const planRes = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol:sym, timeframe:tf, action: techSignal, tech_snapshot:snapshot }), cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+          const p = (planRes && planRes.plan) || {};
+          const side = String(p.position||techSignal||'').toLowerCase();
+          const sl = p.stop_loss; const tp = p.take_profit;
+          for (const acct of accounts){
+            await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }) }).then(r=>r.json()).catch(()=>({}));
+            const qp = new URLSearchParams({ symbol: sym, side, volume: String(vol) });
+            if (Number.isFinite(+sl)) qp.set('sl', String(sl));
+            if (Number.isFinite(+tp)) qp.set('tp', String(tp));
+            qp.set('tf', tf);
+            await fetch(`/api/trade?${qp.toString()}`, { cache:'no-store' });
+            info.textContent = `[${sym}] Order attempted for ${acct}`;
+          }
+        } catch (e) { info.textContent = `[${sym}] Error ${e && e.message || e}`; }
+      }
+    }
+    let periodicTimer = null; let periodicAlignTimer = null;
+    function ensurePeriodic(){
+      const on = document.getElementById('mPeriodicToggle').checked;
+      const min = Number(document.getElementById('mPeriodicPeriod').value||'60');
+      if (!on){ if (periodicTimer) clearInterval(periodicTimer); if (periodicAlignTimer) clearTimeout(periodicAlignTimer); periodicTimer=null; periodicAlignTimer=null; return; }
+      // Align to next period boundary (clock minutes)
+      const now = new Date();
+      const ms = now.getMinutes()*60*1000 + now.getSeconds()*1000 + now.getMilliseconds();
+      const periodMs = min*60*1000;
+      const delay = (periodMs - (ms % periodMs)) % periodMs;
+      if (periodicAlignTimer) clearTimeout(periodicAlignTimer);
+      periodicAlignTimer = setTimeout(()=>{
+        runPeriodicBatch();
+        if (periodicTimer) clearInterval(periodicTimer);
+        periodicTimer = setInterval(runPeriodicBatch, periodMs);
+      }, delay || 1000);
+    }
+    document.getElementById('mPeriodicToggle').addEventListener('change', ensurePeriodic);
+    document.getElementById('mPeriodicPeriod').addEventListener('change', ensurePeriodic);
+    document.getElementById('mPeriodicTrigger').addEventListener('click', runPeriodicBatch);
+    document.getElementById('mManageAccounts').addEventListener('click', async ()=>{
+      const login = prompt('Login (account id):'); if (!login) return;
+      const password = prompt('Password:'); if (!password) return;
+      const server = prompt('Server (optional):')||'';
+      const r = await fetch('/api/accounts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login, password, server }) });
+      const js = await r.json().catch(()=>({}));
+      alert(js && js.ok ? 'Saved' : `Save failed: ${(js && js.error) || 'unknown'}`);
+      loadAccounts();
+    });
+
     // Init
+    function initPeriodicSymbols(){ const sel = document.getElementById('mPeriodicSymbols'); if (sel && !sel.options.length) fillPeriodicSymbols(); }
     loadAiPrefs();
+    loadAccounts();
+    initPeriodicSymbols();
     loadChart();
     loadNews();
     pollTick();
+    applyChartSize();
+    window.addEventListener('resize', applyChartSize);
+    window.addEventListener('orientationchange', applyChartSize);
   </script>
 </body>
 </html>
