@@ -4591,6 +4591,18 @@ class AccountsHandler(tornado.web.RequestHandler):
                     arr = json.loads(raw)
                 except Exception:
                     arr = []
+            # Dedupe by login (last entry wins)
+            uniq: dict[str, dict] = {}
+            for x in arr:
+                login = str(x.get("login") or "").strip()
+                if not login:
+                    continue
+                uniq[login] = {
+                    "login": login,
+                    **({"server": x.get("server")} if x.get("server") else {}),
+                    **({"password": x.get("password")} if x.get("password") else {}),
+                }
+            arr = list(uniq.values())
             include_password = self.get_argument("include_password", default="0").lower() in ("1", "true", "yes")
             out = []
             for x in arr:
@@ -4603,6 +4615,9 @@ class AccountsHandler(tornado.web.RequestHandler):
                 if include_password:
                     rec["password"] = x.get("password") or ""
                 out.append(rec)
+            # Ensure 'last' points to an existing account
+            if last and not any(str(a.get("login")) == str(last) for a in out):
+                last = ""
             self.set_header("Content-Type", "application/json")
             self.set_header("Cache-Control", "no-store")
             self.finish(json.dumps({"ok": True, "accounts": out, "last": last or ""}))
@@ -4617,6 +4632,7 @@ class AccountsHandler(tornado.web.RequestHandler):
         except Exception:
             payload = {}
         login_raw = str(payload.get("login") or payload.get("account") or "").strip()
+        old_login = str(payload.get("old_login") or "").strip()
         password = str(payload.get("password") or "").strip()
         server = str(payload.get("server") or os.getenv("MT5_SERVER") or "").strip()
         if not login_raw or not password:
@@ -4632,10 +4648,13 @@ class AccountsHandler(tornado.web.RequestHandler):
                     arr = json.loads(raw)
                 except Exception:
                     arr = []
+            # Optional rename: if old_login provided and different, drop old record first
+            if old_login and old_login != login_raw:
+                arr = [rec for rec in arr if str(rec.get("login") or "").strip() != old_login]
             # upsert by login
             updated = False
             for rec in arr:
-                if str(rec.get("login") or "") == login_raw:
+                if str(rec.get("login") or "").strip() == login_raw:
                     rec["password"] = password
                     if server:
                         rec["server"] = server
@@ -4646,11 +4665,69 @@ class AccountsHandler(tornado.web.RequestHandler):
                 if server:
                     rec["server"] = server
                 arr.append(rec)
+            # Dedupe by login, keeping last occurence (most recent save wins)
+            uniq: dict[str, dict] = {}
+            for rec in arr:
+                login = str(rec.get("login") or "").strip()
+                if not login:
+                    continue
+                uniq[login] = rec
+            arr = list(uniq.values())
             await set_pref(self.pool, "mt5_accounts", json.dumps(arr))
             await set_pref(self.pool, "last_account", login_raw)
             self.set_header("Content-Type", "application/json")
             self.set_header("Cache-Control", "no-store")
             self.finish(json.dumps({"ok": True, "login": login_raw}))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
+
+    async def delete(self):
+        """Delete an account by login.
+
+        Accepts either JSON body {login} or query parameter ?login=...
+        Updates last_account to another available login or clears it if none remain.
+        """
+        login_param = None
+        try:
+            payload = json.loads(self.request.body or b"{}")
+            login_param = payload.get("login")
+        except Exception:
+            pass
+        if not login_param:
+            login_param = self.get_argument("login", default="")
+        login_raw = str(login_param or "").strip()
+        if not login_raw:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "login required"}))
+            return
+        try:
+            raw = await get_pref(self.pool, "mt5_accounts")
+            arr = []
+            if raw:
+                try:
+                    arr = json.loads(raw)
+                except Exception:
+                    arr = []
+            before = len(arr)
+            arr = [rec for rec in arr if str(rec.get("login") or "").strip() != login_raw]
+            await set_pref(self.pool, "mt5_accounts", json.dumps(arr))
+            # Adjust last_account if needed
+            last = await get_pref(self.pool, "last_account")
+            if last and str(last).strip() == login_raw:
+                new_last = ""
+                # pick first available if any remain
+                for rec in arr:
+                    val = str(rec.get("login") or "").strip()
+                    if val:
+                        new_last = val
+                        break
+                await set_pref(self.pool, "last_account", new_last)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "removed": before - len(arr)}))
         except Exception as exc:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
