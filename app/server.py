@@ -904,6 +904,7 @@ PREF_KEYS = [
     "last_count",
     "chart_type",
     "last_volume",
+    "last_account",
     "last_sl",
     "last_tp",
     "last_fast",
@@ -4590,8 +4591,18 @@ class AccountsHandler(tornado.web.RequestHandler):
                     arr = json.loads(raw)
                 except Exception:
                     arr = []
-            # sanitize output (no passwords)
-            out = [{"login": str(x.get("login") or ""), "server": x.get("server")} for x in arr if str(x.get("login") or "")]
+            include_password = self.get_argument("include_password", default="0").lower() in ("1", "true", "yes")
+            out = []
+            for x in arr:
+                login = str(x.get("login") or "")
+                if not login:
+                    continue
+                rec = {"login": login}
+                if x.get("server"):
+                    rec["server"] = x.get("server")
+                if include_password:
+                    rec["password"] = x.get("password") or ""
+                out.append(rec)
             self.set_header("Content-Type", "application/json")
             self.set_header("Cache-Control", "no-store")
             self.finish(json.dumps({"ok": True, "accounts": out, "last": last or ""}))
@@ -4684,6 +4695,12 @@ class AccountLoginHandler(tornado.web.RequestHandler):
                 self.set_status(502)
                 self.set_header("Content-Type", "application/json")
                 self.finish(json.dumps({"ok": False, "error": f"login failed: {exc}"}))
+                return
+            if not ok:
+                code, msg = mt5_client.last_login_error or (None, "login failed")
+                self.set_status(502)
+                self.set_header("Content-Type", "application/json")
+                self.finish(json.dumps({"ok": False, "error": f"login failed: {code} {msg}"}))
                 return
             await set_pref(self.pool, "last_account", login_raw)
             self.set_header("Content-Type", "application/json")

@@ -425,7 +425,7 @@
           </label>
         </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
-          <button class="btn secondary" id="btnAddAccountOpen" style="padding:6px 10px;">Add Account</button>
+          <button class="btn secondary" id="btnAddAccountOpen" style="padding:6px 10px;">Manage Accounts</button>
         </div>
             <!-- Leverage + position size hint -->
             <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
@@ -711,13 +711,13 @@
     <div id="addAccountModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true" style="display:none;">
       <div class="modal-box" style="width:min(420px,94vw); max-height:70vh; overflow:auto;">
         <div class="modal-head">
-          <h3>Add MT5 Account</h3>
+          <h3>Manage MT5 Accounts</h3>
           <button class="modal-close" id="btnAddAccountClose" aria-label="Close">×</button>
         </div>
         <div class="modal-body" style="padding:10px;">
           <div class="row" style="gap:8px; align-items:center; margin-bottom:6px;">
             <label style="display:flex; flex-direction:column; gap:4px; flex:1;">
-              <span style="font-size:12px; color:var(--muted);">Existing accounts</span>
+              <span style="font-size:12px; color:var(--muted);">Accounts</span>
               <select id="addAcctSelect" style="padding:6px; min-width:220px;"></select>
             </label>
           </div>
@@ -729,8 +729,14 @@
           </div>
           <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
             <label style="display:flex; flex-direction:column; gap:4px; flex:1;">
+              <span style="font-size:12px; color:var(--muted);">Server</span>
+              <input id="acctServer" type="text" placeholder="e.g., RoboForex-Pro" />
+            </label>
+          </div>
+          <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
+            <label style="display:flex; flex-direction:column; gap:4px; flex:1;">
               <span style="font-size:12px; color:var(--muted);">Password</span>
-              <input id="acctPassword" type="password" placeholder="••••••••" />
+              <input id="acctPassword" type="text" placeholder="Account password" />
             </label>
           </div>
           <div class="row" style="gap:8px; margin-top:10px;">
@@ -3260,13 +3266,21 @@ const ensureLwMacd = () => {
         return null;
       };
       let __lastLoginSession = '';
+      let __lastLoginFailUntil = 0;
       async function ensureSelectedAccountSession() {
         try {
           const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : (window.lastAccountPref || '');
           if (!acct || acct === __lastLoginSession) return;
+          const now = Date.now();
+          if (now < __lastLoginFailUntil) return;
           const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' });
           const jlogin = await rlogin.json().catch(()=>({}));
-          if (rlogin.ok && jlogin && jlogin.ok) { __lastLoginSession = acct; }
+          if (rlogin.ok && jlogin && jlogin.ok) {
+            __lastLoginSession = acct;
+            __lastLoginFailUntil = 0;
+          } else {
+            __lastLoginFailUntil = Date.now() + 30_000; // cooldown 30s
+          }
         } catch {}
       }
 
@@ -3883,6 +3897,10 @@ const ensureLwMacd = () => {
       const autoPeriodicSafeMaxInput = document.getElementById('autoPeriodicSafeMaxInput');
       const autoPeriodicSlToggle = document.getElementById('autoPeriodicSlToggle');
       const addAcctSelect = document.getElementById('addAcctSelect');
+      const acctLoginInput = document.getElementById('acctLogin');
+      const acctPasswordInput = document.getElementById('acctPassword');
+      const acctServerInput = document.getElementById('acctServer');
+      let accountsCache = [];
       let lastAccountPref = '';
       function setAllAccountSelects(value) {
         [autoAccountSelect, tradeAccountSelect, tradeAccountSelectInline, autoPeriodicAccountSelect].forEach(sel => {
@@ -3918,7 +3936,10 @@ const ensureLwMacd = () => {
             let picked = '';
             for (const a of arr) {
               const v = String(a.login||'');
-              const opt = document.createElement('option'); opt.value = v; opt.textContent = v; sel.appendChild(opt);
+              const opt = document.createElement('option');
+              opt.value = v;
+              opt.textContent = a.server ? `${v} (${a.server})` : v;
+              sel.appendChild(opt);
               if (!picked) picked = v;
             }
             if (last) picked = last;
@@ -3930,32 +3951,64 @@ const ensureLwMacd = () => {
           fill(autoPeriodicAccountSelect);
           // After fill, ensure all selects show same last account for visual sync
           if (last) setAllAccountSelects(last);
+          if (last) {
+            try { await refreshAccountDependentPanels(); } catch {}
+          }
         } catch {}
       }
-      async function loadAccountsIntoAddModal() {
+      function findAccountInCache(login) {
+        const target = String(login || '').trim();
+        if (!target) return null;
+        return accountsCache.find(a => String(a.login || '').trim() === target) || null;
+      }
+      function applyAccountToForm(login) {
+        if (acctLoginInput) acctLoginInput.value = String(login || '');
+        const rec = findAccountInCache(login);
+        if (acctPasswordInput) acctPasswordInput.value = rec && rec.password ? rec.password : '';
+        if (acctServerInput) acctServerInput.value = rec && rec.server ? rec.server : (acctServerInput.value || '');
+      }
+      async function loadAccountsIntoAddModal(preselect) {
         if (!addAcctSelect) return;
         try {
-          const r = await fetch('/api/accounts', { cache:'no-store' });
+          const r = await fetch('/api/accounts?include_password=1', { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
-          const arr = Array.isArray(js.accounts) ? js.accounts : [];
-          const last = js.last || '';
-          addAcctSelect.innerHTML = arr.length ? '' : '<option value="">(none)</option>';
+          accountsCache = Array.isArray(js.accounts) ? js.accounts : [];
+          const last = preselect || js.last || '';
+          addAcctSelect.innerHTML = '';
+          const newOpt = document.createElement('option');
+          newOpt.value = '';
+          newOpt.textContent = 'Add new account...';
+          addAcctSelect.appendChild(newOpt);
           let picked = '';
-          for (const a of arr) {
-            const v = String(a.login||'');
-            const opt = document.createElement('option'); opt.value = v; opt.textContent = v; addAcctSelect.appendChild(opt);
-            if (!picked) picked = v;
+          for (const a of accountsCache) {
+            const login = String(a.login || '');
+            if (!login) continue;
+            const opt = document.createElement('option');
+            opt.value = login;
+            opt.textContent = a.server ? `${login} (${a.server})` : login;
+            addAcctSelect.appendChild(opt);
+            if (!picked) picked = login;
           }
           if (last) picked = last;
-          if (picked) addAcctSelect.value = picked;
-        } catch {}
+          addAcctSelect.value = picked;
+        } catch {
+          accountsCache = [];
+          addAcctSelect.innerHTML = '<option value=\"\">Add new account...</option>';
+        }
+        const selected = addAcctSelect.value || '';
+        if (!selected && preselect) {
+          applyAccountToForm(preselect);
+        } else {
+          applyAccountToForm(selected);
+        }
       }
       async function openAddAccount() {
         if (addAccountModal) {
           addAccountModal.style.display = 'flex';
           addAccountModal.setAttribute('aria-hidden','false');
-          try { await loadAccountsIntoAddModal(); } catch {}
-          setTimeout(()=>{ const el=document.getElementById('acctLogin'); if (el) el.focus(); }, 0);
+          const current = resolveSelectedAccountValue();
+          try { await loadAccountsIntoAddModal(current); } catch {}
+          setTimeout(()=>{ if (acctLoginInput) acctLoginInput.focus(); }, 0);
         }
       }
       function closeAddAccount() { if (addAccountModal) { addAccountModal.style.display = 'none'; addAccountModal.setAttribute('aria-hidden','true'); } }
@@ -3965,22 +4018,37 @@ const ensureLwMacd = () => {
       if (btnAcctSave) btnAcctSave.addEventListener('click', async ()=>{
         const login = String((document.getElementById('acctLogin')||{}).value||'').trim();
         const password = String((document.getElementById('acctPassword')||{}).value||'').trim();
+        const server = String((document.getElementById('acctServer')||{}).value||'').trim();
         if (!login || !password) { alert('Login and password required'); return; }
         try {
-          const r = await fetch('/api/accounts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login, password }) });
+          const r = await fetch('/api/accounts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login, password, server }) });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js.ok) { alert('Failed to save account'); return; }
           closeAddAccount();
           await loadAccountsSelect();
-          await loadAccountsIntoAddModal();
-          if (autoAccountSelect) autoAccountSelect.value = login;
+          await loadAccountsIntoAddModal(login);
+          setAllAccountSelects(login);
+          try { await refreshAccountDependentPanels(); } catch {}
           // Persist selection as last_account in preferences
           try { persistLastAccount(login); } catch {}
         } catch { alert('Failed to save account'); }
       });
-      if (addAcctSelect) addAcctSelect.addEventListener('change', ()=>{ const v = addAcctSelect.value||''; const field = document.getElementById('acctLogin'); if (field) field.value = v; });
+      if (addAcctSelect) addAcctSelect.addEventListener('change', ()=>{ applyAccountToForm(addAcctSelect.value || ''); });
       function persistLastAccount(v) { if (v) { lastAccountPref = v; queuePrefUpdate('last_account', v); try { flushPrefQueue(); } catch {} } }
-      const onAccountChangeSync = (sel) => () => { const v = (sel && sel.value) || ''; if (v) { setAllAccountSelects(v); persistLastAccount(v); } };
+      async function refreshAccountDependentPanels() {
+        try { await ensureSelectedAccountSession?.(); } catch {}
+        try { await refreshAccountBalanceQuick(); } catch {}
+        try { updatePositionSizeHint(); } catch {}
+        try { await refreshBalanceSeries(); } catch {}
+        try { await refreshClosedDealsSeries(); } catch {}
+        try { await refreshPositions(); } catch {}
+      }
+      const onAccountChangeSync = (sel) => async () => {
+        const v = (sel && sel.value) || '';
+        setAllAccountSelects(v);
+        if (v) { persistLastAccount(v); }
+        try { await refreshAccountDependentPanels(); } catch {}
+      };
       if (autoAccountSelect) autoAccountSelect.addEventListener('change', onAccountChangeSync(autoAccountSelect));
       if (tradeAccountSelect) tradeAccountSelect.addEventListener('change', onAccountChangeSync(tradeAccountSelect));
       if (tradeAccountSelectInline) tradeAccountSelectInline.addEventListener('change', onAccountChangeSync(tradeAccountSelectInline));
@@ -6886,10 +6954,20 @@ const ensureLwMacd = () => {
           // ignore transient errors
         }
       }
-      function startTickPoll() {
+      let __loginRetryAt = 0;
+      async function startTickPoll() {
         if (tickTimer) clearInterval(tickTimer);
-        // immediate update then interval
-        pollTick();
+        try { await ensureSelectedAccountSession(); } catch {}
+        if (!__lastLoginSession) {
+          // backoff retry if login not ready yet
+          const now = Date.now();
+          if (now < __loginRetryAt) return;
+          __loginRetryAt = now + 5000;
+          setTimeout(startTickPoll, 1500);
+          return;
+        }
+        // immediate update then interval once logged in
+        try { await pollTick(); } catch {}
         tickTimer = setInterval(pollTick, 2000);
       }
       // restart ticker when symbol changes
@@ -7136,122 +7214,3 @@ const ensureLwMacd = () => {
     </script>
   </body>
   </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-      async function loadAutoHistory(limit=5, offset=0) {
-        if (!autoHistoryBox) return;
-        if (offset === 0) autoHistoryBox.innerHTML = '<em style="color:var(--muted)">Loading…</em>';
-        const sym = currentSymbol();
-        const tf = currentTf();
-        const params = new URLSearchParams();
-        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
-        else { params.set('kind','stock'); params.set('symbol', sym); }
-        params.set('strategy','auto_ai_trade'); params.set('tf', tf); params.set('limit', String(limit)); params.set('offset', String(offset));
-        try {
-          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
-          const js = await r.json().catch(()=>({}));
-          const runs = Array.isArray(js.runs) ? js.runs : [];
-          if (offset === 0) autoHistoryBox.innerHTML = '';
-          if (!runs.length && offset === 0) {
-            // Fallback: try group=auto with tf filter
-            const p2 = new URLSearchParams();
-            if (isFxPair(sym)) { const pq = splitPair(sym); p2.set('kind','forex_pair'); p2.set('base', pq.base); p2.set('quote', pq.quote); } else { p2.set('kind','stock'); p2.set('symbol', sym); }
-            p2.set('group','auto'); p2.set('tf', tf); p2.set('limit', String(limit)); p2.set('offset', String(offset));
-            const r2 = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
-            const j2 = await r2.json().catch(()=>({}));
-            const runs2 = Array.isArray(j2.runs) ? j2.runs : [];
-            if (!runs2.length) {
-              // Final fallback: drop tf filter
-              const p3 = new URLSearchParams();
-              if (isFxPair(sym)) { const pq = splitPair(sym); p3.set('kind','forex_pair'); p3.set('base', pq.base); p3.set('quote', pq.quote); } else { p3.set('kind','stock'); p3.set('symbol', sym); }
-              p3.set('group','auto'); p3.set('limit', String(limit)); p3.set('offset', String(offset));
-              const r3 = await fetch(`/api/health/runs?${p3.toString()}`, { cache:'no-store' });
-              const j3 = await r3.json().catch(()=>({}));
-              const runs3 = Array.isArray(j3.runs) ? j3.runs : [];
-              if (!runs3.length) { autoHistoryBox.innerHTML = '<em style="color:var(--muted)">No recent auto logs</em>'; return; }
-              const html3 = runs3.map(r => {
-                const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
-                const ans = r.answers || r.answers_json || {};
-                const meta = ans.meta || {};
-                const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
-                const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
-                const orderStr = order ? ` • order ${esc(order)}` : '';
-                return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
-              }).join('');
-              if (html3) autoHistoryBox.insertAdjacentHTML('beforeend', html3);
-              return;
-            }
-            const html2 = runs2.map(r => {
-              const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
-              const ans = r.answers || r.answers_json || {};
-              const meta = ans.meta || {};
-              const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
-              const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
-              const orderStr = order ? ` • order ${esc(order)}` : '';
-              return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
-            }).join('');
-            if (html2) autoHistoryBox.insertAdjacentHTML('beforeend', html2);
-            return;
-          }
-          const html = runs.map(r => {
-            const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
-            const ans = r.answers || r.answers_json || {};
-            const meta = ans.meta || {};
-            const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
-            const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
-            const orderStr = order ? ` • order ${esc(order)}` : '';
-            return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
-          }).join('');
-          if (html) autoHistoryBox.insertAdjacentHTML('beforeend', html);
-        } catch (e) {
-          if (offset === 0) autoHistoryBox.innerHTML = '<em style="color:var(--muted)">Failed to load</em>';
-        }
-      }
-
-      async function openAutoModal() {
-        autoHistoryOffset = 0;
-        const sym = currentSymbol();
-        const tf = currentTf();
-        if (autoModal) { autoModal.style.display = 'flex'; autoModal.setAttribute('aria-hidden', 'false'); }
-        // meta line: symbol • TF • Open lots • Safe max lots (red)
-        try {
-          const posRes = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-          const posJs = await posRes.json().catch(()=>([]));
-          const positions = Array.isArray(posJs) ? posJs : (Array.isArray(posJs.positions) ? posJs.positions : []);
-          const openLots = positions.reduce((acc,p)=> acc + (Number(p.volume) || 0), 0);
-          // safe max pref
-          let safe = '';
-          try {
-            const key = encodeURIComponent(`safe_max_lots:${sym}:${tf}`);
-            const prefRes = await fetch(`/api/preferences?keys=${key}`, { cache:'no-store' });
-            const prefJs = await prefRes.json().catch(()=>({}));
-            const map = (prefJs && prefJs.prefs) || prefJs || {};
-            safe = map[`safe_max_lots:${sym}:${tf}`] || '';
-          } catch {}
-          const safeHtml = safe ? `<span style=\"color:#e74c3c;\">Safe max: ${esc(safe)} lots</span>` : '';
-          if (autoMeta) autoMeta.innerHTML = `${esc(sym)} • TF ${esc(tf)} • Open: ${openLots.toFixed(2)} lots ${safeHtml ? '• ' + safeHtml : ''}`;
-        } catch {
-          if (autoMeta) autoMeta.textContent = `${currentSymbol()} • TF ${currentTf()}`;
-        }
-        // history and clear log
-        if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';
-        loadAutoHistory(5, 0);
-        try { const s = document.getElementById('btnAutoStart'); if (s) s.focus(); } catch {}
-      }
-      try { window.openAutoModal = openAutoModal; } catch {}

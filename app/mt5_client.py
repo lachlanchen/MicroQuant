@@ -29,6 +29,12 @@ class MT5Client:
     def __init__(self) -> None:
         self.initialized = False
         self.logger = logging.getLogger("mt5app.mt5")
+        self.current_login: Optional[int] = None
+        self.last_login_error: Optional[tuple[int, str]] = None
+
+    # Backoff between failed initialize attempts to avoid log spam
+    _last_init_attempt: float = 0.0
+    _init_cooldown_sec: float = 5.0
 
     def initialize(self) -> None:
         if mt5 is None:
@@ -37,12 +43,21 @@ class MT5Client:
             )
 
         path = os.getenv("MT5_PATH") or None
+        import time as _t
+        now = _t.time()
+        if self._last_init_attempt and (now - self._last_init_attempt) < self._init_cooldown_sec:
+            raise RuntimeError("mt5 not ready (cooldown)")
+        self._last_init_attempt = now
         self.logger.info("mt5.initialize path=%r", path)
         if not mt5.initialize(path=path):
             code, msg = mt5.last_error()
-            raise RuntimeError(
-                f"mt5.initialize failed: {code} {msg} (MT5_PATH={path!r})"
-            )
+            # Fallback: attempt attach without explicit path (may connect to running terminal)
+            self.logger.warning("mt5.initialize failed: %s %s; trying default attach", code, msg)
+            if not mt5.initialize():
+                # Leave initialized False; caller can trigger login() path
+                raise RuntimeError(
+                    f"mt5.initialize failed: {code} {msg} (MT5_PATH={path!r})"
+                )
 
         login = os.getenv("MT5_LOGIN")
         password = os.getenv("MT5_PASSWORD")
@@ -57,9 +72,84 @@ class MT5Client:
                 ok = mt5.login(int(login), password=password)
             if not ok:
                 code, msg = mt5.last_error()
-                raise RuntimeError(f"mt5.login failed: {code} {msg}")
+                self.current_login = None
+                self.last_login_error = (code, msg)
+                self.logger.warning("mt5.login failed during init account=%s code=%s msg=%s", login, code, msg)
+            else:
+                self.current_login = int(login)
+                self.last_login_error = None
 
         self.initialized = True
+        info = mt5.account_info()
+        if info:
+            try:
+                self.current_login = int(getattr(info, "login", 0) or 0)
+            except (TypeError, ValueError):
+                self.current_login = None
+
+    def login(self, account: int, password: str, server: Optional[str] = None) -> bool:
+        """Ensure MT5 session is authenticated for the requested account.
+
+        Returns True when the session is already on that login or after a successful login,
+        False when MetaTrader refuses the credentials.
+        """
+        try:
+            account_id = int(account)
+        except (TypeError, ValueError):
+            self.logger.warning("mt5.login invalid account=%r", account)
+            return False
+
+        need_retry = False
+        try:
+            self._ensure_initialized()
+        except RuntimeError as exc:
+            self.logger.warning("mt5.initialize failed (%s); retry with credentials", exc)
+            need_retry = True
+
+        if need_retry:
+            path = os.getenv("MT5_PATH") or None
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            self.logger.info("mt5.initialize retry with credentials account=%s server=%r", account_id, server)
+            if server:
+                ok = mt5.initialize(path=path, login=account_id, password=password, server=server)
+            else:
+                ok = mt5.initialize(path=path, login=account_id, password=password)
+            if not ok:
+                code, msg = mt5.last_error()
+                self.logger.error("mt5.initialize retry failed account=%s code=%s msg=%s", account_id, code, msg)
+                self.current_login = None
+                self.last_login_error = (code, msg)
+                self.initialized = False
+                return False
+            self.initialized = True
+            self.current_login = account_id
+            self.last_login_error = None
+            return True
+
+        info = mt5.account_info()
+        if info and int(getattr(info, "login", 0) or 0) == account_id:
+            self.current_login = account_id
+            self.last_login_error = None
+            return True
+
+        self.logger.info("mt5.login account=%s server=%r", account_id, server)
+        if server:
+            ok = mt5.login(account_id, password=password, server=server)
+        else:
+            ok = mt5.login(account_id, password=password)
+
+        if ok:
+            self.current_login = account_id
+            self.last_login_error = None
+            return True
+
+        code, msg = mt5.last_error()
+        self.logger.warning("mt5.login failed account=%s code=%s msg=%s", account_id, code, msg)
+        self.last_login_error = (code, msg)
+        return False
 
     def fetch_bars(self, symbol: str, timeframe: str, count: int = 500) -> list[dict]:
         if not self.initialized:
