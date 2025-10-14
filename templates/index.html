@@ -92,6 +92,7 @@
     #autoModal #autoHistoryBox { padding: 6px; }
     #autoModal h3 { margin: 0; font-size: 16px; }
     #autoModal .stale-row { background: rgba(231, 76, 60, 0.08); border: 1px solid #e74c3c; border-radius: 6px; padding: 4px 6px; }
+    #autoModal .stale-badge { display:inline-block; margin-top:2px; font-size:11px; color:#b71c1c; background:rgba(231,76,60,0.12); border:1px solid #e74c3c; padding:1px 6px; border-radius:6px; width:max-content; }
     /* RoboForex affiliate widgets (non-intrusive, dismissible) */
     .rf-floating { position: fixed; z-index: 9998; background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.15); overflow:hidden; }
     .rf-top { top: 8px; right: 12px; }
@@ -720,11 +721,17 @@
           </div>
           <!-- Mirrors of Basic/Tech/Plan (display-only) -->
           <div id="autoMirrorBasicRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
-            <span style="font-size:12px; color:var(--muted); min-width:80px;">Basic</span>
+            <div style="display:flex; flex-direction:column; min-width:80px;">
+              <span style="font-size:12px; color:var(--muted);">Basic</span>
+              <span id="autoMirrorBasicStale" class="stale-badge" style="display:none;">Outdated</span>
+            </div>
             <select id="autoMirrorBasic" style="min-width:260px; padding:4px 6px;" disabled></select>
           </div>
           <div id="autoMirrorTechRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
-            <span style="font-size:12px; color:var(--muted); min-width:80px;">Tech+AI</span>
+            <div style="display:flex; flex-direction:column; min-width:80px;">
+              <span style="font-size:12px; color:var(--muted);">Tech+AI</span>
+              <span id="autoMirrorTechStale" class="stale-badge" style="display:none;">Outdated</span>
+            </div>
             <select id="autoMirrorTech" style="min-width:260px; padding:4px 6px;" disabled></select>
           </div>
           <div class="row" style="gap:6px; align-items:center; margin-top:2px;">
@@ -4083,6 +4090,10 @@ const ensureLwMacd = () => {
           const tRow = document.getElementById('autoMirrorTechRow');
           if (bRow) bRow.classList.toggle('stale-row', String(basicStatus||'').toLowerCase()==='stale');
           if (tRow) tRow.classList.toggle('stale-row', String(techStatus||'').toLowerCase()==='stale');
+          const bBad = document.getElementById('autoMirrorBasicStale');
+          const tBad = document.getElementById('autoMirrorTechStale');
+          if (bBad) bBad.style.display = (String(basicStatus||'').toLowerCase()==='stale') ? 'inline-block' : 'none';
+          if (tBad) tBad.style.display = (String(techStatus||'').toLowerCase()==='stale') ? 'inline-block' : 'none';
         } catch {}
       }
       // Keep plan schema mirror synced if user changes it in the plan modal
@@ -7567,6 +7578,16 @@ const ensureLwMacd = () => {
           if (autoMeta) autoMeta.textContent = `${currentSymbol()} • TF ${currentTf()}`;
         }
         try { await updateAutoMirrors(); } catch {}
+        // Update mirror dropdowns and freshness colors on open
+        try {
+          await updateAutoMirrors();
+          const hf = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+          const hj = await hf.json().catch(()=>({}));
+          const tfq = new URLSearchParams({ symbol: sym, tf });
+          const tfres = await fetch(`/api/tech/freshness?${tfq.toString()}`, { cache:'no-store' });
+          const tj = await tfres.json().catch(()=>({}));
+          setAutoMirrorFreshness(hj && hj.status, tj && tj.status);
+        } catch {}
         // history and clear log
         if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';
         loadAutoHistory(5, 0);
