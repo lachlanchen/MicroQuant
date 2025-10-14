@@ -4084,16 +4084,30 @@ const ensureLwMacd = () => {
           }
         } catch {}
       }
-      function setAutoMirrorFreshness(basicStatus, techStatus) {
+      function setAutoMirrorFreshness(basicFresh, techFresh) {
         try {
+          // Accept either status strings or full freshness objects
+          const norm = (v) => {
+            if (!v) return { status: 'unknown' };
+            if (typeof v === 'string') return { status: v };
+            if (typeof v === 'object') return v;
+            return { status: String(v) };
+          };
+          const b = norm(basicFresh);
+          const t = norm(techFresh);
+          const basicStatus = String((b.status||'') ).toLowerCase();
+          const techStatus  = String((t.status||'') ).toLowerCase();
+          const basicIsStale = (basicStatus === 'stale') || (Number(b.new_count||b.new||0) > 0);
+          const techIsStale  = (techStatus  === 'stale') || (Number(t.outdated_bars||t.outdated||0) > 0);
+
           const bRow = document.getElementById('autoMirrorBasicRow');
           const tRow = document.getElementById('autoMirrorTechRow');
-          if (bRow) bRow.classList.toggle('stale-row', String(basicStatus||'').toLowerCase()==='stale');
-          if (tRow) tRow.classList.toggle('stale-row', String(techStatus||'').toLowerCase()==='stale');
+          if (bRow) bRow.classList.toggle('stale-row', !!basicIsStale);
+          if (tRow) tRow.classList.toggle('stale-row', !!techIsStale);
           const bBad = document.getElementById('autoMirrorBasicStale');
           const tBad = document.getElementById('autoMirrorTechStale');
-          if (bBad) bBad.style.display = (String(basicStatus||'').toLowerCase()==='stale') ? 'inline-block' : 'none';
-          if (tBad) tBad.style.display = (String(techStatus||'').toLowerCase()==='stale') ? 'inline-block' : 'none';
+          if (bBad) bBad.style.display = basicIsStale ? 'inline-block' : 'none';
+          if (tBad) tBad.style.display = techIsStale  ? 'inline-block' : 'none';
         } catch {}
       }
       // Keep plan schema mirror synced if user changes it in the plan modal
@@ -4498,7 +4512,7 @@ const ensureLwMacd = () => {
             }
           } catch {}
           // Color mirrors based on freshness
-          try { setAutoMirrorFreshness(hj && hj.status, tfj && tfj.status); } catch {}
+          try { setAutoMirrorFreshness(hj, tfj); } catch {}
           // Decide whether to run new checks based on freshness
           let runBasic = false, runTech = false;
           try { runBasic = (hj && hj.status === 'stale' && Number(hj.new_count||0) > 0); } catch {}
@@ -4539,7 +4553,7 @@ const ensureLwMacd = () => {
             const hj2 = await hf2.json().catch(()=>({}));
             const tf2 = await fetch(`/api/tech/freshness?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`, { cache:'no-store' });
             const tj2 = await tf2.json().catch(()=>({}));
-            setAutoMirrorFreshness(hj2 && hj2.status, tj2 && tj2.status);
+            setAutoMirrorFreshness(hj2, tj2);
           } catch {}
           if (basicId) appendAutoLog(`Basic run id=${basicId}`);
           if (techId) appendAutoLog(`Tech run id=${techId}`);
@@ -7586,7 +7600,7 @@ const ensureLwMacd = () => {
           const tfq = new URLSearchParams({ symbol: sym, tf });
           const tfres = await fetch(`/api/tech/freshness?${tfq.toString()}`, { cache:'no-store' });
           const tj = await tfres.json().catch(()=>({}));
-          setAutoMirrorFreshness(hj && hj.status, tj && tj.status);
+          setAutoMirrorFreshness(hj, tj);
         } catch {}
         // history and clear log
         if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';
