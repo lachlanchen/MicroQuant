@@ -1257,6 +1257,71 @@ async def _compute_and_store_stl(
     }
 
 
+async def _maybe_auto_stl(
+    pool,
+    *,
+    symbol: str,
+    timeframe: str,
+    inserted: int,
+    background: bool = True,
+    limit_points: int = 1500,
+) -> None:
+    """Automatically recompute STL for a symbol/TF when new bars were inserted.
+
+    Runs non-blocking by default. Emits STL websocket events for UI feedback.
+    """
+    try:
+        if not isinstance(inserted, int) or inserted <= 0:
+            return
+        event_scope = "auto_stl"
+        # Announce schedule
+        await emit_stl_event(
+            symbol=symbol,
+            timeframe=timeframe,
+            period=None,
+            status="scheduled",
+            scope=event_scope,
+            background=background,
+            note=f"inserted={inserted}",
+        )
+        result = await _compute_and_store_stl(
+            pool,
+            symbol,
+            timeframe,
+            period=None,
+            start_dt=None,
+            end_dt=None,
+            max_points=limit_points,
+        )
+        await emit_stl_event(
+            symbol=symbol,
+            timeframe=timeframe,
+            period=int(result.get("period") or 0),
+            status="completed",
+            scope=event_scope,
+            background=background,
+            points=int(result.get("points") or 0),
+            run_id=int(result.get("run_id") or 0),
+            start_ts=str(result.get("start_ts") or ""),
+            end_ts=str(result.get("end_ts") or ""),
+            created_at=str(result.get("created_at") or ""),
+            note=f"inserted={inserted}",
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        try:
+            await emit_stl_event(
+                symbol=symbol,
+                timeframe=timeframe,
+                period=None,
+                status="error",
+                scope="auto_stl",
+                background=background,
+                error=str(exc),
+            )
+        except Exception:
+            pass
+
+
 def _aggregate_yearly_from_monthly(symbol: str, monthly_bars: list[dict]) -> list[dict]:
     if not monthly_bars:
         return []
@@ -1375,6 +1440,11 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                         status="completed",
                         note=f"~{days}d window",
                     )
+                    # Auto STL for updated TF (non-blocking)
+                    try:
+                        await _maybe_auto_stl(pool, symbol=symbol, timeframe=tf, inserted=inserted, background=True, limit_points=1500)
+                    except Exception:
+                        pass
                 else:
                     await emit_fetch_event(
                         symbol=symbol,
@@ -1583,6 +1653,13 @@ async def _perform_fetch(
 
             if schedule_backfill:
                 schedule_symbol_backfill(pool, symbol)
+
+            # Auto STL: recompute for this symbol/timeframe only when new bars were inserted
+            try:
+                loop = tornado.ioloop.IOLoop.current()
+                loop.spawn_callback(_maybe_auto_stl, pool, symbol=symbol, timeframe=timeframe, inserted=inserted, background=True, limit_points=1500)
+            except Exception:
+                pass
 
             await emit_fetch_event(
                 symbol=symbol,
