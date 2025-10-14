@@ -4910,7 +4910,9 @@ if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () 
       const periodicStatusLine = document.getElementById('periodicStatusLine');
       function setPeriodicStatus(text, busy=false) {
         if (periodicStatusLine) periodicStatusLine.textContent = text || '';
-        
+        if (btnPeriodicTrigger) { btnPeriodicTrigger.disabled = !!busy; btnPeriodicTrigger.textContent = busy ? 'Running…' : 'Danger Trigger Auto AI Trade'; }
+      }
+
       if (btnPeriodicTrigger) btnPeriodicTrigger.addEventListener('click', async ()=>{
         try {
           const sel = document.getElementById('autoPeriodicSymbols');
@@ -4931,7 +4933,20 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         try { await runPeriodicAutoTrades(); } catch (e) { appendAutoLog(`[Periodic] Trigger error: ${e && e.message || e}`, 'error'); }
         finally { setPeriodicStatus('', false); autoPeriodicRunning = false; }
       });
-
+      // Execute periodic batch across selected symbols (parallel by symbol)
+      async function runPeriodicAutoTrades() {
+        const sel = document.getElementById('autoPeriodicSymbols');
+        const tf = currentTf();
+        let symbols = [];
+        try { symbols = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); } catch {}
+        if (!Array.isArray(symbols) || symbols.length === 0) symbols = [currentSymbol()];
+        appendAutoLog(`[Periodic] Running Auto AI Trade for ${symbols.length} symbol(s) on ${tf}`);
+        try {
+          const accountsSel0 = document.getElementById('autoPeriodicAccountSelect');
+          const accounts0 = Array.from(accountsSel0 && accountsSel0.selectedOptions ? accountsSel0.selectedOptions : []).map(o=>o.value);
+          setPeriodicStatus(`[Periodic] Running ${symbols.join(', ')} on ${tf}${accounts0.length? ` • accounts ${accounts0.join(', ')}`:''}`, true);
+        } catch {}
+        const tasks = symbols.map(sym => autoAiTradeForSymbol(sym, tf).catch(e => appendAutoLog(`[${sym}] error: ${e && e.message || e}`, 'error')));
         await Promise.allSettled(tasks);
         appendAutoLog('[Periodic] Batch complete');
         setPeriodicStatus('', false);
