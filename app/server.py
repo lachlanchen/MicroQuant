@@ -2956,10 +2956,24 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     key.startswith("auto_check_tech:")
                 ):
                     allowed = True
+                # Allow per-symbol×timeframe Auto Trade periodic toggles and period
+                elif isinstance(key, str) and (
+                    key.startswith("auto_trade_periodic:") or
+                    key.startswith("auto_trade_period:")
+                ):
+                    allowed = True
                 # Allow per-symbol×timeframe leverage and safe lots
                 elif isinstance(key, str) and (
                     key.startswith("ai_leverage:") or
                     key.startswith("safe_max_lots:")
+                ):
+                    allowed = True
+                # Allow per-symbol×timeframe SL/volume preferences used by Auto Trade
+                elif isinstance(key, str) and (
+                    key.startswith("auto_sl_enabled:") or
+                    key.startswith("auto_sl_scale:") or
+                    key.startswith("auto_volume:") or
+                    key.startswith("trade_volume:")
                 ):
                     allowed = True
                 # Allow per-symbol×timeframe risk params
