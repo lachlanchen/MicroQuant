@@ -4259,7 +4259,9 @@ const ensureLwMacd = () => {
         const tf = currentTf();
         const lev = getLeverageValue();
         const outBox = el('aiTradePlanBox');
-        outBox.textContent = 'Drafting plan…';
+        const outBoxModal = el('tradeResultsBox');
+        if (outBox) outBox.textContent = 'Drafting plan…';
+        if (outBoxModal) outBoxModal.textContent = 'Drafting plan…';
         // Disable Buy/Sell during processing and show progress text
         const buyBtn = document.getElementById('btnTradeStartBuy');
         const sellBtn = document.getElementById('btnTradeStartSell');
@@ -4272,11 +4274,17 @@ const ensureLwMacd = () => {
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
-          if (!r.ok || !js || js.ok !== true) { outBox.innerHTML = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`; return; }
+          if (!r.ok || !js || js.ok !== true) {
+            const err = `<em style=color:var(--sell)>Failed: ${(js && js.error) || r.statusText || 'unknown'}</em>`;
+            if (outBox) outBox.innerHTML = err;
+            if (outBoxModal) outBoxModal.innerHTML = err;
+            return;
+          }
           const p = js.plan || {};
           const enforced = js.enforced ? ' (risk cap applied)' : '';
-          outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
-            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}</span>
+          const created = js.created_at ? new Date(js.created_at).toLocaleString() : '';
+          const html = `<div class="row" style="justify-content:space-between; align-items:center;">
+            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>
           </div>
           <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
             <span class="pill" style="background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};">${esc(p.position||'')}</span>
@@ -4284,12 +4292,19 @@ const ensureLwMacd = () => {
             <span class="pill">TP: ${esc(p.take_profit)}</span>
           </div>
           <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
+          if (outBox) outBox.innerHTML = html;
+          if (outBoxModal) outBoxModal.innerHTML = html;
           // Prepare plan for execution; do not auto-execute
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
           updateExecuteBtn();
-          outBox.insertAdjacentHTML('beforeend', `<div style="margin-top:6px; font-size:12px; color:var(--muted);">Plan ready — click Execute Plan to trade.</div>`);
+          const note = `<div style=\"margin-top:6px; font-size:12px; color:var(--muted);\">Plan ready — click Execute Plan to trade.</div>`;
+          if (outBox) outBox.insertAdjacentHTML('beforeend', note);
+          if (outBoxModal) outBoxModal.insertAdjacentHTML('beforeend', note);
+          try { tradeState.offset = 0; await loadTradeHistory(); } catch {}
         } catch (e) {
-          outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
+          const err2 = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
+          if (outBox) outBox.innerHTML = err2;
+          if (outBoxModal) outBoxModal.innerHTML = err2;
         } finally {
           if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = prevBuy || 'Buy'; }
           if (sellBtn) { sellBtn.disabled = false; sellBtn.textContent = prevSell || 'Sell'; }
