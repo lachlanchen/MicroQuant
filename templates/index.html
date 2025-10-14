@@ -3730,7 +3730,10 @@ const ensureLwMacd = () => {
         try {
           const t = run.created_at ? new Date(run.created_at).toLocaleString() : '';
           const ans = run.answers || run.answers_json || {};
-          const sig = ans.signal || '';
+          // Prefer position from plan (BUY/SELL). Fallback to generic signal. Default to NEUTRAL when missing.
+          let sig = '';
+          try { sig = (ans.plan && ans.plan.position ? String(ans.plan.position) : String(ans.signal || '')).toUpperCase(); } catch {}
+          if (!sig) sig = 'NEUTRAL';
           const sc = (ans.score ?? (ans.scores && ans.scores.NET)) ?? '';
           const strat = ans.strategy || '';
           const parts = [];
