@@ -4819,10 +4819,6 @@ const ensureLwMacd = () => {
             return tb - ta;
           });
           try { periodicRowsById = new Map(rows.map(({sym, run}) => [String(run.id), { sym, run }])); } catch {}
-          
-            const tb = new Date(b.run.created_at || b.run.created_at_iso || 0).getTime();
-            return tb - ta;
-          });
           const html = rows.map(({sym, run}) => {
             const t = run.created_at ? new Date(run.created_at).toLocaleString() : '';
             const ans = run.answers || run.answers_json || {};
