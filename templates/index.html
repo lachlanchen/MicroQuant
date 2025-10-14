@@ -1805,7 +1805,7 @@
             interaction: { intersect: false, mode: 'nearest' },
             parsing: false,
             scales: {
-              x: { type: 'time', time: { tooltipFormat: 'MMM d HH:mm' }, ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
+              x: { type: 'linear', ticks: { stepSize: 1 }, grid: { display: false } },
               y: { position: 'left', grid: { color: '#e0e6ef' } },
             },
             elements: { line: { stepped: false }, point: { radius: 2 } },
@@ -1851,14 +1851,14 @@
           const js = await r.json().catch(()=>({}));
           if (!ensurePnlChart()) return;
           const cum = (js.cum || [])
-            .map(row => {
-              const t = Date.parse(row.ts);
+            .map((row, i) => {
               const v = Number(row.value ?? 0);
-              if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-              return { x: t, y: v };
+              if (!Number.isFinite(v)) return null;
+              // Use index on x-axis for even spacing; 1-based for readability
+              return { x: i + 1, y: v };
             })
             .filter(Boolean);
-          try { console.debug('[PnL] cum points', cum); } catch {}
+          try { console.debug('[PnL] cum points (indexed)', cum); } catch {}
           pnlChart.data.datasets[0].data = cum;
           pnlChart.update('none');
         } catch (e) {
