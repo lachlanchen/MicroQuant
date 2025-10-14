@@ -5262,7 +5262,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             if (openLots >= safeMax) {
               log('Skip: safe max lots reached — no trade (preflight).', 'warn');
               try {
-                const save = await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, skipped: true, skip_reason: 'safe_max', periodic: true, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax, global: !!useGlobal } }) });
+                const save = await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, skipped: true, skip_reason: 'safe_max', periodic: true, steps: (tradeState.autoSteps || []), order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax, global: !!useGlobal } }) });
                 const saved = await save.json().catch(()=>({}));
                 if (saved && saved.ok && saved.run_id) { autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
               } catch {}

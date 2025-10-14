@@ -485,21 +485,25 @@
             const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
             const useGlobal = Number.isFinite(vg) && vg>0;
             const safeMax = useGlobal ? vg : (Number.isFinite(vs) && vs>0 ? vs : NaN);
-            if (Number.isFinite(safeMax) && safeMax > 0) {
-              let arr = [];
-              if (useGlobal) {
-                const ra = await fetch('/api/positions/all', { cache:'no-store' });
-                const ja = await ra.json().catch(()=>({}));
-                arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
-              } else {
-                const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-                const pjs = await pr.json().catch(()=>({}));
-                arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
+              if (Number.isFinite(safeMax) && safeMax > 0) {
+                let arr = [];
+                if (useGlobal) {
+                  const ra = await fetch('/api/positions/all', { cache:'no-store' });
+                  const ja = await ra.json().catch(()=>({}));
+                  arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
+                } else {
+                  const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+                  const pjs = await pr.json().catch(()=>({}));
+                  arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
+                }
+                const openLots = arr.reduce((acc, x)=>acc+(Number(x && x.volume)||0), 0);
+                if (openLots >= safeMax) {
+                  info.textContent = `[${sym}] Skip: safe max lots reached — no trade.`;
+                  try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol:sym, timeframe:tf, action:null, skipped:true, skip_reason:'safe_max', periodic:true, steps: [], order_result:{ ok:false, skipped:true, error:'safe_max_exceeded', open_lots:openLots, safe_max:safeMax, global:useGlobal } }) }); } catch {}
+                  continue;
+                }
               }
-              const openLots = arr.reduce((acc, x)=>acc+(Number(x && x.volume)||0), 0);
-              if (openLots >= safeMax) { info.textContent = `[${sym}] Skip: safe max lots reached — no trade.`; continue; }
-            }
-          } catch {}
+            } catch {}
           // Build snapshot
           const data = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=300`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
           const closes = (data.rows||[]).map(r=>+r.close);
