@@ -963,6 +963,15 @@
           });
         } catch {}
       })();
+
+      // Open the right panel by default on mobile for better discoverability
+      (function initMobileRightOpen(){
+        try {
+          if (isMobile()) {
+            document.body.classList.add('right-open');
+          }
+        } catch {}
+      })();
       function updateSignalUI(sig, reason) {
         lastSignal = sig || 'hold';
         const dot = document.getElementById('signalDot');
