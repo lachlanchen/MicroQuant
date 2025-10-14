@@ -311,7 +311,7 @@
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">News to use</span>
-                <input id="healthNewsCount" type="number" min="1" max="20" value="10" style="width:72px;" />
+                <input id="healthNewsCount" type="number" min="1" max="20" value="20" style="width:72px;" />
               </label>
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">Basic AI model</span>
@@ -2863,7 +2863,7 @@ const ensureLwMacd = () => {
 
       async function startHealthRun() {
         const sym = symbolSelect.value.toUpperCase();
-        const n = Math.max(1, Math.min(20, Number(el('healthNewsCount').value || 10)));
+        const n = Math.max(1, Math.min(20, Number(el('healthNewsCount').value || 20)));
         const barsN = Math.max(10, Math.min(500, Number(resolveTechWindow && resolveTechWindow() || 50)));
         const tfNow = currentTf();
         const body = { symbol: sym, news_count: n, timeframe: tfNow, n_bars: barsN };
