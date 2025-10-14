@@ -4706,6 +4706,7 @@ const ensureLwMacd = () => {
           updateExecuteBtn();
           appendAutoLog('Executing order…');
           // Ensure selected account is logged in before trading
+          let acctUsed = '';
           try {
             const acctInline = document.getElementById('autoPeriodicAccountSelect');
             const acctAuto = document.getElementById('autoAccountSelect');
@@ -4714,6 +4715,7 @@ const ensureLwMacd = () => {
                       : (acctAuto && acctAuto.value) ? acctAuto.value
                       : (acctTradeInline && acctTradeInline.value) ? acctTradeInline.value
                       : '';
+            acctUsed = acct || '';
             if (acct) {
               appendAutoLog(`Switch account → ${acct}`);
               const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' });
@@ -4755,7 +4757,7 @@ const ensureLwMacd = () => {
               appendAutoLog(`SL scaled: orig=${orig} → scaled=${finalSL.toFixed(2)} (scale=${scale})`);
             }
           } catch {}
-          appendAutoLog(`Order params: acct=${(acct||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
+          appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
           const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
           const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
