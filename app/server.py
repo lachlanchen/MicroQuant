@@ -1656,7 +1656,6 @@ async def _perform_fetch(
 
             # Auto STL: recompute for this symbol/timeframe only when new bars were inserted
             try:
-                loop = tornado.ioloop.IOLoop.current()
                 loop.spawn_callback(_maybe_auto_stl, pool, symbol=symbol, timeframe=timeframe, inserted=inserted, background=True, limit_points=1500)
             except Exception:
                 pass
