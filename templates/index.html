@@ -421,8 +421,9 @@
         </div>
         <!-- Periodic Auto AI Trade controls -->
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
-          <label class="switch">
-            <input type="checkbox" id="autoPeriodicToggle" />
+          <label class="switch" title="Enable periodic Auto AI Trade for this symbol × timeframe">
+            <input type="checkbox" id="autoPeriodicToggle" class="toggle-input" />
+            <span class="toggle"></span>
             <span>Periodic Auto Trade</span>
           </label>
           <label style="display:flex; align-items:center; gap:6px;">
@@ -452,8 +453,9 @@
           </label>
         </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
-          <label class="switch">
-            <input type="checkbox" id="autoPeriodicSlToggle" />
+          <label class="switch" title="Include Stop Loss when placing periodic Auto trades">
+            <input type="checkbox" id="autoPeriodicSlToggle" class="toggle-input" />
+            <span class="toggle"></span>
             <span>Set Stop Loss</span>
           </label>
         </div>
