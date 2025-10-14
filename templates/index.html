@@ -1876,6 +1876,7 @@
               return { x: t, y: v };
             })
             .filter(Boolean);
+          try { console.debug('[PnL] points', { deals: (js.deals||[]).length, bars: dealPts.length, cum: cum.length }); } catch {}
           pnlChart.data.datasets[0].data = dealPts;
           pnlChart.data.datasets[1].data = cum;
           pnlChart.update('none');
