@@ -3038,8 +3038,20 @@ const ensureLwMacd = () => {
           buildTechTable('Bollinger (20,2)', ['Mid', 'Upper', 'Lower'], bollData),
           buildTechTable('Volume', ['Value'], volumeData),
           (mergeStlRows.length ? buildTechTable('STL (Trend/Seasonal/Residual)', ['Trend','Seasonal','Residual'], mergeStlRows) : buildTechTable('STL Trend', ['Value'], trendData) + buildTechTable('STL Seasonal', ['Value'], seasonalData) + buildTechTable('STL Residual', ['Value'], residData)),
-          buildTechTable('STL Speed (ΔTrend)', ['Value'], speedData),
-          buildTechTable('STL Acceleration (ΔSpeed)', ['Value'], accelData),
+          (() => {
+            const n = Math.min(speedData.length, accelData.length);
+            if (n > 0) {
+              const rows = [];
+              for (let i = 0; i < n; i += 1) {
+                const time = speedData[i]?.time || accelData[i]?.time || '';
+                const sVal = speedData[i]?.values?.[0] ?? '—';
+                const aVal = accelData[i]?.values?.[0] ?? '—';
+                rows.push({ time, values: [sVal, aVal] });
+              }
+              return buildTechTable('STL Derivatives (Speed/Acceleration)', ['Speed ΔTrend','Acceleration ΔSpeed'], rows);
+            }
+            return buildTechTable('STL Speed (ΔTrend)', ['Value'], speedData) + buildTechTable('STL Acceleration (ΔSpeed)', ['Value'], accelData);
+          })(),
           buildTechTable('RSI (14)', ['Value'], rsiData),
           buildTechTable('MACD (12,26,9)', ['MACD', 'Signal', 'Hist'], macdData),
           buildTechTable('ATR (14)', ['Value'], atrData),
@@ -3477,9 +3489,21 @@ const ensureLwMacd = () => {
           if (seasPts.length) parts.push(toBlock('STL Seasonal', ['Value'], seasPts));
           if (residPts.length) parts.push(toBlock('STL Residual', ['Value'], residPts));
         }
-        // Keep derivatives as separate tables
-        parts.push(toBlock('STL Speed (ΔTrend)', ['Value'], slicePts(stlSpeedPoints)));
-        parts.push(toBlock('STL Acceleration (ΔSpeed)', ['Value'], slicePts(stlAccelPoints)));
+        // Merge derivatives (Speed/Acceleration) into a single two-column table
+        const spdPts = slicePts(stlSpeedPoints);
+        const accPts = slicePts(stlAccelPoints);
+        if (spdPts.length && accPts.length) {
+          const n = Math.min(spdPts.length, accPts.length);
+          const combined = [];
+          for (let i = 0; i < n; i += 1) {
+            const ts = spdPts[i].ts;
+            combined.push({ ts, values: [spdPts[i].values[0], accPts[i].values[0]] });
+          }
+          parts.push(toBlock('STL Derivatives (Speed/Acceleration)', ['Speed ΔTrend','Acceleration ΔSpeed'], combined));
+        } else {
+          if (spdPts.length) parts.push(toBlock('STL Speed (ΔTrend)', ['Value'], spdPts));
+          if (accPts.length) parts.push(toBlock('STL Acceleration (ΔSpeed)', ['Value'], accPts));
+        }
         parts.push(toBlock('RSI (14)', ['Value'], buildSeries(rsiValues)));
         parts.push(toBlock('MACD (12,26,9)', ['MACD','Signal','Hist'], buildSeries3(macdObj.macd, macdObj.signal, macdObj.histogram)));
         parts.push(toBlock('ATR (14)', ['Value'], buildSeries(atr)));
