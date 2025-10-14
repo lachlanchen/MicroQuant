@@ -2244,7 +2244,21 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             if source in ("auto", "db"):
                 deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
                 from_db = bool(deals)
-            if source == "mt5" or (source == "auto" and not from_db and account_id == current_login):
+            # For 'auto': proactively top up from MT5 when we can (matching terminal login)
+            if source == "auto" and account_id == current_login:
+                try:
+                    mt5_rows = mt5_client.closed_deals(start_dt, end_dt)
+                    if mt5_rows:
+                        try:
+                            await upsert_closed_deals(GLOBAL_POOL, account_id=account_id, rows=mt5_rows)
+                        except Exception as exc:
+                            logger.warning("/api/account/closed_deals upsert (auto) failed: %s", exc)
+                        # reload from DB after top-up
+                        deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+                        from_db = True
+                except Exception as exc:
+                    logger.debug("auto top-up from MT5 skipped: %s", exc)
+            elif source == "mt5" or (source == "auto" and not from_db and account_id == current_login):
                 deals = mt5_client.closed_deals(start_dt, end_dt)
                 if debug_flag:
                     try:
