@@ -1822,6 +1822,7 @@
           const url = acct ? `/api/account/balance_series?user=lachlan&limit=1000&account=${encodeURIComponent(acct)}` : '/api/account/balance_series?user=lachlan&limit=1000';
           const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
+          try { console.debug('[PnL] auto refresh deals=', (js.deals||[]).length, 'cum=', (js.cum||[]).length); } catch {}
           if (!r.ok || !js || js.ok !== true) return;
           if (!ensureBalanceChart()) return;
           const points = (js.rows || [])
@@ -6334,7 +6335,9 @@ const ensureLwMacd = () => {
           const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
           let url = '/api/account/closed_deals?days=5000&source=mt5&debug=1';
           if (acct) url += `&account=${encodeURIComponent(acct)}`;
-          await fetch(url, { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
+          const mt5Res = await fetch(url, { cache: 'no-store' });
+          const mt5Js = await mt5Res.json().catch(()=>({}));
+          try { console.debug('[PnL] mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length); } catch {}
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
         finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }
