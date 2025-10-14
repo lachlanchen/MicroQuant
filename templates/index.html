@@ -95,6 +95,8 @@
     #autoModal h3 { margin: 0; font-size: 16px; }
     #autoModal .stale-row { background: rgba(231, 76, 60, 0.08); border: 1px solid #e74c3c; border-radius: 6px; padding: 4px 6px; }
     #autoModal .stale-badge { display:inline-block; margin-top:2px; font-size:11px; color:#b71c1c; background:rgba(231,76,60,0.12); border:1px solid #e74c3c; padding:1px 6px; border-radius:6px; width:max-content; }
+    #autoModal .fresh-row { background: rgba(46, 204, 113, 0.08); border: 1px solid #2ecc71; border-radius: 6px; padding: 4px 6px; }
+    #autoModal .fresh-badge { display:inline-block; margin-top:2px; font-size:11px; color:#1b5e20; background:rgba(46,204,113,0.12); border:1px solid #2ecc71; padding:1px 6px; border-radius:6px; width:max-content; }
     /* RoboForex affiliate widgets (non-intrusive, dismissible) */
     .rf-floating { position: fixed; z-index: 9998; background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.15); overflow:hidden; }
     .rf-top { top: 8px; right: 12px; }
@@ -722,18 +724,20 @@
             <span id="autoSafeHint" style="font-size:12px; color:var(--muted);"></span>
           </div>
           <!-- Mirrors of Basic/Tech/Plan (display-only) -->
-          <div id="autoMirrorBasicRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
-            <div style="display:flex; flex-direction:column; min-width:80px;">
-              <span style="font-size:12px; color:var(--muted);">Basic</span>
-              <span id="autoMirrorBasicStale" class="stale-badge" style="display:none;">Outdated</span>
-            </div>
+        <div id="autoMirrorBasicRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
+        <div style="display:flex; flex-direction:column; min-width:80px;">
+        <span style="font-size:12px; color:var(--muted);">Basic</span>
+        <span id="autoMirrorBasicStale" class="stale-badge" style="display:none;">Outdated</span>
+        <span id="autoMirrorBasicFresh" class="fresh-badge" style="display:none;">Up to date</span>
+        </div>
             <select id="autoMirrorBasic" style="min-width:260px; padding:4px 6px;" disabled></select>
           </div>
-          <div id="autoMirrorTechRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
-            <div style="display:flex; flex-direction:column; min-width:80px;">
-              <span style="font-size:12px; color:var(--muted);">Tech+AI</span>
-              <span id="autoMirrorTechStale" class="stale-badge" style="display:none;">Outdated</span>
-            </div>
+        <div id="autoMirrorTechRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
+        <div style="display:flex; flex-direction:column; min-width:80px;">
+        <span style="font-size:12px; color:var(--muted);">Tech+AI</span>
+        <span id="autoMirrorTechStale" class="stale-badge" style="display:none;">Outdated</span>
+        <span id="autoMirrorTechFresh" class="fresh-badge" style="display:none;">Up to date</span>
+        </div>
             <select id="autoMirrorTech" style="min-width:260px; padding:4px 6px;" disabled></select>
           </div>
           <div class="row" style="gap:6px; align-items:center; margin-top:2px;">
@@ -4097,19 +4101,27 @@ const ensureLwMacd = () => {
           };
           const b = norm(basicFresh);
           const t = norm(techFresh);
-          const basicStatus = String((b.status||'') ).toLowerCase();
-          const techStatus  = String((t.status||'') ).toLowerCase();
-          const basicIsStale = (basicStatus === 'stale') || (Number(b.new_count||b.new||0) > 0);
-          const techIsStale  = (techStatus  === 'stale') || (Number(t.outdated_bars||t.outdated||0) > 0);
+          const basicStatus = String((b.status||'')).toLowerCase();
+          const techStatus  = String((t.status||'')).toLowerCase();
+          const basicNew = Number(b.new_count||b.new||0);
+          const techOut = Number(t.outdated_bars||t.outdated||0);
+          const basicIsStale = (basicStatus === 'stale') || (basicNew > 0);
+          const techIsStale  = (techStatus  === 'stale') || (techOut > 0);
+          const basicIsFresh = !basicIsStale && (basicStatus === 'fresh' || basicNew === 0);
+          const techIsFresh  = !techIsStale  && (techStatus  === 'fresh' || techOut === 0);
 
           const bRow = document.getElementById('autoMirrorBasicRow');
           const tRow = document.getElementById('autoMirrorTechRow');
-          if (bRow) bRow.classList.toggle('stale-row', !!basicIsStale);
-          if (tRow) tRow.classList.toggle('stale-row', !!techIsStale);
+          if (bRow) { bRow.classList.toggle('stale-row', !!basicIsStale); bRow.classList.toggle('fresh-row', !!basicIsFresh); }
+          if (tRow) { tRow.classList.toggle('stale-row', !!techIsStale);  tRow.classList.toggle('fresh-row',  !!techIsFresh); }
           const bBad = document.getElementById('autoMirrorBasicStale');
           const tBad = document.getElementById('autoMirrorTechStale');
+          const bFresh = document.getElementById('autoMirrorBasicFresh');
+          const tFresh = document.getElementById('autoMirrorTechFresh');
           if (bBad) bBad.style.display = basicIsStale ? 'inline-block' : 'none';
           if (tBad) tBad.style.display = techIsStale  ? 'inline-block' : 'none';
+          if (bFresh) bFresh.style.display = basicIsFresh ? 'inline-block' : 'none';
+          if (tFresh) tFresh.style.display = techIsFresh  ? 'inline-block' : 'none';
         } catch {}
       }
       // Keep plan schema mirror synced if user changes it in the plan modal
