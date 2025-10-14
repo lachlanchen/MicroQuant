@@ -3763,8 +3763,9 @@ const ensureLwMacd = () => {
       function _saveAutoPrefs() {
         const sym = currentSymbol(); const tf = currentTf();
         if (autoSafeMaxInput) queuePrefUpdate(`safe_max_lots:${sym}:${tf}`, String(autoSafeMaxInput.value||''));
-        if (autoVolumeInput) queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(autoVolumeInput.value||''));
+        if (autoVolumeInput) { const v=String(autoVolumeInput.value||''); queuePrefUpdate(`auto_volume:${sym}:${tf}`, v); queuePrefUpdate(`trade_volume:${sym}:${tf}`, v); queuePrefUpdate('last_volume', v); }
         if (autoSlToggle) queuePrefUpdate(`auto_sl_enabled:${sym}:${tf}`, autoSlToggle.checked ? '1' : '0');
+        try { flushPrefQueue(); } catch {}
       }
       if (autoSafeMaxInput) autoSafeMaxInput.addEventListener('change', ()=>{ _saveAutoPrefs(); try {
         // Re-evaluate Start enablement vs current open lots
@@ -6700,7 +6701,7 @@ const ensureLwMacd = () => {
             queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(baseVol));
             queuePrefUpdate(`trade_volume:${sym}:${tf}`, String(baseVol));
           } catch {}
-          // Initialize SL toggle from preference (default on)
+          // Initialize SL toggle from preference (default OFF)
           try {
             const slT = document.getElementById('autoSlToggle');
             if (slT) {
@@ -6708,7 +6709,7 @@ const ensureLwMacd = () => {
               const r = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
               const js = await r.json().catch(()=>({}));
               const map = (js && js.prefs) || js || {};
-              slT.checked = String(map[`auto_sl_enabled:${sym}:${tf}`] || '1') === '1';
+              slT.checked = String(map[`auto_sl_enabled:${sym}:${tf}`] || '0') === '1';
             }
           } catch {}
         } catch {
@@ -6728,8 +6729,8 @@ const ensureLwMacd = () => {
         const modalVol = document.getElementById('autoVolumeInput');
         function _syncSafeFromRight(){ if (!modalSafe || !rightSafe) return; modalSafe.value = String(rightSafe.value||''); _saveAutoPrefs(); }
         function _syncSafeFromModal(){ if (!modalSafe || !rightSafe) return; rightSafe.value = String(modalSafe.value||''); _saveAutoPrefs(); }
-        function _syncVolFromHeader(){ if (!modalVol || !headerVol) return; modalVol.value = String(headerVol.value||''); const sym=currentSymbol(), tf=currentTf(); queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(modalVol.value||'')); queuePrefUpdate(`trade_volume:${sym}:${tf}`, String(headerVol.value||'')); }
-        function _syncVolFromModal(){ if (!modalVol || !headerVol) return; headerVol.value = String(modalVol.value||''); const sym=currentSymbol(), tf=currentTf(); queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(modalVol.value||'')); queuePrefUpdate(`trade_volume:${sym}:${tf}`, String(headerVol.value||'')); }
+        function _syncVolFromHeader(){ if (!modalVol || !headerVol) return; const v=String(headerVol.value||''); modalVol.value = v; const sym=currentSymbol(), tf=currentTf(); queuePrefUpdate(`auto_volume:${sym}:${tf}`, v); queuePrefUpdate(`trade_volume:${sym}:${tf}`, v); queuePrefUpdate('last_volume', v); try{ flushPrefQueue(); }catch{} }
+        function _syncVolFromModal(){ if (!modalVol || !headerVol) return; const v=String(modalVol.value||''); headerVol.value = v; const sym=currentSymbol(), tf=currentTf(); queuePrefUpdate(`auto_volume:${sym}:${tf}`, v); queuePrefUpdate(`trade_volume:${sym}:${tf}`, v); queuePrefUpdate('last_volume', v); try{ flushPrefQueue(); }catch{} }
         if (rightSafe) rightSafe.addEventListener('change', _syncSafeFromRight);
         if (modalSafe) modalSafe.addEventListener('change', _syncSafeFromModal);
         if (headerVol) headerVol.addEventListener('change', _syncVolFromHeader);
