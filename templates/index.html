@@ -4745,22 +4745,24 @@ const ensureLwMacd = () => {
             if (jt && (jt.bid!=null || jt.ask!=null || jt.last!=null)) mkt = jt;
           } catch {}
           const px = mkt ? (sideLower==='buy' ? (mkt.ask ?? mkt.last ?? mkt.bid) : (mkt.bid ?? mkt.last ?? mkt.ask)) : null;
-          // Apply SL scale (if configured) and preflight validate vs current price
-          let finalSL = (slEnabled && p.stop_loss != null) ? Number(p.stop_loss) : null;
+          // Plan SL and optional scale suggestion (but scaling is disabled for execution)
+          const planSL = (slEnabled && p.stop_loss != null) ? Number(p.stop_loss) : null;
           try {
             const slScaleEl = document.getElementById('autoSlScaleInput');
             const scale = slScaleEl ? Number(slScaleEl.value||'1') : 1;
-            if (slEnabled && finalSL != null && px != null && Number.isFinite(scale) && scale>0 && scale !== 1) {
-              const orig = finalSL;
-              finalSL = Number(px) + (orig - Number(px)) * scale;
-              appendAutoLog(`SL scaled: orig=${orig} → scaled=${finalSL.toFixed(2)} (scale=${scale})`);
+            if (slEnabled && planSL != null && px != null && Number.isFinite(scale) && scale>0 && scale !== 1) {
+              const suggested = Number(px) + (planSL - Number(px)) * scale;
+              appendAutoLog(`SL scale is DISABLED for execution. Context → side=${side}, price=${px.toFixed ? px.toFixed(2) : px}, planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL}, scale=${scale}, suggestedSL=${suggested.toFixed ? suggested.toFixed(2) : suggested}. Using planSL unchanged.`);
+            } else if (slEnabled && planSL != null) {
+              appendAutoLog(`SL scale disabled. Using planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL}.`);
             }
           } catch {}
           // Preflight: invalid SL relative to current price? (BUY: SL < price; SELL: SL > price)
-          if (slEnabled && finalSL != null && px != null) {
-            const invalid = (sideLower === 'buy') ? (finalSL >= px) : (finalSL <= px);
+          if (slEnabled && planSL != null && px != null) {
+            const invalid = (sideLower === 'buy') ? (planSL >= px) : (planSL <= px);
+            const relation = (sideLower === 'buy') ? 'below' : 'above';
+            appendAutoLog(`SL preflight: side=${side} price=${px.toFixed ? px.toFixed(2) : px} planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL} → ${invalid ? 'INVALID' : 'OK'} (BUY requires SL<price; SELL requires SL>price).` , invalid ? 'error' : 'info');
             if (invalid) {
-              appendAutoLog(`Invalid Stop Loss for ${side}: price=${px.toFixed ? px.toFixed(2) : px} SL=${finalSL.toFixed ? finalSL.toFixed(2) : finalSL} — for BUY, SL must be below price; for SELL, above price.`, 'error');
               try {
                 const save = await fetch('/api/auto_trade/log', {
                   method:'POST', headers:{'Content-Type':'application/json'},
@@ -4774,9 +4776,9 @@ const ensureLwMacd = () => {
               return;
             }
           }
-          // Write final SL to request if enabled
-          if (slEnabled && finalSL != null) { body.set('sl', String(finalSL)); }
-          appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
+          // Write original plan SL to request if enabled (scaling disabled for execution)
+          if (slEnabled && planSL != null) { body.set('sl', String(planSL)); }
+          appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${planSL!=null? String(planSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
           const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
           const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
