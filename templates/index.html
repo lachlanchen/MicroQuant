@@ -3857,6 +3857,19 @@ const ensureLwMacd = () => {
       const autoPeriodicSafeMaxInput = document.getElementById('autoPeriodicSafeMaxInput');
       const autoPeriodicSlToggle = document.getElementById('autoPeriodicSlToggle');
       const addAcctSelect = document.getElementById('addAcctSelect');
+      let lastAccountPref = '';
+      function setAllAccountSelects(value) {
+        [autoAccountSelect, tradeAccountSelect, tradeAccountSelectInline, autoPeriodicAccountSelect].forEach(sel => {
+          try { if (sel && value) sel.value = value; } catch {}
+        });
+      }
+      function resolveSelectedAccountValue() {
+        const fromInline = tradeAccountSelectInline && tradeAccountSelectInline.value;
+        const fromPeriodic = autoPeriodicAccountSelect && autoPeriodicAccountSelect.value;
+        const fromAuto = autoAccountSelect && autoAccountSelect.value;
+        const fromModal = tradeAccountSelect && tradeAccountSelect.value;
+        return String(fromInline || fromPeriodic || fromAuto || fromModal || lastAccountPref || '').trim();
+      }
       async function loadAccountsSelect() {
         try {
           const r = await fetch('/api/accounts', { cache:'no-store' });
@@ -3872,6 +3885,7 @@ const ensureLwMacd = () => {
               last = m.last_account || '';
             } catch {}
           }
+          lastAccountPref = last || '';
           const fill = (sel) => {
             if (!sel) return;
             sel.innerHTML = arr.length ? '' : '<option value="">(none)</option>';
@@ -3888,6 +3902,8 @@ const ensureLwMacd = () => {
           fill(tradeAccountSelect);
           fill(tradeAccountSelectInline);
           fill(autoPeriodicAccountSelect);
+          // After fill, ensure all selects show same last account for visual sync
+          if (last) setAllAccountSelects(last);
         } catch {}
       }
       async function loadAccountsIntoAddModal() {
@@ -3937,11 +3953,12 @@ const ensureLwMacd = () => {
         } catch { alert('Failed to save account'); }
       });
       if (addAcctSelect) addAcctSelect.addEventListener('change', ()=>{ const v = addAcctSelect.value||''; const field = document.getElementById('acctLogin'); if (field) field.value = v; });
-      function persistLastAccount(v) { if (v) { queuePrefUpdate('last_account', v); try { flushPrefQueue(); } catch {} } }
-      if (autoAccountSelect) autoAccountSelect.addEventListener('change', ()=>{ persistLastAccount(autoAccountSelect.value||''); });
-      if (tradeAccountSelect) tradeAccountSelect.addEventListener('change', ()=>{ persistLastAccount(tradeAccountSelect.value||''); });
-      if (tradeAccountSelectInline) tradeAccountSelectInline.addEventListener('change', ()=>{ persistLastAccount(tradeAccountSelectInline.value||''); });
-      if (autoPeriodicAccountSelect) autoPeriodicAccountSelect.addEventListener('change', ()=>{ persistLastAccount(autoPeriodicAccountSelect.value||''); });
+      function persistLastAccount(v) { if (v) { lastAccountPref = v; queuePrefUpdate('last_account', v); try { flushPrefQueue(); } catch {} } }
+      const onAccountChangeSync = (sel) => () => { const v = (sel && sel.value) || ''; if (v) { setAllAccountSelects(v); persistLastAccount(v); } };
+      if (autoAccountSelect) autoAccountSelect.addEventListener('change', onAccountChangeSync(autoAccountSelect));
+      if (tradeAccountSelect) tradeAccountSelect.addEventListener('change', onAccountChangeSync(tradeAccountSelect));
+      if (tradeAccountSelectInline) tradeAccountSelectInline.addEventListener('change', onAccountChangeSync(tradeAccountSelectInline));
+      if (autoPeriodicAccountSelect) autoPeriodicAccountSelect.addEventListener('change', onAccountChangeSync(autoPeriodicAccountSelect));
       // Populate account dropdowns on initial load
       try { loadAccountsSelect(); } catch {}
       // Hoisted helpers for periodic auto-trade keys
@@ -5944,6 +5961,16 @@ const ensureLwMacd = () => {
         queuePrefUpdate('last_tp', el('tp').value);
         const tf = currentTf();
         status(`${side.toUpperCase()} submitting…`);
+        // Respect global account selection
+        try {
+          const acct = resolveSelectedAccountValue();
+          if (acct) {
+            status(`Switching account → ${acct}`);
+            const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' });
+            const jlogin = await rlogin.json().catch(()=>({}));
+            if (!rlogin.ok || !(jlogin && jlogin.ok)) { status('Account login failed — using current session'); }
+          }
+        } catch {}
         const sl = el('sl').value; const tp = el('tp').value;
         const body = new URLSearchParams({ symbol, side, volume, sl, tp, tf });
         // Optional signal context
