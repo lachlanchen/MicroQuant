@@ -3331,6 +3331,9 @@ const ensureLwMacd = () => {
         const windowSize = Math.max(1, resolveTechWindow());
         const startIdx = Math.max(rows.length - windowSize, 0);
         const windowRows = rows.slice(startIdx);
+        const opens = rows.map((r) => Number(r?.open));
+        const highs = rows.map((r) => Number(r?.high));
+        const lows = rows.map((r) => Number(r?.low));
         const closes = rows.map((r) => Number(r?.close));
         const volumes = rows.map((r) => {
           const stack = [r?.real_volume, r?.tick_volume, r?.volume].map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0);
@@ -3349,6 +3352,7 @@ const ensureLwMacd = () => {
         };
         const buildSeries = (arr) => windowRows.map((row, offset) => ({ ts: row.ts, values: [arr[startIdx + offset]] }));
         const buildSeries3 = (a,b,c) => windowRows.map((row, offset) => ({ ts: row.ts, values: [a[startIdx + offset], b[startIdx + offset], c[startIdx + offset]] }));
+        const buildSeries4 = (a,b,c,d) => windowRows.map((row, offset) => ({ ts: row.ts, values: [a[startIdx + offset], b[startIdx + offset], c[startIdx + offset], d[startIdx + offset]] }));
         const slicePts = (pts) => {
           if (!Array.isArray(pts) || !pts.length) return [];
           const p = pts.slice(Math.max(pts.length - windowSize, 0));
@@ -3360,7 +3364,7 @@ const ensureLwMacd = () => {
         const tf = currentTf();
         const head = `${symbol} • TF ${tf}` + (stlLastMeta && Number.isFinite(Number(stlLastMeta.period)) ? ` • STL period ${Number(stlLastMeta.period)}` : '') + ` • N=${windowSize}`;
         parts.push(head);
-        parts.push(toBlock(`${tf} Close Price`, ['Value'], buildSeries(closes)));
+        parts.push(toBlock(`${tf} OHLC`, ['Open','High','Low','Close'], buildSeries4(opens, highs, lows, closes)));
         // Append latest tick right after the close prices
         try {
           const tk = getLatestTick(symbol);
@@ -4347,6 +4351,10 @@ const ensureLwMacd = () => {
         const tf = currentTf();
         const body = { symbol: sym, timeframe: tf, strategy: resolveBasicStrategyForSymbol(sym) };
         try {
+          const barsN = Math.max(10, Math.min(500, Number(resolveTechWindow && resolveTechWindow() || 50)));
+          body.n_bars = barsN;
+        } catch {}
+        try {
           const basicModelSel = document.getElementById('basicAiModel');
           const basicModel = basicModelSel && basicModelSel.value ? basicModelSel.value : '';
           if (basicModel) body.model = basicModel;
@@ -4388,6 +4396,11 @@ const ensureLwMacd = () => {
       async function newBasicRunForSymbol(sym, tf) {
         const strategy = resolveBasicStrategyForSymbol(sym);
         const body = { symbol: sym, timeframe: tf, strategy };
+        try {
+          // Use the same window logic as desktop snapshot; fallback to 50 if unavailable
+          const barsN = Math.max(10, Math.min(500, Number((typeof resolveTechWindow==='function' && resolveTechWindow()) || defaultTechWindow(tf) || 50)));
+          body.n_bars = barsN;
+        } catch {}
         try {
           const basicModelSel = document.getElementById('basicAiModel');
           const basicModel = basicModelSel && basicModelSel.value ? basicModelSel.value : '';

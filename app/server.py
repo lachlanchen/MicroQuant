@@ -485,11 +485,30 @@ def _build_pair_position_prompt(
     timeframe: str | None,
     closes: list[float] | None = None,
     latest_tick_line: str | None = None,
+    ohlc_rows: list[dict] | None = None,
 ) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
-    if closes:
+    if ohlc_rows:
+        try:
+            n = len(ohlc_rows)
+            header = "\nRecent OHLC (last %d bars):\nTime\tOpen\tHigh\tLow\tClose\n" % n
+            def _fmt(v):
+                try:
+                    return str(round(float(v), 6)).rstrip('0').rstrip('.')
+                except Exception:
+                    return str(v)
+            lines = []
+            for r in ohlc_rows:
+                ts = r.get("ts")
+                if hasattr(ts, "isoformat"):
+                    ts = ts.isoformat()
+                lines.append(f"{ts}\t{_fmt(r.get('open'))}\t{_fmt(r.get('high'))}\t{_fmt(r.get('low'))}\t{_fmt(r.get('close'))}")
+            prices_line = header + "\n".join(lines) + "\n"
+        except Exception:
+            prices_line = ""
+    elif closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     tick_tail = ""
@@ -511,11 +530,30 @@ def _build_pair_prompt_position_question(
     timeframe: str | None,
     closes: list[float] | None = None,
     latest_tick_line: str | None = None,
+    ohlc_rows: list[dict] | None = None,
 ) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
-    if closes:
+    if ohlc_rows:
+        try:
+            n = len(ohlc_rows)
+            header = "\nRecent OHLC (last %d bars):\nTime\tOpen\tHigh\tLow\tClose\n" % n
+            def _fmt(v):
+                try:
+                    return str(round(float(v), 6)).rstrip('0').rstrip('.')
+                except Exception:
+                    return str(v)
+            lines = []
+            for r in ohlc_rows:
+                ts = r.get("ts")
+                if hasattr(ts, "isoformat"):
+                    ts = ts.isoformat()
+                lines.append(f"{ts}\t{_fmt(r.get('open'))}\t{_fmt(r.get('high'))}\t{_fmt(r.get('low'))}\t{_fmt(r.get('close'))}")
+            prices_line = header + "\n".join(lines) + "\n"
+        except Exception:
+            prices_line = ""
+    elif closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     tick_tail = ""
@@ -537,11 +575,30 @@ def _build_stock_position_prompt(
     timeframe: str | None,
     closes: list[float] | None = None,
     latest_tick_line: str | None = None,
+    ohlc_rows: list[dict] | None = None,
 ) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
-    if closes:
+    if ohlc_rows:
+        try:
+            n = len(ohlc_rows)
+            header = "\nRecent OHLC (last %d bars):\nTime\tOpen\tHigh\tLow\tClose\n" % n
+            def _fmt(v):
+                try:
+                    return str(round(float(v), 6)).rstrip('0').rstrip('.')
+                except Exception:
+                    return str(v)
+            lines = []
+            for r in ohlc_rows:
+                ts = r.get("ts")
+                if hasattr(ts, "isoformat"):
+                    ts = ts.isoformat()
+                lines.append(f"{ts}\t{_fmt(r.get('open'))}\t{_fmt(r.get('high'))}\t{_fmt(r.get('low'))}\t{_fmt(r.get('close'))}")
+            prices_line = header + "\n".join(lines) + "\n"
+        except Exception:
+            prices_line = ""
+    elif closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     tick_tail = ""
@@ -563,11 +620,30 @@ def _build_stock_prompt_position_question(
     timeframe: str | None,
     closes: list[float] | None = None,
     latest_tick_line: str | None = None,
+    ohlc_rows: list[dict] | None = None,
 ) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
-    if closes:
+    if ohlc_rows:
+        try:
+            n = len(ohlc_rows)
+            header = "\nRecent OHLC (last %d bars):\nTime\tOpen\tHigh\tLow\tClose\n" % n
+            def _fmt(v):
+                try:
+                    return str(round(float(v), 6)).rstrip('0').rstrip('.')
+                except Exception:
+                    return str(v)
+            lines = []
+            for r in ohlc_rows:
+                ts = r.get("ts")
+                if hasattr(ts, "isoformat"):
+                    ts = ts.isoformat()
+                lines.append(f"{ts}\t{_fmt(r.get('open'))}\t{_fmt(r.get('high'))}\t{_fmt(r.get('low'))}\t{_fmt(r.get('close'))}")
+            prices_line = header + "\n".join(lines) + "\n"
+        except Exception:
+            prices_line = ""
+    elif closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     tick_tail = ""
@@ -4056,8 +4132,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
 
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
 
-            # Optional last-N closes to include in prompts
+            # Optional last-N closes/OHLC to include in prompts
             closes_series: list[float] | None = None
+            rows_prices: list[dict] | None = None
             try:
                 n_bars = int(payload.get("n_bars") or 0)
             except Exception:
@@ -4105,6 +4182,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         timeframe,
                         closes=closes_series,
                         latest_tick_line=(latest_tick_str or None),
+                        ohlc_rows=rows_prices,
                     )
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
@@ -4124,7 +4202,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     ]
                     if not resolved_options:
                         resolved_options = [base.upper(), quote.upper()]
-                    prompt = _build_pair_prompt_choice_combined(question_text, sym, items, timeframe, resolved_options)
+                    prompt = _build_pair_prompt_choice_combined(question_text, sym, items, timeframe, resolved_options, closes=closes_series, latest_tick_line=(latest_tick_str or None), ohlc_rows=rows_prices)
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         _make_choice_schema(resolved_options),
@@ -4138,7 +4216,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         ans_raw = resolved_options[0]
                     expl = str((out or {}).get("explanation") or "").strip()
                     return (qid, ans_raw, expl)
-                prompt = _build_pair_prompt_one_combined(question_text, sym, items, timeframe)
+                prompt = _build_pair_prompt_one_combined(question_text, sym, items, timeframe, ohlc_rows=rows_prices, closes=closes_series, latest_tick_line=(latest_tick_str or None))
                 out = AI_CLIENT.send_request_with_json_schema(
                     prompt,
                     HEALTH_BOOL_SCHEMA,
@@ -4258,6 +4336,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                         timeframe,
                         closes=closes_series,
                         latest_tick_line=(latest_tick_str or None),
+                        ohlc_rows=rows_prices,
                     )
                     position_obj = AI_CLIENT.send_request_with_json_schema(
                         pos_prompt,
@@ -4354,8 +4433,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
         use_choice = (answer_type == "choice")
         choice_options = [str(o).strip().upper() for o in (strat.get("answer_options") or ["BULLISH","BEARISH"]) if o]
 
-        # Optional last-N closes to include in prompts
+        # Optional last-N closes/OHLC to include in prompts
         closes_series_stock: list[float] | None = None
+        rows_prices: list[dict] | None = None
         try:
             n_bars = int(payload.get("n_bars") or 0)
         except Exception:
@@ -4416,6 +4496,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 timeframe,
                 closes=closes_series_stock,
                 latest_tick_line=(latest_tick_str_stock or None),
+                ohlc_rows=rows_prices,
             )
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
@@ -4541,6 +4622,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     timeframe,
                     closes=closes_series_stock,
                     latest_tick_line=(latest_tick_str_stock or None),
+                    ohlc_rows=rows_prices,
                 )
                 position_obj = AI_CLIENT.send_request_with_json_schema(
                     pos_prompt,
