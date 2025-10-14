@@ -1159,6 +1159,7 @@ async def _compute_and_store_stl(
     period: int | None = None,
     start_dt: datetime | None = None,
     end_dt: datetime | None = None,
+    max_points: int | None = None,
 ) -> dict:
     range_info = await ohlc_range(pool, symbol, timeframe)
     if not range_info:
@@ -1182,6 +1183,9 @@ async def _compute_and_store_stl(
     )
     if not rows:
         raise ValueError("No bar data found in requested range for STL decomposition")
+    # Enforce a cap on the number of points used for STL (use the most recent window)
+    if isinstance(max_points, int) and max_points > 0 and len(rows) > max_points:
+        rows = rows[-max_points:]
     times: list[datetime] = []
     closes: list[float] = []
     for row in rows:
@@ -1819,6 +1823,8 @@ class FetchHandler(tornado.web.RequestHandler):
         symbol = self.get_argument("symbol", default=default_symbol())
         timeframe = self.get_argument("tf", default="H1").upper()
         count = int(self.get_argument("count", default="500"))
+        if count > 1500:
+            count = 1500
         from_arg = self.get_argument("from", default=None)
         to_arg = self.get_argument("to", default=None)
         from_dt = _normalize_dt(from_arg) if from_arg else None
@@ -1885,6 +1891,8 @@ class DataHandler(tornado.web.RequestHandler):
         symbol = self.get_argument("symbol", default=default_symbol())
         timeframe = self.get_argument("tf", default="H1").upper()
         limit = int(self.get_argument("limit", default="500"))
+        if limit > 1500:
+            limit = 1500
         logger.debug("/api/data symbol=%s tf=%s limit=%s", symbol, timeframe, limit)
         rows = await fetch_ohlc_bars(self.pool, symbol, timeframe, limit)
         self.set_header("Content-Type", "application/json")
@@ -1914,6 +1922,8 @@ class BulkFetchHandler(tornado.web.RequestHandler):
         mode = str(payload.get("mode") or "inc")
         scope = str(payload.get("scope") or "symbol_all_tf")
         count = int(payload.get("count") or 500)
+        if count > 1500:
+            count = 1500
 
         timeframes = payload.get("timeframes")
         if isinstance(timeframes, str):
@@ -3007,7 +3017,10 @@ class STLComputeHandler(tornado.web.RequestHandler):
         symbol = str(payload.get("symbol") or default_symbol()).upper()
         timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
         scope = str(payload.get("scope") or "current")
+        # Max number of points to use for STL per task (default 1500)
         limit = int(payload.get("limit") or 1500)
+        if limit > 1500:
+            limit = 1500
 
         period_override = payload.get("period")
         try:
@@ -3062,83 +3075,86 @@ class STLComputeHandler(tornado.web.RequestHandler):
 
         loop = tornado.ioloop.IOLoop.current()
 
+        # Optional: run synchronously (blocking) to ensure results are available immediately
+        blocking = str(payload.get("blocking") or payload.get("sync") or "0").lower() in {"1","true","yes","on"}
+
+        async def _run_task(sym: str, tf: str, event_start: str | None, event_end: str | None) -> dict:
+            await emit_stl_event(
+                symbol=sym,
+                timeframe=tf,
+                period=period_override,
+                status="scheduled",
+                scope=scope,
+                background=not blocking,
+                start_ts=event_start,
+                end_ts=event_end,
+            )
+            try:
+                result = await _compute_and_store_stl(
+                    self.pool,
+                    sym,
+                    tf,
+                    period=period_override,
+                    start_dt=start_dt if scope in ("current", "single") else None,
+                    end_dt=end_dt if scope in ("current", "single") else None,
+                    max_points=limit,
+                )
+                logger.info("[stl] %s %s completed period=%s points=%s inserted=%s", sym, tf, result.get("period"), result.get("points"), result.get("inserted"))
+                await emit_stl_event(
+                    symbol=sym,
+                    timeframe=tf,
+                    period=result.get("period"),
+                    status="completed",
+                    scope=scope,
+                    background=not blocking,
+                    points=result.get("points"),
+                    note=f"inserted={result.get('inserted')}",
+                    run_id=result.get("run_id"),
+                    start_ts=result.get("start_ts"),
+                    end_ts=result.get("end_ts"),
+                    created_at=result.get("created_at"),
+                )
+                return {"ok": True, **result}
+            except Exception as exc:
+                logger.warning("[stl] %s %s failed: %s", sym, tf, exc)
+                await emit_stl_event(
+                    symbol=sym,
+                    timeframe=tf,
+                    period=period_override,
+                    status="error",
+                    scope=scope,
+                    background=not blocking,
+                    start_ts=event_start,
+                    end_ts=event_end,
+                    error=str(exc),
+                )
+                return {"ok": False, "error": str(exc)}
+
+        if blocking:
+            results: list[dict] = []
+            for sym, tf in tasks:
+                event_start = _dt_to_iso(start_dt) if scope in ("current", "single") else None
+                event_end = _dt_to_iso(end_dt) if scope in ("current", "single") else None
+                res = await _run_task(sym, tf, event_start, event_end)
+                results.append({"symbol": sym, "timeframe": tf, **res})
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "scheduled": False, "results": results, "scope": scope}))
+            return
+
         async def runner():
             logger.info("[stl] starting %d jobs scope=%s period=%s", len(tasks), scope, period_override)
             for sym, tf in tasks:
                 event_start = _dt_to_iso(start_dt) if scope in ("current", "single") else None
                 event_end = _dt_to_iso(end_dt) if scope in ("current", "single") else None
-                await emit_stl_event(
-                    symbol=sym,
-                    timeframe=tf,
-                    period=period_override,
-                    status="scheduled",
-                    scope=scope,
-                    background=True,
-                    start_ts=event_start,
-                    end_ts=event_end,
-                )
-                try:
-                    result = await _compute_and_store_stl(
-                        self.pool,
-                        sym,
-                        tf,
-                        period=period_override,
-                        start_dt=start_dt if scope in ("current", "single") else None,
-                        end_dt=end_dt if scope in ("current", "single") else None,
-                    )
-                    logger.info(
-                        "[stl] %s %s completed period=%s points=%s inserted=%s",
-                        sym,
-                        tf,
-                        result.get("period"),
-                        result.get("points"),
-                        result.get("inserted"),
-                    )
-                    await emit_stl_event(
-                        symbol=sym,
-                        timeframe=tf,
-                        period=result.get("period"),
-                        status="completed",
-                        scope=scope,
-                        background=True,
-                        points=result.get("points"),
-                        note=f"inserted={result.get('inserted')}",
-                        run_id=result.get("run_id"),
-                        start_ts=result.get("start_ts"),
-                        end_ts=result.get("end_ts"),
-                        created_at=result.get("created_at"),
-                    )
-                except Exception as exc:
-                    logger.warning("[stl] %s %s failed: %s", sym, tf, exc)
-                    await emit_stl_event(
-                        symbol=sym,
-                        timeframe=tf,
-                        period=period_override,
-                        status="error",
-                        scope=scope,
-                        background=True,
-                        start_ts=event_start,
-                        end_ts=event_end,
-                        error=str(exc),
-                    )
+                await _run_task(sym, tf, event_start, event_end)
                 await asyncio.sleep(0.05)
 
         loop.spawn_callback(runner)
 
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
-        self.finish(
-            json.dumps(
-                {
-                    "ok": True,
-                    "scheduled": len(tasks),
-                    "scope": scope,
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "period": period_override,
-                }
-            )
-        )
+        self.finish(json.dumps({"ok": True, "scheduled": len(tasks), "scope": scope, "symbol": symbol, "timeframe": timeframe, "period": period_override}))
 
 
 class STLDeleteHandler(tornado.web.RequestHandler):

@@ -229,7 +229,7 @@
           </select>
         </label>
         <label>Bars
-          <input id="count" type="number" min="10" max="5000" value="{{ default_count }}" />
+          <input id="count" type="number" min="10" max="1500" value="{{ default_count }}" />
         </label>
         <span class="pill">
           Chart:
@@ -1006,7 +1006,7 @@
       const APP_DEFAULT_SYMBOL = _def || (APP_SYMBOLS.length ? APP_SYMBOLS[0] : 'XAUUSD');
       debugLog('[App] Config symbols/default:', APP_SYMBOLS, APP_DEFAULT_SYMBOL);
       const DEFAULT_TF = "{{ default_tf }}";
-      const DEFAULT_BARS = Number("{{ default_count }}") || 500;
+      const DEFAULT_BARS = Math.min(1500, Number("{{ default_count }}") || 500);
       const DEFAULT_STL_AUTO_PERIOD = "{{ default_stl_auto_period }}";
       const DEFAULT_STL_MANUAL_PERIOD = Number("{{ default_stl_manual_period }}") || 30;
       const DEFAULT_CHART_SHIFT = "{{ default_chart_shift }}";
@@ -1061,6 +1061,11 @@
         const idx = ALL_TFS.indexOf(tf);
         if (idx === -1 || idx >= ALL_TFS.length - 1) return null;
         return ALL_TFS[idx + 1];
+      };
+      const prevTimeframe = (tf) => {
+        const idx = ALL_TFS.indexOf(tf);
+        if (idx <= 0) return null;
+        return ALL_TFS[idx - 1];
       };
       const defaultTechWindow = (tf) => {
         const next = nextTimeframe(tf);
@@ -1132,6 +1137,14 @@
       const symbolSelect = document.getElementById('symbol');
       const tfSelect = document.getElementById('tf');
       const countInput = document.getElementById('count');
+      const resolveBarsLimit = () => {
+        try {
+          const v = Math.round(Number(countInput.value || DEFAULT_BARS));
+          const clamped = Math.max(10, Math.min(1500, Number.isFinite(v) ? v : DEFAULT_BARS));
+          if (String(clamped) !== String(countInput.value)) countInput.value = String(clamped);
+          return clamped;
+        } catch { return 500; }
+      };
       const canvas = document.getElementById('chart');
       const ctx = canvas.getContext('2d');
       const lwContainer = document.getElementById('lwChart');
@@ -1287,7 +1300,7 @@
 
       const currentSymbol = () => (symbolSelect && symbolSelect.value ? symbolSelect.value.trim().toUpperCase() : APP_DEFAULT_SYMBOL);
       const currentTf = () => (tfSelect && tfSelect.value ? tfSelect.value.trim().toUpperCase() : DEFAULT_TF);
-      const currentBarsLimit = () => Math.max(10, Number(countInput && countInput.value ? countInput.value : DEFAULT_BARS) || DEFAULT_BARS);
+      const currentBarsLimit = () => resolveBarsLimit();
       applyTechWindowDefault(true);
       ensureStrategyForKind(isFxPair(currentSymbol()) ? 'forex_pair' : 'stock');
 
@@ -3248,7 +3261,7 @@ const ensureLwMacd = () => {
         // When running the technical snapshot strategy, attach the snapshot text and timeframe
         if (strategyName === 'tech_snapshot_10q.json') {
           try {
-            const snapshot = buildTechSnapshotString();
+            const snapshot = await buildTechSnapshotString();
             body.tech_snapshot = snapshot;
             body.timeframe = tfNow;
           } catch (err) {
@@ -3289,7 +3302,7 @@ const ensureLwMacd = () => {
         const sym = symbolSelect.value.toUpperCase();
         const outBox = el('healthResultsBox');
         try {
-          const snapshot = buildTechSnapshotString();
+          const snapshot = await buildTechSnapshotString();
             const body = {
               symbol: sym,
               strategy: (document.getElementById('techAiStrategy') && document.getElementById('techAiStrategy').value) ? document.getElementById('techAiStrategy').value : 'tech_snapshot_10q_position.json',
@@ -3334,7 +3347,7 @@ const ensureLwMacd = () => {
         }
       }
 
-      function buildTechSnapshotString() {
+      function buildTechSnapshotStringSync() {
         // Build a compact textual snapshot matching the Technical Snapshot modal tables
         applyTechWindowDefault(false);
         const rows = Array.isArray(lastPriceRows) ? lastPriceRows : [];
@@ -3402,6 +3415,55 @@ const ensureLwMacd = () => {
         parts.push(toBlock('ATR (14)', ['Value'], buildSeries(atr)));
         parts.push(toBlock('ADX (14)', ['ADX','+DI','-DI'], buildSeries3(adxObj.adx, adxObj.plusDI, adxObj.minusDI)));
         return parts.join('\n\n');
+      }
+
+      async function buildTechSnapshotString() {
+        // Always recompute STL for the current symbol/TF with up to 1500 bars before snapshot
+        const sym = currentSymbol();
+        const tf = currentTf();
+        try {
+          await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
+        } catch {}
+        let base = '';
+        try { base = buildTechSnapshotStringSync(); } catch { base = ''; }
+        // Add cross-timeframe STL mini-rows: M1, prev TF, next TF, Y1 (last 10)
+        const tfList = [];
+        const prev = prevTimeframe(tf);
+        const next = nextTimeframe(tf);
+        if ('M1' && tf !== 'M1') tfList.push('M1');
+        if (prev && !tfList.includes(prev)) tfList.push(prev);
+        if (next && !tfList.includes(next)) tfList.push(next);
+        if (!tfList.includes('Y1')) tfList.push('Y1');
+        const blocks = [];
+        const toBlock = (title, headers, dataRows) => {
+          const fmtRow = (ts, vals) => `${formatDateTime(ts)}\t${vals.map((v)=> (Number.isFinite(Number(v)) ? formatTechNumber(Number(v)) : '—')).join('\t')}`;
+          const lines = [title, 'Time\t' + headers.join('\t')];
+          for (const r of dataRows) lines.push(fmtRow(r.ts, r.values));
+          return lines.join('\n');
+        };
+        for (const t of tfList) {
+          try {
+            // Compute blocking to ensure freshness
+            await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol: sym, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
+          } catch {}
+          try {
+            const p = new URLSearchParams({ symbol: sym, tf: t, include_runs: '1', include_data: '1', all_data: '1' });
+            const r = await fetch(`/api/stl?${p.toString()}`, { cache: 'no-store' });
+            const j = await r.json().catch(()=>({}));
+            const rows = Array.isArray(j.rows) ? j.rows : [];
+            const lastN = rows.slice(Math.max(0, rows.length - 10));
+            const trend = lastN.map(rr => ({ ts: rr.ts, values: [Number(rr.trend)] }));
+            const seasonal = lastN.map(rr => ({ ts: rr.ts, values: [Number(rr.seasonal)] }));
+            const resid = lastN.map(rr => ({ ts: rr.ts, values: [Number(rr.resid)] }));
+            if (trend.length) {
+              blocks.push(toBlock(`${t} STL Trend (last 10)`, ['Value'], trend));
+              blocks.push(toBlock(`${t} STL Seasonal (last 10)`, ['Value'], seasonal));
+              blocks.push(toBlock(`${t} STL Residual (last 10)`, ['Value'], resid));
+            }
+          } catch {}
+        }
+        const extra = blocks.join('\n\n');
+        return extra ? `${base}\n\n${extra}` : base;
       }
 
       const btnHealthCheck = document.getElementById('btnHealthCheck');
@@ -4028,7 +4090,7 @@ const ensureLwMacd = () => {
         const lev = getLeverageValue();
         outBox.textContent = 'Drafting plan…';
         try {
-          const snapshot = buildTechSnapshotString();
+          const snapshot = await buildTechSnapshotString();
           const side = (typeof tradeState !== 'undefined' && tradeState && tradeState.action) ? tradeState.action : 'BUY';
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
@@ -4203,7 +4265,7 @@ const ensureLwMacd = () => {
         const outBox = tradeResultsBox;
         if (outBox) outBox.textContent = 'Drafting plan…';
         try {
-          const snapshot = buildTechSnapshotString();
+          const snapshot = await buildTechSnapshotString();
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           if (Number.isFinite(Number(tradeState.basicRunId))) body.basic_run_id = Number(tradeState.basicRunId);
           if (Number.isFinite(Number(tradeState.techRunId))) body.tech_run_id = Number(tradeState.techRunId);
@@ -4417,7 +4479,7 @@ const ensureLwMacd = () => {
         const sym = currentSymbol();
         const tf = currentTf();
         try {
-          const snapshot = buildTechSnapshotString();
+          const snapshot = await buildTechSnapshotString();
           const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: 'tech_snapshot_10q_position.json' };
           const techModelSel = document.getElementById('techAiModel');
           const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
@@ -5962,7 +6024,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           appendAutoLog(`Drafting ${side} plan…`);
           const planResp = await (async ()=>{
             const lev = getLeverageValue();
-            const snapshot = buildTechSnapshotString();
+            const snapshot = await buildTechSnapshotString();
             const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
             const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await r.json().catch(()=>({}));
@@ -6163,7 +6225,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (buyBtn) { buyBtn.disabled = true; buyBtn.textContent = side === 'BUY' ? 'Processing…' : '…'; }
         if (sellBtn) { sellBtn.disabled = true; sellBtn.textContent = side === 'SELL' ? 'Processing…' : '…'; }
         try {
-          const snapshot = buildTechSnapshotString();
+          const snapshot = await buildTechSnapshotString();
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
@@ -7540,7 +7602,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const options = isEvent ? {} : (opts || {});
         const symbol = currentSymbol();
         const tf = currentTf();
-        const count = el('count').value;
+        const count = resolveBarsLimit();
         const mode = (options.mode || 'inc').toString();
         const background = options.background !== false;
         const refreshFirst = options.refreshFirst !== false;
@@ -7594,7 +7656,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       async function backgroundFetch(scope, opts = {}) {
         const symbol = currentSymbol();
         const tf = currentTf();
-        const count = el('count').value;
+        const count = resolveBarsLimit();
         queuePrefUpdate('last_symbol', symbol);
         queuePrefUpdate('last_tf', tf);
         queuePrefUpdate('last_count', count);
@@ -8907,7 +8969,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       refreshChart();
       refreshNews();
       refreshPositions();
-      startAuto({ announce: false });
+      startAuto({ announce: false, immediate: true });
       startTickPoll();
 
       // Auto AI Trade history loader and modal opener (moved inside script)
