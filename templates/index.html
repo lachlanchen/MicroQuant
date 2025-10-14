@@ -5634,8 +5634,10 @@ const ensureLwMacd = () => {
 
       connectUpdates();
       window.addEventListener('load', () => {
-        // Initialize Chart.js balance pane
+        // Initialize charts only after accounts are loaded so PnL respects selection
         requestAnimationFrame(async () => {
+          try { await loadAccountsSelect(); } catch {}
+          try { await ensureSelectedAccountSession?.(); } catch {}
           ensureBalanceChart();
           await refreshBalanceSeries();
           await refreshClosedDealsSeries();
