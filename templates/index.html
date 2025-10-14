@@ -4741,10 +4741,10 @@ const ensureLwMacd = () => {
           fill(tradeAccountSelect);
           fill(tradeAccountSelectInline);
           fill(autoPeriodicAccountSelect);
-          // Apply saved multi-account selection for periodic if available
+          // Apply saved multi-account selection for periodic if available (unified)
           if (autoPeriodicAccountSelect && autoPeriodicAccountSelect.multiple) {
             try {
-              const key = `auto_trade_accounts:${currentTf()}`;
+              const key = `auto_trade_accounts:global`;
               const r2 = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(key)}`, { cache:'no-store' });
               const js2 = await r2.json().catch(()=>({}));
               const map2 = (js2 && js2.prefs) || js2 || {};
@@ -4887,9 +4887,9 @@ const ensureLwMacd = () => {
       if (autoPeriodicAccountSelect && !autoPeriodicAccountSelect.multiple) autoPeriodicAccountSelect.addEventListener('change', onAccountChangeSync(autoPeriodicAccountSelect));
       // Populate account dropdowns on initial load
       try { loadAccountsSelect(); } catch {}
-      // Hoisted helpers for periodic auto-trade keys
-      function getAutoPeriodicKey() { return `auto_trade_periodic:${currentSymbol()}:${currentTf()}`; }
-      function getAutoPeriodicPeriodKey() { return `auto_trade_period:${currentSymbol()}:${currentTf()}`; }
+      // Hoisted helpers for periodic auto-trade keys (unified, global scope)
+      function getAutoPeriodicKey() { return `auto_trade_periodic:global`; }
+      function getAutoPeriodicPeriodKey() { return `auto_trade_period:global`; }
       // Load periodic auto-trade prefs and arm timer (if enabled)
       try { loadAutoPeriodicPrefs(); } catch {}
       try { ensureAutoPeriodicTimer(); } catch {}
@@ -4897,14 +4897,12 @@ const ensureLwMacd = () => {
       // Periodic Auto AI Trade: preferences and scheduler
       // (replaced by hoisted function declarations above)
       async function loadAutoPeriodicPrefs() {
-        const sym = currentSymbol();
-        const tf = currentTf();
         const keys = [
           getAutoPeriodicKey(),
           getAutoPeriodicPeriodKey(),
-          `auto_volume:${sym}:${tf}`,
-          `safe_max_lots:${sym}:${tf}`,
-          `auto_sl_enabled:${sym}:${tf}`,
+          `auto_volume:global`,
+          `safe_max_lots:global`,
+          `auto_sl_enabled:global`,
         ];
         try {
           const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(keys.join(','))}`, { cache: 'no-store' });
@@ -4915,9 +4913,9 @@ const ensureLwMacd = () => {
             const minStr = String(map[getAutoPeriodicPeriodKey()]||'60');
             autoPeriodicPeriod.value = (/^\d+$/.test(minStr) ? minStr : '60');
           }
-          const vol = map[`auto_volume:${sym}:${tf}`];
+          const vol = map[`auto_volume:global`];
           if (autoPeriodicVolumeInput) autoPeriodicVolumeInput.value = (vol && Number(vol) > 0) ? String(vol) : '0.01';
-          const safe = map[`safe_max_lots:${sym}:${tf}`];
+          const safe = map[`safe_max_lots:global`];
           if (autoPeriodicSafeMaxInput) {
             if (safe != null && safe !== '') {
               autoPeriodicSafeMaxInput.value = String(safe);
@@ -4928,7 +4926,7 @@ const ensureLwMacd = () => {
               autoPeriodicSafeMaxInput.value = val;
             }
           }
-          const sl = map[`auto_sl_enabled:${sym}:${tf}`];
+          const sl = map[`auto_sl_enabled:global`];
           if (autoPeriodicSlToggle) autoPeriodicSlToggle.checked = String(sl||'0') === '1';
         } catch {}
       }
@@ -4945,24 +4943,20 @@ const ensureLwMacd = () => {
       });
       if (autoPeriodicVolumeInput) autoPeriodicVolumeInput.addEventListener('change', ()=>{
         const v = String(autoPeriodicVolumeInput.value||'');
-        const sym = currentSymbol(); const tf = currentTf();
-        queuePrefUpdate(`auto_volume:${sym}:${tf}`, v);
-        queuePrefUpdate(`trade_volume:${sym}:${tf}`, v);
+        queuePrefUpdate(`auto_volume:global`, v);
         queuePrefUpdate('last_volume', v);
       });
       if (autoPeriodicSafeMaxInput) autoPeriodicSafeMaxInput.addEventListener('change', ()=>{
-        const sym = currentSymbol(); const tf = currentTf();
-        queuePrefUpdate(`safe_max_lots:${sym}:${tf}`, String(autoPeriodicSafeMaxInput.value||''));
+        queuePrefUpdate(`safe_max_lots:global`, String(autoPeriodicSafeMaxInput.value||''));
       });
       if (autoPeriodicSlToggle) autoPeriodicSlToggle.addEventListener('change', ()=>{
-        const sym = currentSymbol(); const tf = currentTf();
         const val = autoPeriodicSlToggle.checked ? '1' : '0';
         // Mirror to modal toggle if present
         try { const t = document.getElementById('autoSlToggle'); if (t) t.checked = (val === '1'); } catch {}
-        queuePrefUpdate(`auto_sl_enabled:${sym}:${tf}`, val);
+        queuePrefUpdate(`auto_sl_enabled:global`, val);
         try { flushPrefQueue(); } catch {}
       });
-      // Auto symbols persist per TF
+      // Auto symbols persist globally (unified)
       async function loadAutoPeriodicSymbols() {
         const sel = document.getElementById('autoPeriodicSymbols');
         if (!sel) return;
@@ -4971,7 +4965,7 @@ const ensureLwMacd = () => {
           sel.innerHTML = APP_SYMBOLS.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
         }
         try {
-          const key = `auto_trade_symbols:${currentTf()}`;
+          const key = `auto_trade_symbols:global`;
           const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(key)}`, { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           const map = (js && js.prefs) || js || {};
@@ -4989,7 +4983,7 @@ const ensureLwMacd = () => {
       if (autoPeriodicSymbols) autoPeriodicSymbols.addEventListener('change', ()=>{
         try {
           const chosen = Array.from(autoPeriodicSymbols.selectedOptions).map(o => o.value);
-          const key = `auto_trade_symbols:${currentTf()}`;
+          const key = `auto_trade_symbols:global`;
           queuePrefUpdate(key, JSON.stringify(chosen));
           flushPrefQueue();
         } catch {}
@@ -5105,12 +5099,12 @@ if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () 
       })();
       if (btnPeriodicHistoryClose) btnPeriodicHistoryClose.addEventListener('click', () => { if (periodicHistoryModal) { periodicHistoryModal.style.display = 'none'; periodicHistoryModal.setAttribute('aria-hidden', 'true'); } });
       if (btnPeriodicHistoryMore) btnPeriodicHistoryMore.addEventListener('click', () => { periodicHistoryOffset += 10; loadPeriodicHistory({ append:true }); });
-      // Persist periodic account multi-selection
+      // Persist periodic account multi-selection (unified)
       if (autoPeriodicAccountSelect && autoPeriodicAccountSelect.multiple) {
         autoPeriodicAccountSelect.addEventListener('change', () => {
           try {
             const chosen = Array.from(autoPeriodicAccountSelect.selectedOptions).map(o => o.value);
-            const key = `auto_trade_accounts:${currentTf()}`;
+            const key = `auto_trade_accounts:global`;
             queuePrefUpdate(key, JSON.stringify(chosen));
             flushPrefQueue();
           } catch {}
