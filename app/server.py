@@ -452,7 +452,7 @@ def _build_tech_prompt(question_text: str, symbol: str, timeframe: str | None, s
     allowed = ", ".join(options)
     guidance = (
         "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean). "
-        "Favor trend unless multiple confirmations support a high-quality rebound."
+        "You are good at identifying trend and a high-quality rebound."
     )
     return (
         "You are a technical analyst. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
@@ -467,7 +467,7 @@ def _build_tech_position_prompt(question_text: str, symbol: str, timeframe: str 
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     guidance = (
         "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean). "
-        "Favor trend unless multiple confirmations support a high-quality rebound."
+        "You are good at identifying trend and a high-quality rebound."
     )
     return (
         "You are a technical analyst. Return only valid JSON that matches the schema.\n\n"
