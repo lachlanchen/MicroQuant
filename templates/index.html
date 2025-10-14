@@ -3944,13 +3944,15 @@ const ensureLwMacd = () => {
       if (autoPeriodicAccountSelect) autoPeriodicAccountSelect.addEventListener('change', ()=>{ persistLastAccount(autoPeriodicAccountSelect.value||''); });
       // Populate account dropdowns on initial load
       try { loadAccountsSelect(); } catch {}
+      // Hoisted helpers for periodic auto-trade keys
+      function getAutoPeriodicKey() { return `auto_trade_periodic:${currentSymbol()}:${currentTf()}`; }
+      function getAutoPeriodicPeriodKey() { return `auto_trade_period:${currentSymbol()}:${currentTf()}`; }
       // Load periodic auto-trade prefs and arm timer (if enabled)
       try { loadAutoPeriodicPrefs(); } catch {}
       try { ensureAutoPeriodicTimer(); } catch {}
       
       // Periodic Auto AI Trade: preferences and scheduler
-      const getAutoPeriodicKey = () => `auto_trade_periodic:${currentSymbol()}:${currentTf()}`;
-      const getAutoPeriodicPeriodKey = () => `auto_trade_period:${currentSymbol()}:${currentTf()}`;
+      // (replaced by hoisted function declarations above)
       async function loadAutoPeriodicPrefs() {
         const sym = currentSymbol();
         const tf = currentTf();
@@ -3973,7 +3975,16 @@ const ensureLwMacd = () => {
           const vol = map[`auto_volume:${sym}:${tf}`];
           if (autoPeriodicVolumeInput) autoPeriodicVolumeInput.value = (vol && Number(vol) > 0) ? String(vol) : '0.01';
           const safe = map[`safe_max_lots:${sym}:${tf}`];
-          if (autoPeriodicSafeMaxInput) autoPeriodicSafeMaxInput.value = (safe && Number(safe) > 0) ? String(safe) : '';
+          if (autoPeriodicSafeMaxInput) {
+            if (safe != null && safe !== '') {
+              autoPeriodicSafeMaxInput.value = String(safe);
+            } else {
+              // Fallback to existing manual override field if present
+              const manual = document.getElementById('safeMaxLotsInput');
+              const val = manual && manual.value ? String(manual.value) : '';
+              autoPeriodicSafeMaxInput.value = val;
+            }
+          }
           const sl = map[`auto_sl_enabled:${sym}:${tf}`];
           if (autoPeriodicSlToggle) autoPeriodicSlToggle.checked = String(sl||'0') === '1';
         } catch {}
