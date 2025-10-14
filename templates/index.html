@@ -245,6 +245,7 @@
           </div>
           <!-- Closed orders controls moved out of charts -->
           <div class="row" id="closedControlsRow" style="gap:12px; align-items:center; margin:4px 0 8px 0;">
+            <button class="btn" id="btnPurgeClosed" style="padding:4px 8px; background: var(--sell); color:#fff; border:1px solid var(--sell);">Purge + Refetch</button>
             <button class="btn secondary" id="btnFetchClosed" style="padding:4px 8px;">Fetch Closed</button>
             <button class="btn secondary" id="btnSyncClosed" style="padding:4px 8px;">Sync</button>
             <label style="display:flex; align-items:center; gap:6px;">
@@ -6329,6 +6330,7 @@ const ensureLwMacd = () => {
       });
       // Closed orders controls
       const btnFetchClosed = document.getElementById('btnFetchClosed');
+      const btnPurgeClosed = document.getElementById('btnPurgeClosed');
       if (btnFetchClosed) btnFetchClosed.addEventListener('click', async () => {
         const prev = btnFetchClosed.textContent;
         btnFetchClosed.disabled = true; btnFetchClosed.textContent = 'Fetching…';
@@ -6343,6 +6345,31 @@ const ensureLwMacd = () => {
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
         finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }
+      });
+      if (btnPurgeClosed) btnPurgeClosed.addEventListener('click', async () => {
+        if (!window.confirm('Purge PnL rows for the selected account and refetch from MT5?')) return;
+        const prev = btnPurgeClosed.textContent;
+        btnPurgeClosed.disabled = true; btnPurgeClosed.textContent = 'Purging…';
+        try {
+          const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
+          if (!acct) { alert('No account selected'); return; }
+          // Purge selected account rows
+          const r = await fetch(`/api/account/closed_deals_purge?account=${encodeURIComponent(acct)}&confirm=1`, { method:'POST' });
+          const js = await r.json().catch(()=>({}));
+          console.debug('[PnL] purge result', js);
+          // Fetch latest from MT5 then refresh chart
+          let url = `/api/account/closed_deals?days=5000&source=mt5&debug=1&account=${encodeURIComponent(acct)}`;
+          const mt5Res = await fetch(url, { cache:'no-store' });
+          const mt5Js = await mt5Res.json().catch(()=>({}));
+          console.debug('[PnL] after purge, mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length);
+          await refreshClosedDealsSeries();
+          status('Purge + Refetch completed');
+        } catch (e) {
+          console.error('Purge failed', e);
+          status('Purge failed');
+        } finally {
+          btnPurgeClosed.disabled = false; btnPurgeClosed.textContent = prev;
+        }
       });
       const btnSyncClosed = document.getElementById('btnSyncClosed');
       if (btnSyncClosed) btnSyncClosed.addEventListener('click', async () => {
