@@ -6349,7 +6349,9 @@ const ensureLwMacd = () => {
         const prev = btnSyncClosed.textContent;
         btnSyncClosed.disabled = true; btnSyncClosed.textContent = 'Syncing…';
         try {
-          const r = await fetch('/api/account/closed_deals_sync', { method:'POST' });
+          const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
+          const url = acct ? `/api/account/closed_deals_sync?account=${encodeURIComponent(acct)}&purge=1` : '/api/account/closed_deals_sync?purge=1';
+          const r = await fetch(url, { method:'POST' });
           const js = await r.json().catch(()=>({}));
           if (js && js.ok) { status('Closed orders sync scheduled.'); }
           else { status(`Closed sync error: ${js && js.error ? js.error : r.statusText}`); }

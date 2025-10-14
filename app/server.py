@@ -2212,6 +2212,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         end_arg = self.get_argument("to", default=None)
         debug_flag = self.get_argument("debug", default="0").lower() in ("1", "true", "yes")
         source = self.get_argument("source", default="auto").lower()  # auto|db|mt5
+        purge_flag = self.get_argument("purge", default="0").lower() in ("1", "true", "yes", "on")
         comment_filters = [c for c in self.get_arguments("comment") if c]
         user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
         account_arg = self.get_argument("account", default=None)
@@ -2249,6 +2250,16 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
                 try:
                     mt5_rows = mt5_client.closed_deals(start_dt, end_dt)
                     if mt5_rows:
+                        if purge_flag:
+                            try:
+                                async with GLOBAL_POOL.acquire() as conn:
+                                    await conn.execute(
+                                        "DELETE FROM closed_deals WHERE account_id=$1 AND ($2::timestamptz IS NULL OR ts >= $2) AND ($3::timestamptz IS NULL OR ts <= $3)",
+                                        int(account_id), start_dt, end_dt,
+                                    )
+                                    logger.info("[closed_deals purge] account=%s range=%s→%s", account_id, start_dt, end_dt)
+                            except Exception as exc:
+                                logger.warning("/api/account/closed_deals purge failed: %s", exc)
                         try:
                             await upsert_closed_deals(GLOBAL_POOL, account_id=account_id, rows=mt5_rows)
                         except Exception as exc:
@@ -2280,6 +2291,16 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
                 # Best-effort persist to DB for future queries
                 try:
                     if deals:
+                        if purge_flag:
+                            try:
+                                async with GLOBAL_POOL.acquire() as conn:
+                                    await conn.execute(
+                                        "DELETE FROM closed_deals WHERE account_id=$1 AND ($2::timestamptz IS NULL OR ts >= $2) AND ($3::timestamptz IS NULL OR ts <= $3)",
+                                        int(account_id), start_dt, end_dt,
+                                    )
+                                    logger.info("[closed_deals purge] account=%s range=%s→%s", account_id, start_dt, end_dt)
+                            except Exception as exc:
+                                logger.warning("/api/account/closed_deals purge failed: %s", exc)
                         await upsert_closed_deals(GLOBAL_POOL, account_id=account_id, rows=deals)
                         if debug_flag:
                             try:
@@ -2365,20 +2386,39 @@ class ClosedDealsSyncHandler(tornado.web.RequestHandler):
         start_arg = self.get_argument("from", default=None)
         end_arg = self.get_argument("to", default=None)
         step_days = int(self.get_argument("step", default="90"))
+        purge_flag = self.get_argument("purge", default="0").lower() in ("1", "true", "yes", "on")
+        account_arg = self.get_argument("account", default=None)
         start_dt = _normalize_dt(start_arg) if start_arg else datetime.now(timezone.utc) - timedelta(days=5*365)
         end_dt = _normalize_dt(end_arg) if end_arg else datetime.now(timezone.utc)
         # Resolve account id
-        try:
-            info = mt5_client.account_info()
-            account_id = int(info.get("login") or 0)
-        except Exception as e:
-            self.set_status(503)
-            self.set_header("Content-Type", "application/json")
-            self.finish(json.dumps({"ok": False, "error": f"account unavailable: {e}"}))
-            return
+        account_id = 0
+        if account_arg:
+            try:
+                account_id = int(account_arg)
+            except Exception:
+                account_id = 0
+        if account_id == 0:
+            try:
+                info = mt5_client.account_info()
+                account_id = int(info.get("login") or 0)
+            except Exception as e:
+                self.set_status(503)
+                self.set_header("Content-Type", "application/json")
+                self.finish(json.dumps({"ok": False, "error": f"account unavailable: {e}"}))
+                return
         logger.info("/api/account/closed_deals_sync from=%s to=%s step=%sd", start_dt, end_dt, step_days)
         async def runner():
             try:
+                if purge_flag:
+                    try:
+                        async with GLOBAL_POOL.acquire() as conn:
+                            await conn.execute(
+                                "DELETE FROM closed_deals WHERE account_id=$1 AND ($2::timestamptz IS NULL OR ts >= $2) AND ($3::timestamptz IS NULL OR ts <= $3)",
+                                int(account_id), start_dt, end_dt,
+                            )
+                            logger.info("[closed_sync purge] account=%s range=%s→%s", account_id, start_dt, end_dt)
+                    except Exception as exc:
+                        logger.warning("[closed_sync purge] failed: %s", exc)
                 total = 0
                 cur = start_dt
                 while cur < end_dt:
