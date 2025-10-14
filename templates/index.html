@@ -465,6 +465,7 @@
           <button class="btn secondary" id="btnPeriodicHistoryOpen" style="padding:6px 10px;">Periodic History</button>
           <button class="btn" id="btnPeriodicTrigger" style="padding:6px 10px; background:#e53935; color:#fff; border:none;">Danger Trigger Auto AI Trade</button>
         </div>
+        <div id="periodicStatusLine" style="margin-top:4px; font-size:12px; color:var(--muted); min-height:18px;"></div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <label class="switch" title="Include Stop Loss when placing periodic Auto trades">
             <input type="checkbox" id="autoPeriodicSlToggle" class="toggle-input" />
@@ -886,6 +887,7 @@
         <div class="modal-body" style="padding:12px;">
           <div id="periodicHistoryInfo" style="color:var(--muted); font-size:13px; margin-bottom:6px;"></div>
           <div id="periodicHistoryList" style="border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:340px; overflow:auto;"></div>
+          <div id="periodicHistoryDetail" style="margin-top:8px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel);"></div>
           <div class="row" style="gap:8px; margin-top:8px;">
             <button class="btn secondary" id="btnPeriodicHistoryMore" style="padding:6px 10px;">More</button>
           </div>
@@ -4783,6 +4785,7 @@ const ensureLwMacd = () => {
       const btnPeriodicHistoryMore = document.getElementById('btnPeriodicHistoryMore');
       const periodicHistoryModal = document.getElementById('periodicHistoryModal');
       let periodicHistoryOffset = 0;
+      let periodicRowsById = new Map();
       async function loadPeriodicHistory({ append=false }={}) {
         const list = document.getElementById('periodicHistoryList');
         const info = document.getElementById('periodicHistoryInfo');
@@ -4822,7 +4825,8 @@ const ensureLwMacd = () => {
             const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
             const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
             const orderStr = order ? ` • order ${esc(order)}` : '';
-            return `<div class="row" style="justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;">
+            const rid = String(run.id || '');
+            return `<div class="row ph-row" data-run-id="${esc(rid)}" style="justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%; cursor:pointer;" title="View details">
               <span style="font-size:12px; color:var(--muted);"><strong>${esc(sym)}</strong> • ${t}${orderStr}</span>
               <span style="font-size:12px; color:var(--muted);">${esc(last||'')}</span>
             </div>`;
@@ -4831,6 +4835,31 @@ const ensureLwMacd = () => {
         } catch (e) { if (list && !append) list.innerHTML = `<em style="color:var(--muted)">Failed to load</em>`; }
       }
       if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () => { if (periodicHistoryModal) { periodicHistoryModal.style.display = 'flex'; periodicHistoryModal.setAttribute('aria-hidden', 'false'); } loadPeriodicHistory({ append:false }); });
+      // Click-to-view details inside Periodic History
+      (function attachPeriodicListClick(){
+        const list = document.getElementById('periodicHistoryList');
+        const detail = document.getElementById('periodicHistoryDetail');
+        if (!list || !detail) return;
+        list.addEventListener('click', (ev) => {
+          const row = ev.target.closest('.ph-row');
+          if (!row) return;
+          const rid = row.getAttribute('data-run-id') || '';
+          const item = rid ? (periodicRowsById && periodicRowsById.get(rid)) : null;
+          if (!item || !item.run) return;
+          const sym = item.sym || '';
+          const run = item.run;
+          const t = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+          const ans = run.answers || run.answers_json || {};
+          const meta = ans.meta || {};
+          const order = meta.order_result || {};
+          const steps = Array.isArray(ans.log) ? ans.log : [];
+          const lines = steps.map((s) => `<div style=\"padding:2px 0;\">• ${esc(s.message || JSON.stringify(s))}</div>`).join('');
+          const ord = Object.keys(order).length ? `<div style=\"margin-top:6px;\"><strong>Order</strong><pre style=\"white-space:pre-wrap; background:#fff; border:1px solid var(--line); padding:6px; border-radius:6px;\">${esc(JSON.stringify(order, null, 2))}</pre></div>` : '';
+          const head = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><strong>${esc(sym)}</strong><span style=\"font-size:12px; color:var(--muted)\">${t}</span></div>`;
+          const body = `<div style=\"margin-top:6px;\"><strong>Steps</strong>${lines || '<div style=\"color:var(--muted)\"><em>No detailed steps</em></div>'}</div>`;
+          detail.innerHTML = head + body + ord;
+        });
+      })();
       if (btnPeriodicHistoryClose) btnPeriodicHistoryClose.addEventListener('click', () => { if (periodicHistoryModal) { periodicHistoryModal.style.display = 'none'; periodicHistoryModal.setAttribute('aria-hidden', 'true'); } });
       if (btnPeriodicHistoryMore) btnPeriodicHistoryMore.addEventListener('click', () => { periodicHistoryOffset += 50; loadPeriodicHistory({ append:true }); });
       // Persist periodic account multi-selection
@@ -4847,9 +4876,16 @@ const ensureLwMacd = () => {
 
       // Danger trigger: run periodic batch immediately
       const btnPeriodicTrigger = document.getElementById('btnPeriodicTrigger');
+      const periodicStatusLine = document.getElementById('periodicStatusLine');
+      function setPeriodicStatus(text, busy=false) {
+        if (periodicStatusLine) periodicStatusLine.textContent = text || '';
+        if (btnPeriodicTrigger) { btnPeriodicTrigger.disabled = !!busy; btnPeriodicTrigger.textContent = busy ? 'Running…' : 'Danger Trigger Auto AI Trade'; }
+      }
       if (btnPeriodicTrigger) btnPeriodicTrigger.addEventListener('click', async ()=>{
         appendAutoLog('[Periodic] Manual trigger');
+        setPeriodicStatus('Triggering periodic run…', true);
         try { await runPeriodicAutoTrades(); } catch (e) { appendAutoLog(`[Periodic] Trigger error: ${e && e.message || e}`, 'error'); }
+        finally { setPeriodicStatus('', false); }
       });
 
       async function runPeriodicAutoTrades() {
@@ -4861,6 +4897,11 @@ const ensureLwMacd = () => {
         if (!Array.isArray(symbols) || symbols.length === 0) symbols = [currentSymbol()];
         appendAutoLog(`[Periodic] Running Auto AI Trade for ${symbols.length} symbol(s) on ${tf}`);
         try {
+          const accountsSel0 = document.getElementById('autoPeriodicAccountSelect');
+          const accounts0 = Array.from(accountsSel0 && accountsSel0.selectedOptions ? accountsSel0.selectedOptions : []).map(o=>o.value);
+          setPeriodicStatus(`[Periodic] Running ${symbols.join(', ')} on ${tf}${accounts0.length? ` • accounts ${accounts0.join(', ')}`:''}`, true);
+        } catch {}
+        try {
           const accountsSel = document.getElementById('autoPeriodicAccountSelect');
           const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
           if (accounts && accounts.length) appendAutoLog(`[Periodic] Accounts selected: ${accounts.join(', ')}`);
@@ -4869,12 +4910,14 @@ const ensureLwMacd = () => {
         const tasks = symbols.map(sym => autoAiTradeForSymbol(sym, tf).catch(e => appendAutoLog(`[${sym}] error: ${e && e.message || e}`, 'error')));
         await Promise.allSettled(tasks);
         appendAutoLog('[Periodic] Batch complete');
+        setPeriodicStatus('', false);
       }
 
       async function autoAiTradeForSymbol(sym, tf) {
         // Minimal clone of autoAiTrade without UI dependence; logs prefixed by [SYM]
         const log = (m, lvl='info') => appendAutoLog(`[${sym}] ${m}`, lvl);
         log(`Auto AI Trade started (${tf})`);
+        try { setPeriodicStatus(`[${sym}] Checking freshness…`, true); } catch {}
         try {
           const model = getTradeAiModel();
           const lev = getLeverageValue();
@@ -4947,6 +4990,7 @@ const ensureLwMacd = () => {
         let planRunId = null, plan = null;
         try {
           const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+          try { setPeriodicStatus(`[${sym}] Drafting plan…`, true); } catch {}
           const lev = getLeverageValue();
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
@@ -4970,6 +5014,7 @@ const ensureLwMacd = () => {
         }
         for (const acct of (accounts||[])) {
           log(`Execute for account ${acct}`);
+          try { setPeriodicStatus(`[${sym}] Executing on account ${acct}…`, true); } catch {}
           await executePlanForSymbol(sym, tf, side, plan, planRunId, latest, basicId, techId, log, acct);
         }
       }
