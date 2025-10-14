@@ -4736,7 +4736,6 @@ const ensureLwMacd = () => {
           const inlineSl = document.getElementById('autoPeriodicSlToggle');
           const slToggle = document.getElementById('autoSlToggle');
           const slEnabled = !!((inlineSl && inlineSl.checked === true) || (slToggle && slToggle.checked === true));
-          if (slEnabled && p.stop_loss != null) body.set('sl', String(p.stop_loss));
           if (p.take_profit != null) body.set('tp', String(p.take_profit));
           // Fetch current price for log context
           let mkt = null;
@@ -4746,7 +4745,7 @@ const ensureLwMacd = () => {
             if (jt && (jt.bid!=null || jt.ask!=null || jt.last!=null)) mkt = jt;
           } catch {}
           const px = mkt ? (sideLower==='buy' ? (mkt.ask ?? mkt.last ?? mkt.bid) : (mkt.bid ?? mkt.last ?? mkt.ask)) : null;
-          // Apply SL scale (display-only setting) if enabled and price is known
+          // Apply SL scale (if configured) and preflight validate vs current price
           let finalSL = (slEnabled && p.stop_loss != null) ? Number(p.stop_loss) : null;
           try {
             const slScaleEl = document.getElementById('autoSlScaleInput');
@@ -4757,12 +4756,38 @@ const ensureLwMacd = () => {
               appendAutoLog(`SL scaled: orig=${orig} → scaled=${finalSL.toFixed(2)} (scale=${scale})`);
             }
           } catch {}
+          // Preflight: invalid SL relative to current price? (BUY: SL < price; SELL: SL > price)
+          if (slEnabled && finalSL != null && px != null) {
+            const invalid = (sideLower === 'buy') ? (finalSL >= px) : (finalSL <= px);
+            if (invalid) {
+              appendAutoLog(`Invalid Stop Loss for ${side}: price=${px.toFixed ? px.toFixed(2) : px} SL=${finalSL.toFixed ? finalSL.toFixed(2) : finalSL} — for BUY, SL must be below price; for SELL, above price.`, 'error');
+              try {
+                const save = await fetch('/api/auto_trade/log', {
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: planRunId || null, skipped: true, skip_reason: 'invalid_stops', steps: (tradeState.autoSteps || []) })
+                });
+                const saved = await save.json().catch(()=>({}));
+                if (saved && saved.ok && saved.run_id) { appendAutoLog(`Saved log run id=${saved.run_id}`); autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
+              } catch {}
+              // Abort before placing the order
+              if (btnAutoStart) { btnAutoStart.disabled = false; btnAutoStart.textContent = 'Start'; }
+              return;
+            }
+          }
+          // Write final SL to request if enabled
+          if (slEnabled && finalSL != null) { body.set('sl', String(finalSL)); }
           appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
           const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
           const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
           const orderId = (tj && tj.result && (tj.result.order || tj.result.deal)) ? (tj.result.order || tj.result.deal) : null;
-          if (ok) appendAutoLog(`Order placed: id=${orderId != null ? orderId : '—'}`); else appendAutoLog(`Order failed: ${(tj && tj.error) || tr.statusText || 'unknown'}`, 'error');
+          if (ok) {
+            appendAutoLog(`Order placed: id=${orderId != null ? orderId : '—'}`);
+          } else {
+            const errMsg = (tj && (tj.error || (tj.result && (tj.result.comment || tj.result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
+            const code = (tj && tj.result && (tj.result.retcode != null)) ? ` (retcode=${tj.result.retcode})` : '';
+            appendAutoLog(`Order failed: ${errMsg}${code}`, 'error');
+          }
           try {
             const save = await fetch('/api/auto_trade/log', {
               method:'POST', headers:{'Content-Type':'application/json'},
