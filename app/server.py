@@ -2158,6 +2158,7 @@ async def make_app():
             (r"/api/ai/trade_plan", TradePlanHandler, dict(pool=pool)),
             (r"/api/auto_trade/log", AutoTradeLogHandler, dict(pool=pool)),
             (r"/api/accounts", AccountsHandler, dict(pool=pool)),
+            (r"/api/account/current", AccountCurrentHandler),
             (r"/api/account/login", AccountLoginHandler, dict(pool=pool)),
             (r"/api/account/closed_deals_purge", ClosedDealsPurgeHandler),
             (r"/api/config", ConfigHandler),
@@ -5199,6 +5200,19 @@ class AccountsHandler(tornado.web.RequestHandler):
             self.set_header("Content-Type", "application/json")
             self.set_header("Cache-Control", "no-store")
             self.finish(json.dumps({"ok": True, "accounts": out, "last": last or ""}))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
+
+
+class AccountCurrentHandler(tornado.web.RequestHandler):
+    async def get(self):
+        try:
+            login = mt5_client.current_login
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "login": int(login) if login else None}))
         except Exception as exc:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")

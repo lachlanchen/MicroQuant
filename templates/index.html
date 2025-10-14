@@ -5192,12 +5192,19 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         autoPeriodicRunning = true;
         appendAutoLog('[Periodic] Manual trigger');
         try { await updateOpenLotsSummary(); } catch {}
+        try { await decorateAccountTooltips(); } catch {}
         setPeriodicStatus('Triggering periodic run…', true);
         try { await runPeriodicAutoTrades(); } catch (e) { appendAutoLog(`[Periodic] Trigger error: ${e && e.message || e}`, 'error'); }
         finally { setPeriodicStatus('', false); autoPeriodicRunning = false; }
       });
       // Initial lots summary
-      (async () => { try { await updateOpenLotsSummary(); } catch {} })();
+      (async () => { try { await updateOpenLotsSummary(); await decorateAccountTooltips(); } catch {} })();
+      // Update tooltips when hovering over accounts
+      const acctSelEl = document.getElementById('autoPeriodicAccountSelect');
+      if (acctSelEl) {
+        acctSelEl.addEventListener('mousemove', async () => { try { await decorateAccountTooltips(); } catch {} });
+        acctSelEl.addEventListener('mouseenter', async () => { try { await decorateAccountTooltips(); } catch {} });
+      }
       // Execute periodic batch across selected symbols (parallel by symbol)
       async function runPeriodicAutoTrades() {
         const sel = document.getElementById('autoPeriodicSymbols');
@@ -5510,22 +5517,50 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       let autoPeriodicNextAtMs = 0;
       let autoPeriodicUiTimer = null;
       const autoPeriodicStatePill = document.getElementById('autoPeriodicStatePill');
+      let _lastAllPositions = null; let _lastAllPosAt = 0;
+      async function getAllPositionsCached(maxAgeMs=3000) {
+        const now = Date.now();
+        if (_lastAllPositions && (now - _lastAllPosAt) < maxAgeMs) return _lastAllPositions;
+        const r = await fetch('/api/positions/all', { cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        const arr = Array.isArray(js && js.positions) ? js.positions : [];
+        _lastAllPositions = arr; _lastAllPosAt = now; return arr;
+      }
+      function summarizeLots(arr, sym) {
+        const sum = (pred) => arr.filter(pred).reduce((a,x)=>a+(Number(x && x.volume)||0),0);
+        const cur = sum(x => String(x.symbol||'').toUpperCase() === String(sym||'').toUpperCase());
+        const xau = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAU'));
+        const xag = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAG'));
+        const fxOther = sum(x => { const s=String(x.symbol||'').toUpperCase(); return /^[A-Z]{6,7}$/.test(s) && !s.startsWith('XAU') && !s.startsWith('XAG'); });
+        const stocks = sum(x => { const s=String(x.symbol||'').toUpperCase(); return !/^[A-Z]{6,7}$/.test(s); });
+        return { cur, xau, xag, fxOther, stocks };
+      }
       async function updateOpenLotsSummary() {
         const box = document.getElementById('openLotsSummary');
         if (!box) return;
         try {
-          const r = await fetch('/api/positions/all', { cache:'no-store' });
-          const js = await r.json().catch(()=>({}));
-          const arr = Array.isArray(js && js.positions) ? js.positions : [];
+          const arr = await getAllPositionsCached();
           const sym = currentSymbol();
-          const sum = (pred) => arr.filter(pred).reduce((a,x)=>a+(Number(x && x.volume)||0),0);
-          const cur = sum(x => String(x.symbol||'').toUpperCase() === String(sym||'').toUpperCase());
-          const xau = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAU'));
-          const xag = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAG'));
-          const fxOther = sum(x => { const s=String(x.symbol||'').toUpperCase(); return /^[A-Z]{6,7}$/.test(s) && !s.startsWith('XAU') && !s.startsWith('XAG'); });
-          const stocks = sum(x => { const s=String(x.symbol||'').toUpperCase(); return !/^[A-Z]{6,7}$/.test(s); });
-          box.textContent = `Open lots — cur ${sym}: ${cur.toFixed(2)} • XAU: ${xau.toFixed(2)} • XAG: ${xag.toFixed(2)} • FX: ${fxOther.toFixed(2)} • Stocks: ${stocks.toFixed(2)}`;
+          const s = summarizeLots(arr, sym);
+          box.textContent = `Open lots — cur ${sym}: ${s.cur.toFixed(2)} • XAU: ${s.xau.toFixed(2)} • XAG: ${s.xag.toFixed(2)} • FX: ${s.fxOther.toFixed(2)} • Stocks: ${s.stocks.toFixed(2)}`;
         } catch { /* ignore */ }
+      }
+      async function decorateAccountTooltips() {
+        const sel = document.getElementById('autoPeriodicAccountSelect');
+        if (!sel) return;
+        let current = null;
+        try { const r = await fetch('/api/account/current', { cache:'no-store' }); const js = await r.json().catch(()=>({})); current = js && js.login ? String(js.login) : null; } catch {}
+        let arr = [];
+        try { arr = await getAllPositionsCached(); } catch {}
+        for (const opt of Array.from(sel.options||[])) {
+          const login = String(opt.value||'');
+          if (current && login === current) {
+            const s = summarizeLots(arr, currentSymbol());
+            opt.title = `Open lots (${login}) → cur ${currentSymbol()}: ${s.cur.toFixed(2)} • XAU: ${s.xau.toFixed(2)} • XAG: ${s.xag.toFixed(2)} • FX: ${s.fxOther.toFixed(2)} • Stocks: ${s.stocks.toFixed(2)}`;
+          } else {
+            opt.title = 'Not active session — login to view lots';
+          }
+        }
       }
       function setPeriodicStatePill(text, state='idle') {
         if (!autoPeriodicStatePill) return;
