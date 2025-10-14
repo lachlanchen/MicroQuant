@@ -382,6 +382,12 @@
               <button class="btn" id="btnAiBuySell" style="padding:6px 12px; color:#fff; font-weight:600; background:linear-gradient(90deg, #2ecc71, #e74c3c); border:none; box-shadow:0 2px 8px rgba(0,0,0,0.18);">AI Buy/Sell</button>
             </div>
             <div id="aiTradePlanBox" style="font-size:13px; color:var(--text);"></div>
+            <!-- Inline AI Trade Plan selector (latest 5 with lazy load) -->
+            <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+              <span style="min-width:110px; color:var(--muted);">Plan</span>
+              <select id="inlinePlanSelect" style="min-width:220px; flex:1;"></select>
+              <button class="btn secondary" id="btnInlinePlanMore" style="padding:6px 10px;">More</button>
+            </div>
             <div id="aiPlanHistoryBox" style="display:none; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:160px; overflow:auto; font-size:12px; color:var(--muted);"></div>
         <!-- Inline account selection for AI Buy/Sell (moved out of modal) -->
         <div class="row" style="gap:10px; align-items:center; margin-top:8px;">
@@ -3578,7 +3584,7 @@ const ensureLwMacd = () => {
           const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           const runs = (js && js.runs) || [];
-          if (!runs.length) { outBox.innerHTML = ''; return; }
+          if (!runs.length) { outBox.innerHTML = ''; try { await loadInlinePlanDropdown({ append:false }); } catch {} return; }
           const run = runs[0];
           const ans = run.answers || run.answers_json || {};
           const plan = ans.plan || {};
@@ -3597,9 +3603,72 @@ const ensureLwMacd = () => {
           </div>
           <div style="margin-top:6px; color:var(--muted);">${esc(plan.explanation || '')}</div>`;
           updateExecuteBtn();
+          // Sync the inline plan selector to latest
+          try { inlinePlanOffset = 0; await loadInlinePlanDropdown({ append:false, selectRunId: run.id }); } catch {}
           try { loadAiPlanHistory(); } catch {}
         } catch (e) { outBox.innerHTML = ''; lastAiPlan = null; updateExecuteBtn(); }
       }
+
+      // Inline AI Trade Plan dropdown (latest 5 with lazy load)
+      let inlinePlanOffset = 0;
+      const inlinePlanSelect = document.getElementById('inlinePlanSelect');
+      const btnInlinePlanMore = document.getElementById('btnInlinePlanMore');
+      async function loadInlinePlanDropdown({ append = false, selectRunId = null } = {}) {
+        if (!inlinePlanSelect) return;
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','ai_trade_plan'); params.set('tf', tf); params.set('limit','5'); params.set('offset', String(inlinePlanOffset));
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = Array.isArray(js.runs) ? js.runs : [];
+          if (!append) inlinePlanSelect.innerHTML = '';
+          if (!runs.length && !append) { inlinePlanSelect.innerHTML = '<option value="">(no plans)</option>'; return; }
+          const opts = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
+          inlinePlanSelect.insertAdjacentHTML('beforeend', opts);
+          // Default to latest or provided id
+          if (!append) {
+            const defVal = selectRunId ? String(selectRunId) : (runs.length ? String(runs[0].id) : '');
+            if (defVal) inlinePlanSelect.value = defVal;
+          } else if (selectRunId) {
+            inlinePlanSelect.value = String(selectRunId);
+          }
+          // Render selected into the preview box and update lastAiPlan
+          if (inlinePlanSelect.value) {
+            const selectedId = Number(inlinePlanSelect.value);
+            await renderInlineSelectedPlan(selectedId);
+          }
+        } catch {}
+      }
+      async function renderInlineSelectedPlan(runId) {
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','ai_trade_plan'); params.set('tf', tf); params.set('limit', String(inlinePlanOffset + 5)); params.set('offset','0');
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const all = Array.isArray(js.runs) ? js.runs : [];
+          const run = all.find(x => Number(x.id) === Number(runId));
+          if (!run) return;
+          const ans = run.answers || run.answers_json || {};
+          const p = ans.plan || {};
+          const created = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+          const outBox = el('aiTradePlanBox');
+          const enforced = (ans.meta && ans.meta.enforced) ? ' (risk cap applied)' : '';
+          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${(p.position||'').toUpperCase()==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${(p.position||'').toUpperCase()==='BUY'?'#2ecc71':'#e74c3c'};\">${esc((p.position||'').toUpperCase())}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
+          // Update execute button context
+          lastAiPlan = { position: String(p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
+          updateExecuteBtn();
+        } catch {}
+      }
+      if (inlinePlanSelect) inlinePlanSelect.addEventListener('change', () => { const v = Number(inlinePlanSelect.value); if (Number.isFinite(v)) renderInlineSelectedPlan(v); });
+      if (btnInlinePlanMore) btnInlinePlanMore.addEventListener('click', async () => { inlinePlanOffset += 5; await loadInlinePlanDropdown({ append: true }); });
 
       // Dedicated AI Trade Plan history (separate from Basic/Tech history)
       async function loadAiPlanHistory(limit=5, offset=0) {
