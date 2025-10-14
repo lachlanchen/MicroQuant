@@ -1564,7 +1564,22 @@ class MainHandler(tornado.web.RequestHandler):
         extras = extras or {}
         count_pref = extras.get("last_count") or "500"
         chart_pref = (extras.get("chart_type") or "candlestick").lower()
-        volume_pref = extras.get("last_volume") or "0.10"
+        # Derive default volume: prefer per symbol×TF prefs, else legacy, else 0.01
+        volume_pref = None
+        try:
+            if pool is not None and sym and tf:
+                auto_vol_key = f"auto_volume:{sym}:{tf}"
+                trade_vol_key = f"trade_volume:{sym}:{tf}"
+                auto_vol = await get_pref(pool, auto_vol_key)
+                trade_vol = await get_pref(pool, trade_vol_key)
+                if auto_vol and str(auto_vol).strip():
+                    volume_pref = str(auto_vol).strip()
+                elif trade_vol and str(trade_vol).strip():
+                    volume_pref = str(trade_vol).strip()
+        except Exception:
+            volume_pref = None
+        if not volume_pref:
+            volume_pref = extras.get("last_volume") or "0.01"
         sl_pref = extras.get("last_sl") or ""
         tp_pref = extras.get("last_tp") or ""
         fast_pref = extras.get("last_fast") or "20"
@@ -1932,7 +1947,7 @@ class StrategyHandler(tornado.web.RequestHandler):
 
         # Optional trading
         enabled = (os.getenv("TRADING_ENABLED", "0").lower() in ("1", "true", "yes"))
-        volume = float(os.getenv("TRADING_VOLUME", "0.1"))
+        volume = float(os.getenv("TRADING_VOLUME", "0.01"))
         trade_result = None
         if enabled and sig["signal"] in ("buy", "sell"):
             # Very conservative: close existing positions first
@@ -1966,7 +1981,7 @@ class TradeHandler(tornado.web.RequestHandler):
             return
         symbol = self.get_argument("symbol", default=default_symbol())
         side = self.get_argument("side", default="buy").lower()
-        volume = float(self.get_argument("volume", default="0.1"))
+        volume = float(self.get_argument("volume", default="0.01"))
         # Optional absolute SL/TP prices
         sl = self.get_argument("sl", default=None)
         tp = self.get_argument("tp", default=None)

@@ -3782,7 +3782,9 @@ const ensureLwMacd = () => {
         const side = (lastAiPlan.position || '').toLowerCase();
         if (side !== 'buy' && side !== 'sell') return;
         const symbol = currentSymbol();
-        const volume = el('volume') ? el('volume').value : '0.10';
+        let volume = '0.01';
+        const hv = el('volume') ? el('volume').value : '';
+        if (hv && Number(hv) > 0) volume = String(hv);
         const sl = (lastAiPlan.stop_loss != null) ? String(lastAiPlan.stop_loss) : '';
         const tp = (lastAiPlan.take_profit != null) ? String(lastAiPlan.take_profit) : '';
         const msg = `Execute ${lastAiPlan.position} ${symbol}\nSL: ${sl || '-'}  TP: ${tp || '-'}\nProceed?`;
