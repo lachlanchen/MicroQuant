@@ -6662,6 +6662,52 @@ const ensureLwMacd = () => {
           } catch {}
           const safeHtml = safe ? `<span style=\"color:#e74c3c;\">Safe max: ${esc(safe)} lots</span>` : '';
           if (autoMeta) autoMeta.innerHTML = `${esc(sym)} • TF ${esc(tf)} • Open: ${openLots.toFixed(2)} lots ${safeHtml ? '• ' + safeHtml : ''}`;
+          // Mirror safe into input; disable Start if breached and show hint
+          const safeInput = document.getElementById('autoSafeMaxInput');
+          if (safeInput) safeInput.value = String(Number(safe || 0.10) || 0.10);
+          const safeNum = Number(safeInput && safeInput.value);
+          if (btnAutoStart) btnAutoStart.disabled = Number.isFinite(safeNum) && safeNum > 0 ? (openLots > safeNum) : false;
+          const hintEl = document.getElementById('autoSafeHint');
+          if (hintEl) hintEl.textContent = `Open ${openLots.toFixed(2)} • Safe ${Number.isFinite(safeNum)&&safeNum>0? safeNum.toFixed(2): '—'}`;
+          // Initialize and cross-sync Auto Vol with header Vol and DB (default to 0.01)
+          try {
+            const volInput = document.getElementById('autoVolumeInput');
+            const headerVol = document.getElementById('volume');
+            let baseVol = NaN;
+            // Prefer stored auto volume
+            try {
+              const k = encodeURIComponent(`auto_volume:${sym}:${tf}`);
+              const r = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const map = (js && js.prefs) || js || {};
+              const v = Number(map[`auto_volume:${sym}:${tf}`]);
+              if (Number.isFinite(v) && v > 0) baseVol = v;
+            } catch {}
+            // Else try header value
+            if (!Number.isFinite(baseVol) || baseVol <= 0) {
+              const hv = Number(headerVol && headerVol.value);
+              if (Number.isFinite(hv) && hv > 0) baseVol = hv;
+            }
+            // Else fall back to default 0.01
+            if (!Number.isFinite(baseVol) || baseVol <= 0) baseVol = 0.01;
+            // Apply to both UI controls
+            if (volInput) volInput.value = String(baseVol.toFixed(2));
+            if (headerVol) headerVol.value = String(baseVol.toFixed(2));
+            // Persist to DB (both auto and trade volume keys)
+            queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(baseVol));
+            queuePrefUpdate(`trade_volume:${sym}:${tf}`, String(baseVol));
+          } catch {}
+          // Initialize SL toggle from preference (default on)
+          try {
+            const slT = document.getElementById('autoSlToggle');
+            if (slT) {
+              const k = encodeURIComponent(`auto_sl_enabled:${sym}:${tf}`);
+              const r = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const map = (js && js.prefs) || js || {};
+              slT.checked = String(map[`auto_sl_enabled:${sym}:${tf}`] || '1') === '1';
+            }
+          } catch {}
         } catch {
           if (autoMeta) autoMeta.textContent = `${currentSymbol()} • TF ${currentTf()}`;
         }
