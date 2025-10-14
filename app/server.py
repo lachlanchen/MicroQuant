@@ -1942,6 +1942,7 @@ async def make_app():
             (r"/api/auto_trade/log", AutoTradeLogHandler, dict(pool=pool)),
             (r"/api/accounts", AccountsHandler, dict(pool=pool)),
             (r"/api/account/login", AccountLoginHandler, dict(pool=pool)),
+            (r"/api/account/closed_deals_purge", ClosedDealsPurgeHandler),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
             (r"/api/trades/signal", SignalTradesHandler, dict(pool=pool)),
@@ -2439,6 +2440,60 @@ class ClosedDealsSyncHandler(tornado.web.RequestHandler):
         tornado.ioloop.IOLoop.current().spawn_callback(runner)
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({"ok": True, "scheduled": True}))
+
+
+class ClosedDealsPurgeHandler(tornado.web.RequestHandler):
+    async def post(self):
+        confirm = self.get_argument("confirm", default="0").lower() in ("1", "true", "yes", "on")
+        all_flag = self.get_argument("all", default="0").lower() in ("1", "true", "yes", "on")
+        account_arg = self.get_argument("account", default=None)
+        if not confirm:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "confirm=1 required"}))
+            return
+        try:
+            deleted = 0
+            async with GLOBAL_POOL.acquire() as conn:
+                if all_flag:
+                    status = await conn.execute("DELETE FROM closed_deals")
+                    # status like 'DELETE 123'
+                    try:
+                        deleted = int(status.split()[-1])
+                    except Exception:
+                        deleted = 0
+                    logger.info("[closed_deals purge] all accounts removed rows=%s", deleted)
+                else:
+                    if not account_arg:
+                        self.set_status(400)
+                        self.set_header("Content-Type", "application/json")
+                        self.finish(json.dumps({"ok": False, "error": "account or all=1 required"}))
+                        return
+                    try:
+                        account_id = int(account_arg)
+                    except Exception:
+                        self.set_status(400)
+                        self.set_header("Content-Type", "application/json")
+                        self.finish(json.dumps({"ok": False, "error": "invalid account"}))
+                        return
+                    status = await conn.execute("DELETE FROM closed_deals WHERE account_id=$1", int(account_id))
+                    try:
+                        deleted = int(status.split()[-1])
+                    except Exception:
+                        deleted = 0
+                    logger.info("[closed_deals purge] account=%s removed rows=%s", account_id, deleted)
+            # Notify clients to refresh
+            try:
+                await emit_closed_deals_event()
+            except Exception:
+                pass
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "deleted": deleted, "all": all_flag}))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
 
 
 class STLHandler(tornado.web.RequestHandler):
