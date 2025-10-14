@@ -479,68 +479,106 @@ def _is_fx_symbol(sym: str | None) -> bool:
     return s.startswith(("XAU", "XAG", "XPT", "XPD"))
 
 
-def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
+def _build_pair_position_prompt(
+    pair_symbol: str,
+    items: list[dict],
+    timeframe: str | None,
+    closes: list[float] | None = None,
+    latest_tick_line: str | None = None,
+) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+    tick_tail = ""
+    if latest_tick_line:
+        tick_tail = f"{latest_tick_line}\n"
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}{tick_tail}\n"
         "Task: Based on the evidence above, provide the trade orientation JSON."
     )
 
-def _build_pair_prompt_position_question(question_text: str, pair_symbol: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
+def _build_pair_prompt_position_question(
+    question_text: str,
+    pair_symbol: str,
+    items: list[dict],
+    timeframe: str | None,
+    closes: list[float] | None = None,
+    latest_tick_line: str | None = None,
+) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+    tick_tail = ""
+    if latest_tick_line:
+        tick_tail = f"{latest_tick_line}\n"
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}{tick_tail}\n"
         f"Question: {question_text}\n"
     )
 
 
-def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
+def _build_stock_position_prompt(
+    ticker: str,
+    items: list[dict],
+    timeframe: str | None,
+    closes: list[float] | None = None,
+    latest_tick_line: str | None = None,
+) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+    tick_tail = ""
+    if latest_tick_line:
+        tick_tail = f"{latest_tick_line}\n"
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}{tick_tail}\n"
         "Task: Based on the evidence above, provide the trade orientation JSON."
     )
 
-def _build_stock_prompt_position_question(question_text: str, ticker: str, items: list[dict], timeframe: str | None, closes: list[float] | None = None) -> str:
+def _build_stock_prompt_position_question(
+    question_text: str,
+    ticker: str,
+    items: list[dict],
+    timeframe: str | None,
+    closes: list[float] | None = None,
+    latest_tick_line: str | None = None,
+) -> str:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
         n = len(closes)
         prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+    tick_tail = ""
+    if latest_tick_line:
+        tick_tail = f"{latest_tick_line}\n"
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
-        f"Articles:\n---\n{blk}\n---\n{prices_line}\n"
+        f"Articles:\n---\n{blk}\n---\n{prices_line}{tick_tail}\n"
         f"Question: {question_text}\n"
     )
 
@@ -3985,6 +4023,9 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 except Exception:
                     closes_series = None
 
+            # Optional latest tick summary line (from client) to append after closes
+            latest_tick_str = str(payload.get("latest_tick_line") or "").strip()
+
             # Upsert the used news into DB under the pair symbol (so freshness can resolve exact article times)
             try:
                 pair_symbol = f"{base}{quote}"
@@ -4009,7 +4050,14 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 question_text = _substitute_currency_tokens(raw_text, base, quote)
                 # Per-question position schema overrides the legacy choice/bool behavior
                 if isinstance(question_schema, dict):
-                    prompt = _build_pair_prompt_position_question(question_text, sym, items, timeframe, closes=closes_series)
+                    prompt = _build_pair_prompt_position_question(
+                        question_text,
+                        sym,
+                        items,
+                        timeframe,
+                        closes=closes_series,
+                        latest_tick_line=(latest_tick_str or None),
+                    )
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         question_schema,
@@ -4156,7 +4204,13 @@ class HealthRunHandler(tornado.web.RequestHandler):
             try:
                 pos_schema = (strat or {}).get("position_response_schema")
                 if isinstance(pos_schema, dict):
-                    pos_prompt = _build_pair_position_prompt(sym, items, timeframe, closes=closes_series)
+                    pos_prompt = _build_pair_position_prompt(
+                        sym,
+                        items,
+                        timeframe,
+                        closes=closes_series,
+                        latest_tick_line=(latest_tick_str or None),
+                    )
                     position_obj = AI_CLIENT.send_request_with_json_schema(
                         pos_prompt,
                         pos_schema,
@@ -4301,10 +4355,20 @@ class HealthRunHandler(tornado.web.RequestHandler):
             expl = str((out or {}).get("explanation") or "").strip()
             return (qid, ans_raw, expl)
 
+        # Optional latest tick summary line from client
+        latest_tick_str_stock = str(payload.get("latest_tick_line") or "").strip()
+
         def _call_one_stock_position(qobj: dict) -> tuple[str, dict, str]:
             qid = str(qobj.get("id") or "")
             qtext = str(qobj.get("text") or "")
-            prompt = _build_stock_prompt_position_question(qtext, symbol, items, timeframe, closes=closes_series_stock)
+            prompt = _build_stock_prompt_position_question(
+                qtext,
+                symbol,
+                items,
+                timeframe,
+                closes=closes_series_stock,
+                latest_tick_line=(latest_tick_str_stock or None),
+            )
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 question_schema_stock,
@@ -4423,7 +4487,13 @@ class HealthRunHandler(tornado.web.RequestHandler):
         try:
             pos_schema = (strat or {}).get("position_response_schema")
             if isinstance(pos_schema, dict):
-                pos_prompt = _build_stock_position_prompt(symbol, items, timeframe, closes=closes_series_stock)
+                pos_prompt = _build_stock_position_prompt(
+                    symbol,
+                    items,
+                    timeframe,
+                    closes=closes_series_stock,
+                    latest_tick_line=(latest_tick_str_stock or None),
+                )
                 position_obj = AI_CLIENT.send_request_with_json_schema(
                     pos_prompt,
                     pos_schema,
