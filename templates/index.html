@@ -1079,6 +1079,8 @@
       let usePeriodGrid = false; // disable vertical grid; use markers instead
       let lwOverlayDpr = (window.devicePixelRatio || 1);
       let lwSeries = null;
+      let lwBidPriceLine = null;
+      let lwAskPriceLine = null;
       let lwBollingerUpper = null;
       let lwBollingerLower = null;
       let lwBollingerMid = null;
@@ -1086,6 +1088,13 @@
       let lwTimeRangeSubscribed = false;
       let currentTimeRange = null;
       let currentLogicalRange = null;
+      // Live tick state for performance
+      let lwLastBidVal = null;
+      let lwLastAskVal = null;
+      // Applied price format cache
+      let lwFmtSym = null;
+      let lwFmtDigits = null;
+      let lwFmtPoint = null;
       let stlTrendSeries = null;
       let stlSeasonSeries = null;
       let stlResidSeries = null;
@@ -1353,6 +1362,17 @@
         // remove trailing zeros then trailing dot
         return str.replace(/\.0+$/, '').replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.$/, '');
       }
+      function applySeriesPriceFormatForSymbol(sym) {
+        try {
+          if (!lwSeries) return;
+          const s = (sym || '').toUpperCase();
+          const digits = getSymbolDigits(s);
+          const point = getSymbolPoint(s) || Math.pow(10, -Math.max(0, Math.min(8, digits)));
+          if (lwFmtSym === s && lwFmtDigits === digits && Math.abs((lwFmtPoint||0) - point) < 1e-12) return;
+          lwSeries.applyOptions({ priceFormat: { type: 'price', precision: Math.max(0, Math.min(8, digits)), minMove: point } });
+          lwFmtSym = s; lwFmtDigits = digits; lwFmtPoint = point;
+        } catch {}
+      }
       function formatPriceForSymbol(sym, value) {
         if (value == null) return '—';
         const n = Number(value);
@@ -1366,6 +1386,18 @@
         }
         const fixed = v.toFixed(Math.max(0, Math.min(8, digits)));
         return stripTrailingZeros(fixed);
+      }
+      function formatPriceForSymbolFull(sym, value) {
+        if (value == null) return '—';
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '—';
+        const digits = getSymbolDigits(sym);
+        let v = n;
+        const point = getSymbolPoint(sym);
+        if (Number.isFinite(point) && point > 0) {
+          v = Math.round(v / point) * point;
+        }
+        return v.toFixed(Math.max(0, Math.min(8, digits)));
       }
 
       // STL runs lazy list state
@@ -1983,10 +2015,10 @@
           const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           try {
-            console.log('[PnL] auto refresh deals=', (js.deals||[]).length, 'cum=', (js.cum||[]).length);
+            debugLog('[PnL] auto refresh deals=', (js.deals||[]).length, 'cum=', (js.cum||[]).length);
             const deals = Array.isArray(js.deals) ? js.deals : [];
             const samp = deals.slice(-10).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
-            console.log('[PnL] auto deals sample (last 10)=', samp);
+            debugLog('[PnL] auto deals sample (last 10)=', samp);
           } catch {}
           if (!r.ok || !js || js.ok !== true) return;
           if (!ensureBalanceChart()) return;
@@ -2056,7 +2088,7 @@
             console.log('[PnL] cum head=', headCum, 'tail=', tailCum);
           } catch {}
           pnlChart.data.datasets[0].data = cum;
-          try { console.log('[PnL] chart dataset points=', pnlChart.data.datasets[0].data.length); } catch {}
+          try { debugLog('[PnL] chart dataset points=', pnlChart.data.datasets[0].data.length); } catch {}
           try { status(`PnL updated: ${cum.length} pts${acct ? ` (acct ${acct})` : ''}`); } catch {}
           pnlChart.update('none');
         } catch (e) {
@@ -2580,7 +2612,7 @@ const ensureLwMacd = () => {
           try {
             chart.timeScale().setVisibleRange(range);
           } catch (err) {
-            console.warn('[ChartSync] setVisibleRange failed', err);
+            debugWarn('[ChartSync] setVisibleRange failed', err);
           }
         }
       };
@@ -2597,7 +2629,7 @@ const ensureLwMacd = () => {
           try {
             chart.timeScale().setVisibleLogicalRange(logicalRange);
           } catch (err) {
-            console.warn('[ChartSync] setVisibleLogicalRange failed', err);
+            debugWarn('[ChartSync] setVisibleLogicalRange failed', err);
           }
         }
       };
@@ -3040,10 +3072,10 @@ const ensureLwMacd = () => {
             body.tech_snapshot = snapshot;
             body.timeframe = tfNow;
           } catch (err) {
-            console.warn('Failed to build tech snapshot', err);
+          debugWarn('Failed to build tech snapshot', err);
           }
         }
-        console.log('[Health] using strategy', strategyName || '(auto)');
+        debugLog('[Health] using strategy', strategyName || '(auto)');
         const outBox = el('healthResultsBox');
         outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
         try {
@@ -3088,7 +3120,7 @@ const ensureLwMacd = () => {
           const techModelSel = document.getElementById('techAiModel');
           const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
           if (techModel) body.model = techModel;
-          console.log('[Health][TechAI] running tech snapshot for', sym, currentTf());
+          debugLog('[Health][TechAI] running tech snapshot for', sym, currentTf());
           if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
           outBox.innerHTML = '<div style="color:var(--muted)">Running Tech+AI…</div>';
           const res = await fetch('/api/health/run', {
@@ -5768,6 +5800,8 @@ const ensureLwMacd = () => {
             wickDownColor: '#e74c3c',
             borderVisible: false,
           });
+          // Apply initial price format based on known or fallback precision
+          try { applySeriesPriceFormatForSymbol(currentSymbol()); } catch {}
           if (!lwBollingerUpper) {
             lwBollingerUpper = lwChart.addLineSeries({
               color: '#ff9800',
@@ -5833,7 +5867,7 @@ const ensureLwMacd = () => {
       }
       function handleFetchEvent(data) {
         if (!data) return;
-        debugLog('[WS] fetch event', data);
+          debugLog('[WS] fetch event', data);
         if (data.status === 'scheduled' && data.background) {
           status(`Background fetch scheduled (${data.symbol} ${data.timeframe})`);
           return;
@@ -6683,6 +6717,7 @@ const ensureLwMacd = () => {
               close: Number(r.close)
             }));
             lwSeries.setData(data);
+            try { applySeriesPriceFormatForSymbol(symbol); } catch {}
             // Cache bar times for precise anchoring
             lwLastTimes = data.map(d => d.time);
             const toLwPoints = (values) =>
@@ -7168,7 +7203,7 @@ const ensureLwMacd = () => {
         const txt = el('closeModalText');
         if (txt) txt.textContent = `Close all open positions for ${sym} (Current) or across ALL symbols?`;
         modal.dataset.scope = (defaultScope === 'all') ? 'all' : 'current';
-        console.log('[Close] open modal scope=', modal.dataset.scope);
+        debugLog('[Close] open modal scope=', modal.dataset.scope);
         // reset toggles
         const cL = el('chkCloseLong'); if (cL) cL.checked = false;
         const cS = el('chkCloseShort'); if (cS) cS.checked = false;
@@ -7186,7 +7221,7 @@ const ensureLwMacd = () => {
         if (!wantLong && !wantShort) { status('Select at least one side (Long/Short) to close.'); return; }
         const sideParam = (wantLong && wantShort) ? 'both' : (wantLong ? 'long' : 'short');
         status(`Closing positions (${effScope}, ${sideParam})...`);
-        console.log('[Close] confirm scope=', effScope, 'symbol=', symbol);
+        debugLog('[Close] confirm scope=', effScope, 'symbol=', symbol);
         // simple effect: disable buttons while closing
         const btnCur = document.getElementById('btnConfirmCloseCurrent');
         const btnAll = document.getElementById('btnConfirmCloseAll');
@@ -7210,12 +7245,12 @@ const ensureLwMacd = () => {
           if (r.ok && js && js.ok) {
             const n = Number.isFinite(Number(js.closed_count)) ? Number(js.closed_count) : (Array.isArray(js.closed) ? js.closed.length : 0);
             status(`Closed ${n} position(s) [${js.scope||effScope}]`);
-            try { console.log('[Close] response', js); } catch {}
+            try { debugLog('[Close] response', js); } catch {}
             // If detailed closed array present, log a compact summary of retcodes
             try {
               if (Array.isArray(js.closed)) {
                 const codes = js.closed.map(x => (x && typeof x === 'object' ? x.retcode : null)).filter(x => x != null);
-                console.log('[Close] retcodes', codes);
+                debugLog('[Close] retcodes', codes);
               }
             } catch {}
             await refreshChart();
@@ -7340,10 +7375,10 @@ const ensureLwMacd = () => {
           const mt5Res = await fetch(url, { cache: 'no-store' });
           const mt5Js = await mt5Res.json().catch(()=>({}));
           try {
-            console.debug('[PnL] mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length);
+          debugLog('[PnL] mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length);
             const deals = Array.isArray(mt5Js.deals) ? mt5Js.deals : [];
             const samp = deals.slice(-10).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
-            console.debug('[PnL] mt5 deals sample (last 10)=', samp);
+          debugLog('[PnL] mt5 deals sample (last 10)=', samp);
           } catch {}
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
@@ -7359,16 +7394,16 @@ const ensureLwMacd = () => {
           // Purge selected account rows
           const r = await fetch(`/api/account/closed_deals_purge?account=${encodeURIComponent(acct)}&confirm=1`, { method:'POST' });
           const js = await r.json().catch(()=>({}));
-          console.debug('[PnL] purge result', js);
+          debugLog('[PnL] purge result', js);
           // Fetch latest from MT5 then refresh chart
           let url = `/api/account/closed_deals?days=5000&source=mt5&debug=1&nonzero=1&account=${encodeURIComponent(acct)}`;
           const mt5Res = await fetch(url, { cache:'no-store' });
           const mt5Js = await mt5Res.json().catch(()=>({}));
-          console.debug('[PnL] after purge, mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length);
+          debugLog('[PnL] after purge, mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length);
           await refreshClosedDealsSeries();
           status('Purge + Refetch completed');
         } catch (e) {
-          console.error('Purge failed', e);
+            debugWarn('Purge failed', e);
           status('Purge failed');
         } finally {
           btnPurgeClosed.disabled = false; btnPurgeClosed.textContent = prev;
@@ -8026,15 +8061,39 @@ const ensureLwMacd = () => {
             const { bid, ask } = js.tick;
             const spr = (Number(ask) - Number(bid));
             const digits = getSymbolDigits(symbol);
-            const bidStr = Number.isFinite(Number(bid)) ? formatPriceForSymbol(symbol, Number(bid)) : '—';
-            const askStr = Number.isFinite(Number(ask)) ? formatPriceForSymbol(symbol, Number(ask)) : '—';
-            const sprStr = Number.isFinite(spr) ? stripTrailingZeros(spr.toFixed(Math.max(1, Math.min(5, digits)))) : '—';
+            const bidStr = Number.isFinite(Number(bid)) ? formatPriceForSymbolFull(symbol, Number(bid)) : '—';
+            const askStr = Number.isFinite(Number(ask)) ? formatPriceForSymbolFull(symbol, Number(ask)) : '—';
+            const sprDigits = Math.max(1, Math.min(5, digits));
+            const sprStr = Number.isFinite(spr) ? (Math.round(spr / (getSymbolPoint(symbol) || Math.pow(10, -sprDigits))) * (getSymbolPoint(symbol) || Math.pow(10, -sprDigits))).toFixed(sprDigits) : '—';
             const tk = document.getElementById('ticker');
             if (tk) tk.textContent = `${symbol}  Bid ${bidStr}  Ask ${askStr}  Spr ${sprStr}`;
             const b = document.getElementById('btnBuy');
             const s = document.getElementById('btnSell');
             if (b) b.textContent = `Buy @ ${askStr}`;
             if (s) s.textContent = `Sell @ ${bidStr}`;
+
+            // Update live bid/ask price lines on candlestick chart (throttled to tick size)
+            try {
+              if (curType === 'candlestick' && lwChart && lwSeries && Number.isFinite(Number(bid)) && Number.isFinite(Number(ask))) {
+                applySeriesPriceFormatForSymbol(symbol);
+                const d = (LightweightCharts && LightweightCharts.LineStyle) ? LightweightCharts.LineStyle : { Solid: 0, Dotted: 1, Dashed: 2 };
+                const point = getSymbolPoint(symbol) || Math.pow(10, -Math.max(0, getSymbolDigits(symbol)));
+                const minDelta = Math.max(point, 1e-8);
+                const bidVal = Number(bid); const askVal = Number(ask);
+                const needBid = (lwLastBidVal == null) || Math.abs(bidVal - lwLastBidVal) >= minDelta;
+                const needAsk = (lwLastAskVal == null) || Math.abs(askVal - lwLastAskVal) >= minDelta;
+                if (needBid) {
+                  try { if (lwBidPriceLine) { lwSeries.removePriceLine(lwBidPriceLine); lwBidPriceLine = null; } } catch {}
+                  lwBidPriceLine = lwSeries.createPriceLine({ price: bidVal, color: '#2ecc71', lineWidth: 1, lineStyle: d.Dotted ?? 1, axisLabelVisible: true, title: 'BID' });
+                  lwLastBidVal = bidVal;
+                }
+                if (needAsk) {
+                  try { if (lwAskPriceLine) { lwSeries.removePriceLine(lwAskPriceLine); lwAskPriceLine = null; } } catch {}
+                  lwAskPriceLine = lwSeries.createPriceLine({ price: askVal, color: '#e74c3c', lineWidth: 1, lineStyle: d.Dashed ?? 2, axisLabelVisible: true, title: 'ASK' });
+                  lwLastAskVal = askVal;
+                }
+              }
+            } catch (e) { /* ignore visual errors */ }
           }
         } catch (e) {
           // ignore transient errors
