@@ -6565,6 +6565,8 @@ const ensureLwMacd = () => {
             if (html2) autoHistoryBox.insertAdjacentHTML('beforeend', html2);
             return;
           }
+          // Cache runs for quick click-detail display
+          try { runs.forEach((rr)=> { try { autoHistoryCache.set(Number(rr.id), rr); } catch {} }); } catch {}
           const html = runs.map(r => {
             const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
             const ans = r.answers || r.answers_json || {};
@@ -6591,16 +6593,21 @@ const ensureLwMacd = () => {
           // Lookup run in DOM by re-fetching the latest page then find matching id
           (async ()=>{
             try {
-              const sym = currentSymbol();
-              const tf = currentTf();
-              const params = new URLSearchParams();
-              if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
-              else { params.set('kind','stock'); params.set('symbol', sym); }
-              params.set('group','auto'); params.set('tf', tf); params.set('limit','20'); params.set('offset','0');
-              const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
-              const js = await r.json().catch(()=>({}));
-              const runs = Array.isArray(js.runs) ? js.runs : [];
-              const run = runs.find(x => Number(x.id) === id);
+              // Use cache first, then fallback to a short fetch if missing
+              let run = autoHistoryCache.get(id);
+              if (!run) {
+                const sym = currentSymbol();
+                const tf = currentTf();
+                const params = new URLSearchParams();
+                if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+                else { params.set('kind','stock'); params.set('symbol', sym); }
+                params.set('group','auto'); params.set('tf', tf); params.set('limit','20'); params.set('offset','0');
+                const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+                const js = await r.json().catch(()=>({}));
+                const runs = Array.isArray(js.runs) ? js.runs : [];
+                runs.forEach((rr)=>{ try { autoHistoryCache.set(Number(rr.id), rr); } catch {} });
+                run = runs.find(x => Number(x.id) === id);
+              }
               const ans = (run && (run.answers || run.answers_json)) || {};
               const meta = ans.meta || {};
               const steps = Array.isArray(ans.log) ? ans.log : [];
@@ -6655,6 +6662,21 @@ const ensureLwMacd = () => {
         try { const s = document.getElementById('btnAutoStart'); if (s) s.focus(); } catch {}
       }
       try { window.openAutoModal = openAutoModal; } catch {}
+      // Cross-sync: right panel Safe Max and top Volume with Auto modal controls
+      (function setupAutoCrossSync(){
+        const rightSafe = document.getElementById('safeMaxLotsInput');
+        const headerVol = document.getElementById('volume');
+        const modalSafe = document.getElementById('autoSafeMaxInput');
+        const modalVol = document.getElementById('autoVolumeInput');
+        function _syncSafeFromRight(){ if (!modalSafe || !rightSafe) return; modalSafe.value = String(rightSafe.value||''); _saveAutoPrefs(); }
+        function _syncSafeFromModal(){ if (!modalSafe || !rightSafe) return; rightSafe.value = String(modalSafe.value||''); _saveAutoPrefs(); }
+        function _syncVolFromHeader(){ if (!modalVol || !headerVol) return; modalVol.value = String(headerVol.value||''); const sym=currentSymbol(), tf=currentTf(); queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(modalVol.value||'')); queuePrefUpdate(`trade_volume:${sym}:${tf}`, String(headerVol.value||'')); }
+        function _syncVolFromModal(){ if (!modalVol || !headerVol) return; headerVol.value = String(modalVol.value||''); const sym=currentSymbol(), tf=currentTf(); queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(modalVol.value||'')); queuePrefUpdate(`trade_volume:${sym}:${tf}`, String(headerVol.value||'')); }
+        if (rightSafe) rightSafe.addEventListener('change', _syncSafeFromRight);
+        if (modalSafe) modalSafe.addEventListener('change', _syncSafeFromModal);
+        if (headerVol) headerVol.addEventListener('change', _syncVolFromHeader);
+        if (modalVol) modalVol.addEventListener('change', _syncVolFromModal);
+      })();
     </script>
   </body>
   </html>
