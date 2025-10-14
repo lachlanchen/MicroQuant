@@ -6047,14 +6047,19 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           try { setAutoMirrorFreshness(hj, tfj); } catch {}
           // Decide whether to run new checks based on freshness
           let runBasic = false, runTech = false;
-          try { runBasic = (hj && hj.status === 'stale' && Number(hj.new_count||0) > 0); } catch {}
+          try {
+            const bstatus = (hj && typeof hj.status === 'string') ? hj.status.toLowerCase() : 'unknown';
+            const bnew = Number(hj && hj.new_count != null ? hj.new_count : NaN);
+            // Treat unknown (no recent Basic run) as stale → run
+            runBasic = (bstatus === 'unknown') || (bstatus === 'stale' && Number.isFinite(bnew) && bnew > 0);
+          } catch {}
           try {
             const tstatus = (tfj && typeof tfj.status === 'string') ? tfj.status.toLowerCase() : 'unknown';
             const out = Number(tfj && tfj.outdated_bars != null ? tfj.outdated_bars : NaN);
             // Treat unknown (no recent Tech+AI) as stale → run
             runTech = (tstatus === 'unknown') || (tstatus === 'stale' && Number.isFinite(out) && out > 0);
           } catch {}
-          if (runBasic) appendAutoLog('Outdated: Basic — running new check…'); else appendAutoLog('Basic is fresh — using latest run.');
+          if (runBasic) appendAutoLog((hj && hj.status === 'unknown') ? 'No recent Basic check — running new check…' : 'Outdated: Basic — running new check…'); else appendAutoLog('Basic is fresh — using latest run.');
           if (runTech) appendAutoLog((tfj && tfj.status === 'unknown') ? 'No recent Tech+AI — running new check…' : 'Outdated: Tech — running new check…'); else appendAutoLog('Tech is fresh — using latest run.');
           let basicId = null, techId = null;
           if (runBasic) basicId = await newBasicCheckForTrade();
