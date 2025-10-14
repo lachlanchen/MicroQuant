@@ -3603,19 +3603,22 @@ const ensureLwMacd = () => {
           if (r.ok && js && js.ok) {
             renderTechFresh(js);
             if (typeof maybeAutoRunTech === 'function') maybeAutoRunTech(js);
-            // Set latest Tech signal in its own pill
+            // Set latest Tech signal in its own pill (latest TECH group, any supported strategy)
             try {
               const sig = await (async () => {
                 const p = new URLSearchParams();
                 const s = currentSymbol();
                 if (isFxPair(s)) { const pq = splitPair(s); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); } else { p.set('kind','stock'); p.set('symbol', s); }
-                p.set('strategy','tech_snapshot_10q_position.json'); p.set('tf', currentTf()); p.set('limit','1');
+                p.set('group', 'tech'); p.set('tf', currentTf()); p.set('limit','1');
                 const r2 = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
                 const j2 = await r2.json().catch(()=>({}));
                 const run = Array.isArray(j2.runs) && j2.runs.length ? j2.runs[0] : null;
                 if (!run) return '';
                 const ans = run.answers || run.answers_json || {};
-                if (typeof ans.position === 'string') return ans.position.toUpperCase();
+                // Prefer position field if present
+                if (ans && typeof ans.position === 'object' && typeof ans.position.position === 'string') {
+                  return String(ans.position.position).toUpperCase();
+                }
                 const scores = ans.scores || {};
                 if (typeof scores.NET === 'number') return scores.NET > 0 ? 'BUY' : (scores.NET < 0 ? 'SELL' : 'NEUTRAL');
                 const sigStr = (typeof ans.signal === 'string') ? ans.signal.toUpperCase() : '';
