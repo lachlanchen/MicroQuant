@@ -7411,8 +7411,10 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         syncStlOverlayVisibility();
       }
       async function refreshStlOverlay(options = {}) {
-        const { runId = stlSelectedRunId } = options || {};
-        const autoCompute = (() => { try { return localStorage.getItem(`stl_auto_compute:${currentSymbol()}:${currentTf()}`) === '1'; } catch { return false; } })();
+        const { runId = stlSelectedRunId, autoCompute: autoComputeOverride } = options || {};
+        const autoCompute = (autoComputeOverride != null)
+          ? !!autoComputeOverride
+          : (() => { try { return localStorage.getItem(`stl_auto_compute:${currentSymbol()}:${currentTf()}`) === '1'; } catch { return false; } })();
         const statusBox = el('stlStatus');
         const symbol = currentSymbol();
         const tf = currentTf();
@@ -7503,6 +7505,13 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             if (statusBox) statusBox.textContent = message;
           }
           if (js.needs_compute && autoCompute) {
+            // Avoid infinite loop when our compute uses a capped window and server flags dataset_extended
+            const reason = js.reason || '';
+            if (reason === 'dataset_extended') {
+              // Don’t auto compute again; view remains usable with the last window
+              stlPendingCompute = false;
+              return;
+            }
             if (!stlPendingCompute) {
               stlPendingCompute = true;
               triggerStl('current');
