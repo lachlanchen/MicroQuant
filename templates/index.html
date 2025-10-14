@@ -145,6 +145,33 @@
     .stl-field { display:grid; grid-template-columns: 64px 240px; align-items:center; column-gap:8px; }
     .stl-field .stl-lbl { text-align:right; white-space:nowrap; }
     .stl-field input[type="datetime-local"] { width: 240px; max-width: 100%; height: 32px; padding: 6px 8px; }
+
+    /* Controls container (flexible groups) */
+    .control-top { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .control-group { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+
+    .btn { min-width: 0; }
+    /* Mobile helpers */
+    .mobile-only { display:none; }
+    @media (max-width: 900px) {
+      header { padding: 10px 12px; }
+      header h2 { font-size: 16px; }
+      .container { padding: 12px; }
+      .grid { grid-template-columns: 1fr; }
+      /* Right panel collapses by default on mobile; toggle with header button */
+      #rightCol { display: none; }
+      body.right-open #rightCol { display:block; }
+      /* Compact partner widget */
+      .efx { display:none; }
+      /* Smaller charts to fit viewport */
+      #lwChart { min-height: 360px; height: clamp(320px, 60vh, 640px); }
+      #indicator-wrap canvas { height: 150px !important; }
+      .lw-pane { height: 150px; }
+      /* Buttons and inputs slightly smaller */
+      .btn { padding: 5px 8px; font-size: 12px; }
+      input, select { font-size: 13px; }
+      .mobile-only { display:inline-flex; }
+    }
   </style>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
   <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico" />
@@ -157,6 +184,7 @@
       </div>
       <iframe width="604" height="40" frameborder="0" class="efx" src="https://staticmy.roboforex-cn.com/en/partners/informers_get/?width=600&width_type=slider&speed=4&color_bg=%23ffffff&color_bd=%23dbe5e8&arrows=on&data_type=askbid&EURUSD=&GBPUSD=&USDCHF=&USDJPY=&USDCAD=&AUDUSD=&NZDUSD=&EURGBP=&EURJPY=&EURCHF=&GBPJPY=&GBPCHF=&type=quotestape" style="margin-left:12px; vertical-align:middle;"></iframe>
       <div style="display:flex; gap:16px; align-items:center;">
+        <button id="btnTogglePanel" class="btn secondary mobile-only" style="padding:6px 10px;">Panel</button>
         <div id="signalBar" style="display:flex; gap:8px; align-items:center;">
           <span id="signalDot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#999;"></span>
           <span id="signalText">Signal: —</span>
@@ -295,7 +323,7 @@
           </div>
         </div>
       </div>
-      <div>
+      <div id="rightCol">
         <!-- Data Source Provider button at top of right column -->
         <div style="padding:8px 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
           <a href="https://roboforex.com/"
@@ -901,6 +929,8 @@
     
 
     <script>
+      // Helper: match CSS breakpoint (<=900px) for mobile behaviors
+      const isMobile = () => (window.innerWidth || document.documentElement.clientWidth || 0) <= 900;
       const el = (id) => document.getElementById(id);
       const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
       let DEBUG_LOGS = false;
@@ -921,6 +951,18 @@
       };
       // Update top signal UI (dot color and Trade button)
       let lastSignal = 'hold';
+
+      // Mobile: toggle the right panel visibility
+      (function initRightPanelToggle(){
+        try {
+          const btn = document.getElementById('btnTogglePanel');
+          if (!btn) return;
+          btn.addEventListener('click', () => {
+            const cls = document.body.classList;
+            if (cls.contains('right-open')) cls.remove('right-open'); else cls.add('right-open');
+          });
+        } catch {}
+      })();
       function updateSignalUI(sig, reason) {
         lastSignal = sig || 'hold';
         const dot = document.getElementById('signalDot');
@@ -6162,6 +6204,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               width: rect.width || lwContainer.clientWidth || 800,
               height: rect.height || lwContainer.clientHeight || 400,
             });
+            // Re-apply mobile tuning on resize crossings
+            try { if (isMobile()) applyMobileChartTuning(); } catch {}
           });
           lwObserver.observe(lwContainer);
           const rectInit = lwContainer.getBoundingClientRect();
@@ -6169,6 +6213,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             width: rectInit.width || lwContainer.clientWidth || 800,
             height: rectInit.height || lwContainer.clientHeight || 400,
           });
+          try { if (isMobile()) applyMobileChartTuning(); } catch {}
           ensureLwOverlay();
           if (!lwTimeRangeSubscribed) {
             lwChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
@@ -6230,6 +6275,19 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           refreshTechFreshness();
           if (data.timeframe === currentTf()) { try { runStrategyTop(); } catch (e) {} }
         }
+      }
+
+      // Make candlesticks thinner on mobile by zooming out and hinting a small bar spacing
+      function applyMobileChartTuning() {
+        if (!lwChart || !lwChart.timeScale) return;
+        try {
+          lwChart.applyOptions({ timeScale: { barSpacing: 3 } });
+        } catch {}
+        try {
+          for (let i = 0; i < 6; i++) {
+            lwChart.timeScale().zoomOut(100);
+          }
+        } catch {}
       }
 
       function handleNewsEvent(data) {
@@ -7012,7 +7070,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       (async () => { try { await loadLatestAiPlanPreview(); } catch {} })();
 
       
-      async function refreshChart() {
+  async function refreshChart() {
         const symbol = currentSymbol();
         const tf = currentTf();
         const limit = Math.max(10, currentBarsLimit());
@@ -7080,6 +7138,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               lwSyncing = false;
               lwInitialFitted = true;
               lwSubscriptionsEnabled = true;
+              // On mobile, zoom out further to ensure thin bars
+              try { if (isMobile()) applyMobileChartTuning(); } catch {}
             } else {
               // Preserve user view; do not auto-fit on refresh
               const visibleLogical = lwChart.timeScale().getVisibleLogicalRange();
@@ -7109,9 +7169,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (lwBollingerMid) lwBollingerMid.setData([]);
           clearStlOverlay('STL unavailable (chart refresh failed).');
         }
-      }
+  }
 
-      async function fetchAndSave(opts = {}) {
+  async function fetchAndSave(opts = {}) {
         const isEvent = opts && typeof opts === 'object' && typeof opts.preventDefault === 'function';
         if (isEvent) {
           opts.preventDefault();
