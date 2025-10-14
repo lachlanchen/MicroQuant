@@ -5147,7 +5147,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const strat = resolveBasicStrategyForSymbol(sym);
           const r = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(strat)}`, { cache:'no-store' });
           hj = await r.json().catch(()=>({}));
-          if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`);
+          if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'} (strategy=${strat})`);
         } catch {}
         try { const q = new URLSearchParams({ symbol: sym, tf }); const r = await fetch(`/api/tech/freshness?${q.toString()}`, { cache:'no-store' }); tfj = await r.json().catch(()=>({})); if (r.ok && tfj && tfj.ok) log(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`); } catch {}
         // If stale, run checks (Tech requires snapshot)
@@ -5577,7 +5577,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const hf = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(basicStrat)}`, { cache:'no-store' });
           hj = await hf.json().catch(()=>({}));
           if (hf.ok && hj && hj.ok) {
-            appendAutoLog(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`);
+            appendAutoLog(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'} (strategy=${basicStrat})`);
           }
         } catch {}
           let tfj = null;
