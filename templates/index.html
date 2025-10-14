@@ -4742,6 +4742,11 @@ const ensureLwMacd = () => {
         try { symbols = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); } catch {}
         if (!Array.isArray(symbols) || symbols.length === 0) symbols = [currentSymbol()];
         appendAutoLog(`[Periodic] Running Auto AI Trade for ${symbols.length} symbol(s) on ${tf}`);
+        try {
+          const accountsSel = document.getElementById('autoPeriodicAccountSelect');
+          const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
+          if (accounts && accounts.length) appendAutoLog(`[Periodic] Accounts selected: ${accounts.join(', ')}`);
+        } catch {}
         // Parallel execution with Promise.allSettled
         const tasks = symbols.map(sym => autoAiTradeForSymbol(sym, tf).catch(e => appendAutoLog(`[${sym}] error: ${e && e.message || e}`, 'error')));
         await Promise.allSettled(tasks);
@@ -4752,6 +4757,11 @@ const ensureLwMacd = () => {
         // Minimal clone of autoAiTrade without UI dependence; logs prefixed by [SYM]
         const log = (m, lvl='info') => appendAutoLog(`[${sym}] ${m}`, lvl);
         log(`Auto AI Trade started (${tf})`);
+        try {
+          const model = getTradeAiModel();
+          const lev = getLeverageValue();
+          log(`Model=${model} lev=${lev}`);
+        } catch {}
         // Freshness
         let hj = null, tfj = null;
         try { const r = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }); hj = await r.json().catch(()=>({})); if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`); } catch {}
@@ -4793,6 +4803,28 @@ const ensureLwMacd = () => {
         } catch {}
         if (!side) { log('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
         log(`Signal: ${side}`);
+        // Determine Basic orientation for logging (no behavior change)
+        try {
+          const pb = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); pb.set('kind','forex_pair'); pb.set('base', pq.base); pb.set('quote', pq.quote); }
+          else { pb.set('kind','stock'); pb.set('symbol', sym); }
+          pb.set('group','basic'); pb.set('tf', tf); pb.set('limit','1');
+          const rb = await fetch(`/api/health/runs?${pb.toString()}`, { cache:'no-store' });
+          const jb = await rb.json().catch(()=>({}));
+          const b = Array.isArray(jb.runs) && jb.runs.length ? jb.runs[0] : null;
+          let basicSide = null;
+          if (b) {
+            const ansb = b.answers || b.answers_json || {};
+            const scoresb = ansb.scores || {};
+            if (typeof scoresb.NET === 'number') {
+              if (scoresb.NET > 0) basicSide = 'BUY'; else if (scoresb.NET < 0) basicSide = 'SELL';
+            } else if (typeof ansb.signal === 'string') {
+              const sigb = String(ansb.signal).toUpperCase();
+              if (sigb.includes('BUY')) basicSide = 'BUY'; else if (sigb.includes('SELL')) basicSide = 'SELL';
+            }
+          }
+          log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicSide || 'NEUTRAL'} aligned=${basicSide ? (basicSide===side?'YES':'NO') : '—'}`);
+        } catch {}
         // Draft plan via server using snapshot for this symbol
         let planRunId = null, plan = null;
         try {
@@ -4804,10 +4836,16 @@ const ensureLwMacd = () => {
           if (!r.ok || !js || js.ok !== true) { log(`Plan failed: ${(js && js.error) || r.statusText || 'unknown'}`, 'error'); return; }
           planRunId = js.run_id || null; plan = js.plan || {};
           if (planRunId) log(`Plan run id=${planRunId}`);
+          try {
+            const pSide = (plan.position || '').toUpperCase();
+            const slStr = plan.stop_loss != null ? formatPriceForSymbol(sym, plan.stop_loss) : '—';
+            const tpStr = plan.take_profit != null ? formatPriceForSymbol(sym, plan.take_profit) : '—';
+            log(`Plan: position=${pSide} SL=${slStr} TP=${tpStr}`);
+          } catch {}
         } catch (e) { log(`Plan error: ${e && e.message || e}`, 'error'); return; }
         // Execute order for each selected account (sequentially), using the same plan
         let accounts = [];
-        try { const sel = document.getElementById('autoPeriodicAccountSelect'); accounts = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); } catch {}
+        try { const sel = document.getElementById('autoPeriodicAccountSelect'); accounts = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); if (accounts && accounts.length) log(`Accounts: ${accounts.join(', ')}`); } catch {}
         if (!Array.isArray(accounts) || !accounts.length) {
           const fallback = resolveSelectedAccountValue && resolveSelectedAccountValue();
           if (fallback) accounts = [fallback];
@@ -5019,6 +5057,21 @@ const ensureLwMacd = () => {
           if (autoLogBox) autoLogBox.innerHTML = '';
           tradeState.autoSteps = [];
           appendAutoLog(`Auto AI Trade started for ${sym} ${tf}`);
+          // Context summary: account, leverage, model, volume, safe max, SL/nudge
+          try {
+            const acctNow = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
+            const lev = getLeverageValue();
+            const model = getTradeAiModel();
+            const volEl = document.getElementById('autoVolumeInput');
+            const volStr = (volEl && Number(volEl.value) > 0) ? String(volEl.value) : (el('volume') && Number(el('volume').value) > 0 ? String(el('volume').value) : '0.01');
+            const safeEl = document.getElementById('autoSafeMaxInput');
+            const safeStr = safeEl && safeEl.value ? String(safeEl.value) : '';
+            const slToggleEl = document.getElementById('autoSlToggle');
+            const nudgeEl = document.getElementById('autoSlNudgeToggle');
+            const divEl = document.getElementById('autoSlNudgeDiv');
+            const nudgeDiv = divEl ? String(divEl.value || '4') : '4';
+            appendAutoLog(`[Context] acct=${acctNow || 'current'} lev=${lev} model=${model} vol=${volStr}${safeStr? ` safe_max=${safeStr}`:''} SL=${slToggleEl && slToggleEl.checked ? 'ON' : 'OFF'} nudge=${nudgeEl && nudgeEl.checked ? `ON div=${nudgeDiv}` : 'OFF'}`);
+          } catch {}
           status(`Auto AI Trade running: ${sym} ${tf}`);
           // Freshness snapshots
           let hj = null;
@@ -5147,6 +5200,8 @@ const ensureLwMacd = () => {
               }
             } catch {}
           }
+          // Orientation summary
+          try { appendAutoLog(`[Orientation] Tech=${side || 'NEUTRAL'} Basic=${basicSide || 'NEUTRAL'} aligned=${basicSide ? (basicSide===side?'YES':'NO') : '—'}`); } catch {}
           if (!basicSide) {
             appendAutoLog('Skip: Basic is neutral — not aligned with Tech.', 'warn');
             status('Basic check neutral — no trade.');
@@ -5196,6 +5251,12 @@ const ensureLwMacd = () => {
           if (planRunId) appendAutoLog(`Plan run id=${planRunId}`);
           const p = (planResp.data && planResp.data.plan) || {};
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
+          try {
+            const pSide = (p.position || '').toUpperCase();
+            const slStr = p.stop_loss != null ? formatPriceForSymbol(sym, p.stop_loss) : '—';
+            const tpStr = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '—';
+            appendAutoLog(`Plan: position=${pSide} SL=${slStr} TP=${tpStr}`);
+          } catch {}
           updateExecuteBtn();
           appendAutoLog('Executing order…');
           // Ensure selected account is logged in before trading
