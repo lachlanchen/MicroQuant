@@ -450,9 +450,14 @@ def _make_choice_schema(options: list[str]) -> dict[str, Any]:
 def _build_tech_prompt(question_text: str, symbol: str, timeframe: str | None, snapshot: str, options: list[str]) -> str:
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     allowed = ", ".join(options)
+    guidance = (
+        "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean). "
+        "Favor trend unless multiple confirmations support a high-quality rebound."
+    )
     return (
         "You are a technical analyst. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
-        f"Choose exactly one from: {allowed}. Be decisive and cite the strongest evidence from the snapshot.\\n\\n"
+        f"Choose exactly one from: {allowed}. Be decisive and cite the strongest evidence from the snapshot.\\n"
+        f"{guidance}\\n\\n"
         f"Symbol: {symbol}\\n{tf_line}\\n\\n"
         f"Snapshot (recent technical readings):\\n---\\n{snapshot}\\n---\\n\\n"
         f"Question: {question_text}\\n"
@@ -460,10 +465,15 @@ def _build_tech_prompt(question_text: str, symbol: str, timeframe: str | None, s
 
 def _build_tech_position_prompt(question_text: str, symbol: str, timeframe: str | None, snapshot: str) -> str:
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
+    guidance = (
+        "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean). "
+        "Favor trend unless multiple confirmations support a high-quality rebound."
+    )
     return (
         "You are a technical analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
-        "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
+        "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n"
+        f"{guidance}\n\n"
         f"Symbol: {symbol}\n{tf_line}\n\n"
         f"Snapshot (recent technical readings):\n---\n{snapshot}\n---\n\n"
         f"Question: {question_text}\n"

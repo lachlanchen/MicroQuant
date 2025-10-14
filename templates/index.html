@@ -2932,6 +2932,9 @@ const ensureLwMacd = () => {
         const windowSize = Math.max(1, resolveTechWindow());
         const startIdx = Math.max(rows.length - windowSize, 0);
         const windowRows = rows.slice(startIdx);
+        const opens = rows.map((r) => Number(r?.open));
+        const highs = rows.map((r) => Number(r?.high));
+        const lows = rows.map((r) => Number(r?.low));
         const closes = rows.map((r) => Number(r?.close));
         const volumes = rows.map((r) => {
           const stack = [r?.real_volume, r?.tick_volume, r?.volume]
@@ -2972,7 +2975,7 @@ const ensureLwMacd = () => {
           }));
         };
 
-        const priceData = buildFromArray(closes);
+        const priceOhlcData = buildFromArrays([opens, highs, lows, closes]);
         const volumeData = buildFromArray(volumes);
         const rsiData = buildFromArray(rsiValues);
         const boll = computeBollingerBands(closes);
@@ -2998,7 +3001,7 @@ const ensureLwMacd = () => {
         })();
 
         const sections = [
-          buildTechTable(`${tf} Close Price`, ['Value'], priceData),
+          buildTechTable(`${tf} OHLC`, ['Open','High','Low','Close'], priceOhlcData),
           (tickRows.length ? buildTechTable('Latest Tick (post-bars)', ['Bid','Ask','Mid'], tickRows) : ''),
           buildTechTable('Bollinger (20,2)', ['Mid', 'Upper', 'Lower'], bollData),
           buildTechTable('Volume', ['Value'], volumeData),
@@ -5313,6 +5316,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const windowSize = Math.max(1, resolveTechWindow());
           const startIdx = Math.max(rows.length - windowSize, 0);
           const windowRows = rows.slice(startIdx);
+          const opens  = rows.map(r => Number(r?.open));
+          const highs  = rows.map(r => Number(r?.high));
+          const lows   = rows.map(r => Number(r?.low));
           const closes = rows.map(r => Number(r?.close));
           const volumes = rows.map(r => { const stack=[r?.real_volume, r?.tick_volume, r?.volume].map(Number).filter(v => Number.isFinite(v) && v>0); return stack.length?stack[0]:null; });
           const rsi = computeRSI(closes);
@@ -5328,10 +5334,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           };
           const buildSeries = (arr) => windowRows.map((row, offset) => ({ ts: row.ts, values: [arr[startIdx + offset]] }));
           const buildSeries3 = (a,b,c) => windowRows.map((row, offset) => ({ ts: row.ts, values: [a[startIdx + offset], b[startIdx + offset], c[startIdx + offset]] }));
+          const buildSeries4 = (a,b,c,d) => windowRows.map((row, offset) => ({ ts: row.ts, values: [a[startIdx + offset], b[startIdx + offset], c[startIdx + offset], d[startIdx + offset]] }));
           const parts = [];
           const head = `${sym} • TF ${tf} • N=${windowSize}`;
           parts.push(head);
-          parts.push(toBlock(`${tf} Close Price`, ['Value'], buildSeries(closes)));
+          parts.push(toBlock(`${tf} OHLC`, ['Open','High','Low','Close'], buildSeries4(opens, highs, lows, closes)));
           parts.push(toBlock('Bollinger (20,2)', ['Mid','Upper','Lower'], buildSeries3(boll.middle, boll.upper, boll.lower)));
           parts.push(toBlock('Volume', ['Value'], buildSeries(volumes)));
           parts.push(toBlock('RSI (14)', ['Value'], buildSeries(rsi)));
