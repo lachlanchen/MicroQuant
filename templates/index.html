@@ -6347,7 +6347,7 @@ const ensureLwMacd = () => {
         btnFetchClosed.disabled = true; btnFetchClosed.textContent = 'Fetching…';
         try {
           // Hit MT5 to upsert latest into DB, then reload from DB for plotting
-          await fetch('/api/account/closed_deals?days=5000&source=mt5', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
+          await fetch('/api/account/closed_deals?days=5000&source=mt5&debug=1', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
         finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }
