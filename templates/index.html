@@ -244,6 +244,12 @@
             <div id="lwAdx" class="lw-pane"></div>
           </div>
           <div class="indicator-panel">
+            <h4>Closed PnL (Cumulative)</h4>
+            <div style="width:100%">
+              <canvas id="pnlChartCanvas" height="190"></canvas>
+            </div>
+          </div>
+          <div class="indicator-panel">
             <h4>Account Balance</h4>
             <div class="row" style="gap:12px; align-items:center; margin:4px 0 8px 0;">
               <button class="btn secondary" id="btnFetchClosed" style="padding:4px 8px;">Fetch Closed</button>
@@ -1745,8 +1751,9 @@
         }
       };
 
-      // Account Balance (Chart.js, decoupled from LW to avoid errors)
+      // Account Balance and PnL (Chart.js, decoupled from LW)
       let balanceChart = null;
+      let pnlChart = null;
       let fetchingBalance = false;
       let fetchingClosed = false;
       const ensureBalanceChart = () => {
@@ -1759,9 +1766,7 @@
           data: {
             labels: [],
             datasets: [
-              // Show only the latest balance as a horizontal reference line
-              { label: 'Balance (Last)', data: [], borderColor: '#1b5e20', borderWidth: 1.2, pointRadius: 0, borderDash: [6, 4], tension: 0, yAxisID: 'y2' },
-              { label: 'Closed PnL', data: [], borderColor: '#ff9800', borderWidth: 1.2, pointRadius: 0, tension: 0.15, yAxisID: 'y' },
+              { label: 'Balance', data: [], borderColor: '#1b5e20', borderWidth: 1.4, pointRadius: 0, tension: 0.1, yAxisID: 'y' },
             ],
           },
           options: {
@@ -1773,7 +1778,29 @@
             scales: {
               x: { type: 'time', time: { tooltipFormat: 'MMM d HH:mm' }, ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
               y: { position: 'left', grid: { color: '#e0e6ef' } },
-              y2: { position: 'right', grid: { drawOnChartArea: false } },
+            },
+          },
+        });
+        return true;
+      };
+
+      const ensurePnlChart = () => {
+        if (pnlChart) return true;
+        const canvas = document.getElementById('pnlChartCanvas');
+        if (!canvas) return false;
+        const ctx = canvas.getContext('2d');
+        pnlChart = new window.Chart(ctx, {
+          type: 'line',
+          data: { labels: [], datasets: [ { label: 'Closed PnL (cum)', data: [], borderColor: '#ff9800', borderWidth: 1.4, pointRadius: 0, tension: 0.1 } ] },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: true } },
+            interaction: { intersect: false, mode: 'index' },
+            parsing: false,
+            scales: {
+              x: { type: 'time', time: { tooltipFormat: 'MMM d HH:mm' }, ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
+              y: { position: 'left', grid: { color: '#e0e6ef' } },
             },
           },
         });
@@ -1790,32 +1817,15 @@
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) return;
           if (!ensureBalanceChart()) return;
-          const rows = (js.rows || [])
+          const points = (js.rows || [])
             .map(row => {
               const t = Date.parse(row.ts);
               const v = Number(row.balance);
               if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-              // Chart.js time scale (Luxon adapter) expects millis, not Date object
               return { x: t, y: v };
             })
             .filter(Boolean);
-          const ds = balanceChart.data.datasets[0];
-          // Replace full balance curve with a horizontal line at the latest balance
-          if (!rows.length) {
-            ds.data = [];
-          } else {
-            const last = rows[rows.length - 1];
-            const lastY = Number(last.y);
-            // Determine visible x-range using balance points; fallback to now±1h
-            let xMin = rows[0].x;
-            let xMax = rows[rows.length - 1].x;
-            if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin === xMax) {
-              const now = Date.now();
-              xMin = now - 3600_000;
-              xMax = now + 3600_000;
-            }
-            ds.data = [ { x: xMin, y: lastY }, { x: xMax, y: lastY } ];
-          }
+          balanceChart.data.datasets[0].data = points;
           balanceChart.update('none');
         } catch (e) {
           // swallow UI errors
@@ -1828,23 +1838,21 @@
         const prev = btn ? btn.textContent : '';
         if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
         try {
-          // Prefer DB and ensure selected account session so server resolves correct account_id
+          // Use auto source for refresh; ensure selected account session so server resolves correct account_id
           await ensureSelectedAccountSession?.();
-          const r = await fetch('/api/account/closed_deals?days=5000&source=db&comment=auto-quant-close', { cache: 'no-store' });
+          const r = await fetch('/api/account/closed_deals?days=5000&source=auto', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
-          if (!ensureBalanceChart()) return;
+          if (!ensurePnlChart()) return;
           const cum = (js.cum || [])
             .map(row => {
               const t = Date.parse(row.ts);
               const v = Number(row.value ?? 0);
               if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-              // Use millis for Luxon adapter
               return { x: t, y: v };
             })
             .filter(Boolean);
-          const ds = balanceChart.data.datasets[1];
-          ds.data = cum;
-          balanceChart.update('none');
+          pnlChart.data.datasets[0].data = cum;
+          pnlChart.update('none');
         } catch (e) {
           // swallow UI errors
         } finally {
@@ -6312,7 +6320,7 @@ const ensureLwMacd = () => {
         btnFetchClosed.disabled = true; btnFetchClosed.textContent = 'Fetching…';
         try {
           // Hit MT5 to upsert latest into DB, then reload from DB for plotting
-          await fetch('/api/account/closed_deals?days=5000&source=mt5&comment=auto-quant-close', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
+          await fetch('/api/account/closed_deals?days=5000&source=mt5', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
         finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }
