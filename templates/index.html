@@ -4108,25 +4108,27 @@ const ensureLwMacd = () => {
           const t = norm(techFresh);
           const basicStatus = String((b.status||'')).toLowerCase();
           const techStatus  = String((t.status||'')).toLowerCase();
-          const basicNew = Number(b.new_count||b.new||0);
-          const techOut = Number(t.outdated_bars||t.outdated||0);
-          const basicIsStale = (basicStatus === 'stale') || (basicNew > 0);
-          const techIsStale  = (techStatus  === 'stale') || (techOut > 0);
-          const basicIsFresh = !basicIsStale && (basicStatus === 'fresh' || basicNew === 0);
-          const techIsFresh  = !techIsStale  && (techStatus  === 'fresh' || techOut === 0);
+          const basicNewRaw = (b.new_count != null ? Number(b.new_count) : (b.new != null ? Number(b.new) : null));
+          const techOutRaw  = (t.outdated_bars != null ? Number(t.outdated_bars) : (t.outdated != null ? Number(t.outdated) : null));
+          const hasBasicNew = Number.isFinite(basicNewRaw);
+          const hasTechOut  = Number.isFinite(techOutRaw);
+          const basicIsStale = (basicStatus === 'stale') || (hasBasicNew && basicNewRaw > 0);
+          const techIsStale  = (techStatus  === 'stale') || (hasTechOut  && techOutRaw  > 0);
+          const basicIsFresh = (basicStatus === 'fresh') || (hasBasicNew && basicNewRaw === 0);
+          const techIsFresh  = (techStatus  === 'fresh') || (hasTechOut  && techOutRaw  === 0);
 
           const bRow = document.getElementById('autoMirrorBasicRow');
           const tRow = document.getElementById('autoMirrorTechRow');
-          if (bRow) { bRow.classList.toggle('stale-row', !!basicIsStale); bRow.classList.toggle('fresh-row', !!basicIsFresh); }
-          if (tRow) { tRow.classList.toggle('stale-row', !!techIsStale);  tRow.classList.toggle('fresh-row',  !!techIsFresh); }
+          if (bRow) { bRow.classList.toggle('stale-row', !!basicIsStale); bRow.classList.toggle('fresh-row', !!basicIsFresh && !basicIsStale); }
+          if (tRow) { tRow.classList.toggle('stale-row', !!techIsStale);  tRow.classList.toggle('fresh-row',  !!techIsFresh && !techIsStale); }
           const bBad = document.getElementById('autoMirrorBasicStale');
           const tBad = document.getElementById('autoMirrorTechStale');
           const bFresh = document.getElementById('autoMirrorBasicFresh');
           const tFresh = document.getElementById('autoMirrorTechFresh');
           if (bBad) bBad.style.display = basicIsStale ? 'inline-block' : 'none';
           if (tBad) tBad.style.display = techIsStale  ? 'inline-block' : 'none';
-          if (bFresh) bFresh.style.display = basicIsFresh ? 'inline-block' : 'none';
-          if (tFresh) tFresh.style.display = techIsFresh  ? 'inline-block' : 'none';
+          if (bFresh) bFresh.style.display = (basicIsFresh && !basicIsStale) ? 'inline-block' : 'none';
+          if (tFresh) tFresh.style.display = (techIsFresh  && !techIsStale)  ? 'inline-block' : 'none';
         } catch {}
       }
       // Keep plan schema mirror synced if user changes it in the plan modal
