@@ -477,6 +477,27 @@
           const side = String(p.position||techSignal||'').toLowerCase();
           const sl = p.stop_loss; const tp = p.take_profit;
           for (const acct of accounts){
+            // Safe max lots guard (global then per-symbol×TF)
+            try {
+              const keys = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
+              const pref = await fetch(`/api/preferences?keys=${keys}`, { cache:'no-store' });
+              const pj = await pref.json().catch(()=>({}));
+              const map = (pj && pj.prefs) || pj || {};
+              const vg = Number(map['safe_max_lots:global']);
+              const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
+              const safeMax = Number.isFinite(vg) && vg>0 ? vg : (Number.isFinite(vs) && vs>0 ? vs : NaN);
+              if (Number.isFinite(safeMax) && safeMax > 0) {
+                const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+                const pjs = await pr.json().catch(()=>({}));
+                const arr = Array.isArray(pjs) ? pjs : (Array.isArray(pjs.rows) ? pjs.rows : []);
+                const openLots = arr.reduce((acc, x)=>acc+(Number(x && x.volume)||0), 0);
+                if (openLots >= safeMax) {
+                  info.textContent = `[${sym}] Skip: safe max lots reached — no trade.`;
+                  try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol:sym, timeframe:tf, action: side.toUpperCase(), skipped:true, skip_reason:'safe_max', order_result:{ ok:false, skipped:true, error:'safe_max_exceeded', open_lots:openLots, safe_max:safeMax } }) }); } catch {}
+                  continue;
+                }
+              }
+            } catch {}
             await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }) }).then(r=>r.json()).catch(()=>({}));
             const qp = new URLSearchParams({ symbol: sym, side, volume: String(vol) });
             if (Number.isFinite(+sl)) qp.set('sl', String(sl));

@@ -3322,6 +3322,10 @@ const ensureLwMacd = () => {
           loadHealthHistory();
           // Update Tech freshness badge (Basic is independent; do not touch here)
           try { await refreshTechFreshness(); } catch {}
+          // Best-effort: a short delayed refresh to avoid any race on meta write
+          try { setTimeout(() => { refreshTechFreshness().catch(()=>{}); }, 300); } catch {}
+          // Also refresh Basic badge in case the user expects both to reflect latest context
+          try { await refreshHealthFreshness(); } catch {}
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         }
@@ -4369,6 +4373,7 @@ const ensureLwMacd = () => {
             await loadTradeSourceDropdowns();
             const basicSel = el('selectBasicRun');
             if (basicSel) { basicSel.value = String(js.run_id); basicSel.dispatchEvent(new Event('change')); }
+            try { await refreshHealthFreshness(); } catch {}
             return js.run_id;
           }
         } catch {}
@@ -5405,12 +5410,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const inline = document.getElementById('autoPeriodicSafeMaxInput');
           if (inline && Number(inline.value) > 0) safeMax = Number(inline.value);
           if (!Number.isFinite(safeMax) || !(safeMax > 0)) {
-            const k = encodeURIComponent(`safe_max_lots:${sym}:${tf}`);
+            // Prefer global cap, then per-symbol×TF fallback
+            const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
             const pref = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
             const pj = await pref.json().catch(()=>({}));
             const map = (pj && pj.prefs) || pj || {};
-            const v = Number(map[`safe_max_lots:${sym}:${tf}`]);
-            if (Number.isFinite(v) && v > 0) safeMax = v;
+            const vg = Number(map['safe_max_lots:global']);
+            const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
+            if (Number.isFinite(vg) && vg > 0) safeMax = vg; else if (Number.isFinite(vs) && vs > 0) safeMax = vs;
           }
           if (Number.isFinite(safeMax) && safeMax > 0) {
             const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
@@ -5419,8 +5426,13 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
             log(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
             if (openLots >= safeMax) {
-              log('Skip: open lots exceed or meet safe max — no trade.', 'warn');
-              try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' }) }); } catch {}
+              log('Skip: safe max lots reached — no trade.', 'warn');
+              try {
+                await fetch('/api/auto_trade/log', {
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: !!slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax }, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' })
+                });
+              } catch {}
               return;
             }
           }
@@ -5901,6 +5913,38 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           }
           // Write SL (nudged or plan) to request if enabled
           if (slEnabled && finalSL != null) { body.set('sl', String(finalSL)); }
+          // Safe max lots guard (manual Auto AI Trade)
+          try {
+            let safeMax = NaN;
+            // Prefer global cap, then per-symbol×TF fallback
+            const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
+            const pref = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
+            const pj = await pref.json().catch(()=>({}));
+            const map = (pj && pj.prefs) || pj || {};
+            const vg = Number(map['safe_max_lots:global']);
+            const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
+            if (Number.isFinite(vg) && vg > 0) safeMax = vg; else if (Number.isFinite(vs) && vs > 0) safeMax = vs;
+            if (Number.isFinite(safeMax) && safeMax > 0) {
+              const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+              const pjs = await pr.json().catch(()=>({}));
+              const arr = Array.isArray(pjs) ? pjs : (Array.isArray(pjs.rows) ? pjs.rows : []);
+              const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
+              appendAutoLog(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
+              if (openLots >= safeMax) {
+                appendAutoLog('Skip: safe max lots reached — no trade.', 'warn');
+                try {
+                  const save = await fetch('/api/auto_trade/log', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax }, steps: (tradeState.autoSteps || []) })
+                  });
+                  const saved = await save.json().catch(()=>({}));
+                  if (saved && saved.ok && saved.run_id) { appendAutoLog(`Saved log run id=${saved.run_id}`); autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
+                } catch {}
+                if (btnAutoStart) { btnAutoStart.disabled = false; btnAutoStart.textContent = 'Start'; }
+                return;
+              }
+            }
+          } catch {}
           {
             const pxStr = Number.isFinite(px) ? formatPriceForSymbol(sym, px) : 'market';
             const slStr = (slEnabled && finalSL != null) ? formatPriceForSymbol(sym, finalSL) : 'off';

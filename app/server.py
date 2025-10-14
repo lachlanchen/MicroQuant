@@ -2241,6 +2241,50 @@ class TradeHandler(tornado.web.RequestHandler):
         except Exception:
             slow_i = None
         logger.info("/api/trade symbol=%s side=%s volume=%s", symbol, side, volume)
+        # Safe max lots guard (enforcement)
+        try:
+            safe_max = None
+            if GLOBAL_POOL is not None:
+                tf_key = f"safe_max_lots:{symbol}:{timeframe}" if timeframe else None
+                keys = ["safe_max_lots:global"] + ([tf_key] if tf_key else [])
+                prefs = await get_prefs(GLOBAL_POOL, keys)
+                try:
+                    if prefs.get("safe_max_lots:global") is not None:
+                        safe_max = float(prefs["safe_max_lots:global"])  # type: ignore
+                except Exception:
+                    safe_max = safe_max
+                if safe_max is None and tf_key and prefs.get(tf_key) is not None:
+                    try:
+                        safe_max = float(prefs[tf_key])  # type: ignore
+                    except Exception:
+                        safe_max = None
+            if safe_max and safe_max > 0:
+                # Sum open lots for this symbol
+                try:
+                    positions = mt5_client.list_positions(symbol)
+                except Exception:
+                    positions = []
+                open_lots = 0.0
+                try:
+                    for p in positions:
+                        v = p.get("volume") if isinstance(p, dict) else None
+                        if v is not None:
+                            open_lots += float(v)
+                except Exception:
+                    pass
+                if open_lots >= safe_max:
+                    logger.info("/api/trade skip: safe_max reached (open=%.3f safe=%.3f)", open_lots, safe_max)
+                    self.set_header("Content-Type", "application/json")
+                    self.set_header("Cache-Control", "no-store")
+                    self.finish(json.dumps({
+                        "ok": False,
+                        "error": "safe_max_exceeded",
+                        "result": {"ok": False, "skipped": True, "retcode": "SKIP_SAFE_MAX", "open_lots": open_lots, "safe_max": safe_max},
+                    }))
+                    return
+        except Exception as _exc:
+            # Non-fatal: continue
+            pass
         try:
             res = mt5_client.place_market(symbol, side, volume, sl=sl_val, tp=tp_val)
         except Exception as e:
