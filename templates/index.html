@@ -3616,14 +3616,21 @@ const ensureLwMacd = () => {
                 const run = Array.isArray(j2.runs) && j2.runs.length ? j2.runs[0] : null;
                 if (!run) return '';
                 const ans = run.answers || run.answers_json || {};
-                // Prefer position field if present
+                // Prefer explicit signal classification; map any STRONG_* to base direction
+                const sigStr = (typeof ans.signal === 'string') ? ans.signal.toUpperCase() : '';
+                if (sigStr) {
+                  if (sigStr.includes('SELL')) return 'SELL';
+                  if (sigStr.includes('BUY')) return 'BUY';
+                  return 'NEUTRAL';
+                }
+                // Fallback to position object from +Position strategies
                 if (ans && typeof ans.position === 'object' && typeof ans.position.position === 'string') {
                   return String(ans.position.position).toUpperCase();
                 }
+                // Final fallback to NET score sign
                 const scores = ans.scores || {};
                 if (typeof scores.NET === 'number') return scores.NET > 0 ? 'BUY' : (scores.NET < 0 ? 'SELL' : 'NEUTRAL');
-                const sigStr = (typeof ans.signal === 'string') ? ans.signal.toUpperCase() : '';
-                return sigStr;
+                return '';
               })();
               applySignalPill(techSignalEl, sig);
             } catch {}
@@ -5247,15 +5254,22 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const p = new URLSearchParams();
           if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
           else { p.set('kind','stock'); p.set('symbol', sym); }
-          p.set('strategy','tech_snapshot_10q_position.json'); p.set('tf', tf); p.set('limit','1');
+          // Use TECH group so we always get the latest run regardless of specific template
+          p.set('group','tech'); p.set('tf', tf); p.set('limit','1');
           const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           latest = Array.isArray(js.runs) && js.runs.length ? js.runs[0] : null;
           if (latest) {
             const ans = latest.answers || latest.answers_json || {};
-            const scores = ans.scores || {};
-            if (typeof scores.NET === 'number') { if (scores.NET > 0) side = 'BUY'; else if (scores.NET < 0) side = 'SELL'; }
-            else if (typeof ans.signal === 'string') { const sig = ans.signal.toUpperCase(); if (sig.includes('BUY')) side = 'BUY'; else if (sig.includes('SELL')) side = 'SELL'; }
+            // Prefer explicit signal classification
+            if (typeof ans.signal === 'string') {
+              const sig = ans.signal.toUpperCase();
+              if (sig.includes('BUY')) side = 'BUY'; else if (sig.includes('SELL')) side = 'SELL'; else side = 'NEUTRAL';
+            } else {
+              const scores = ans.scores || {};
+              if (typeof scores.NET === 'number') { if (scores.NET > 0) side = 'BUY'; else if (scores.NET < 0) side = 'SELL'; else side = 'NEUTRAL'; }
+              else if (ans && typeof ans.position === 'object' && typeof ans.position.position === 'string') { side = String(ans.position.position).toUpperCase(); }
+            }
           }
         } catch {}
       if (!side) { log('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
@@ -5272,12 +5286,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           let basicSide = null;
           if (b) {
             const ansb = b.answers || b.answers_json || {};
-            const scoresb = ansb.scores || {};
-            if (typeof scoresb.NET === 'number') {
-              if (scoresb.NET > 0) basicSide = 'BUY'; else if (scoresb.NET < 0) basicSide = 'SELL';
-            } else if (typeof ansb.signal === 'string') {
+            if (typeof ansb.signal === 'string') {
               const sigb = String(ansb.signal).toUpperCase();
-              if (sigb.includes('BUY')) basicSide = 'BUY'; else if (sigb.includes('SELL')) basicSide = 'SELL';
+              if (sigb.includes('BUY')) basicSide = 'BUY'; else if (sigb.includes('SELL')) basicSide = 'SELL'; else basicSide = 'NEUTRAL';
+            } else {
+              const scoresb = ansb.scores || {};
+              if (typeof scoresb.NET === 'number') {
+                if (scoresb.NET > 0) basicSide = 'BUY'; else if (scoresb.NET < 0) basicSide = 'SELL'; else basicSide = 'NEUTRAL';
+              }
             }
           }
           log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicSide || 'NEUTRAL'} aligned=${basicSide ? (basicSide===side?'YES':'NO') : '—'}`);
