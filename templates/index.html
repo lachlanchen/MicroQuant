@@ -349,6 +349,7 @@
               </label>
               <button class="btn" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
               <span id="healthFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
+              <span id="healthSignalIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <label class="switch" style="margin-left:8px;">
                 <input type="checkbox" id="chkAutoBasic" class="toggle-input" disabled />
                 <span class="toggle"></span>
@@ -383,6 +384,7 @@
               </label>
               <button class="btn" id="btnTechAiHealth" style="padding:6px 10px;">Tech+AI Check</button>
               <span id="techFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
+              <span id="techSignalIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <label class="switch" style="margin-left:8px;">
                 <input type="checkbox" id="chkAutoTech" class="toggle-input" disabled />
                 <span class="toggle"></span>
@@ -3401,7 +3403,7 @@ const ensureLwMacd = () => {
           if (r.ok && js && js.ok) {
             renderHealthFresh(js);
             if (typeof maybeAutoRunBasic === 'function') maybeAutoRunBasic(js);
-            // Append latest Basic signal to pill label
+            // Set latest Basic signal in its own pill
             try {
               const sig = await (async () => {
                 const p = new URLSearchParams();
@@ -3419,7 +3421,7 @@ const ensureLwMacd = () => {
                 if (typeof scores.NET === 'number') return scores.NET > 0 ? 'BULLISH' : (scores.NET < 0 ? 'BEARISH' : 'NEUTRAL');
                 return '';
               })();
-              if (sig && healthFreshEl) healthFreshEl.textContent = (healthFreshEl.textContent || '—') + ` • ${sig}`;
+              if (typeof applySignalPill === 'function') applySignalPill(healthSignalEl, sig);
             } catch {}
           }
         } catch (e) {
@@ -3429,6 +3431,23 @@ const ensureLwMacd = () => {
 
       // Tech+AI freshness (bars outdated)
       const techFreshEl = document.getElementById('techFreshIndicator');
+      const healthSignalEl = document.getElementById('healthSignalIndicator');
+      const techSignalEl = document.getElementById('techSignalIndicator');
+      function applySignalPill(el, sig) {
+        if (!el) return;
+        const s = (sig || '').toUpperCase();
+        let bg = 'rgba(158,158,158,0.12)';
+        let border = '#9e9e9e';
+        let color = '#424242';
+        let label = s || '—';
+        if (s === 'BUY' || s === 'BULLISH') { bg = 'rgba(46,204,113,0.12)'; border = '#2ecc71'; color = '#1b5e20'; label = (s === 'BULLISH') ? 'BULLISH' : 'BUY'; }
+        else if (s === 'SELL' || s === 'BEARISH') { bg = 'rgba(231,76,60,0.12)'; border = '#e74c3c'; color = '#b71c1c'; label = (s === 'BEARISH') ? 'BEARISH' : 'SELL'; }
+        else if (s === 'NEUTRAL') { bg = 'rgba(158,158,158,0.12)'; border = '#9e9e9e'; color = '#424242'; label = 'NEUTRAL'; }
+        el.textContent = label;
+        el.style.background = bg;
+        el.style.borderColor = border;
+        el.style.color = color;
+      }
       const setTechFreshRunning = () => {
         if (!techFreshEl) return;
         techFreshEl.textContent = 'Computing…';
@@ -3474,7 +3493,7 @@ const ensureLwMacd = () => {
           if (r.ok && js && js.ok) {
             renderTechFresh(js);
             if (typeof maybeAutoRunTech === 'function') maybeAutoRunTech(js);
-            // Append latest Tech signal to pill label (e.g., BUY/SELL/NEUTRAL)
+            // Set latest Tech signal in its own pill
             try {
               const sig = await (async () => {
                 const p = new URLSearchParams();
@@ -3486,14 +3505,13 @@ const ensureLwMacd = () => {
                 const run = Array.isArray(j2.runs) && j2.runs.length ? j2.runs[0] : null;
                 if (!run) return '';
                 const ans = run.answers || run.answers_json || {};
-                // Prefer position if present
                 if (typeof ans.position === 'string') return ans.position.toUpperCase();
                 const scores = ans.scores || {};
                 if (typeof scores.NET === 'number') return scores.NET > 0 ? 'BUY' : (scores.NET < 0 ? 'SELL' : 'NEUTRAL');
                 const sigStr = (typeof ans.signal === 'string') ? ans.signal.toUpperCase() : '';
                 return sigStr;
               })();
-              if (sig && techFreshEl) techFreshEl.textContent = (techFreshEl.textContent || '—') + ` • ${sig}`;
+              applySignalPill(techSignalEl, sig);
             } catch {}
           }
         } catch (e) {
