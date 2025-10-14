@@ -5463,6 +5463,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           let safeMax = NaN;
           const inline = document.getElementById('autoPeriodicSafeMaxInput');
           if (inline && Number(inline.value) > 0) safeMax = Number(inline.value);
+          let useGlobal = false;
           if (!Number.isFinite(safeMax) || !(safeMax > 0)) {
             // Prefer global cap, then per-symbol×TF fallback
             const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
@@ -5471,12 +5472,20 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const map = (pj && pj.prefs) || pj || {};
             const vg = Number(map['safe_max_lots:global']);
             const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
-            if (Number.isFinite(vg) && vg > 0) safeMax = vg; else if (Number.isFinite(vs) && vs > 0) safeMax = vs;
+            if (Number.isFinite(vg) && vg > 0) { safeMax = vg; useGlobal = true; }
+            else if (Number.isFinite(vs) && vs > 0) { safeMax = vs; useGlobal = false; }
           }
           if (Number.isFinite(safeMax) && safeMax > 0) {
-            const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-            const pjs = await pr.json().catch(()=>({}));
-            const arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
+            let arr = [];
+            if (useGlobal) {
+              const pra = await fetch('/api/positions/all', { cache:'no-store' });
+              const ja = await pra.json().catch(()=>({}));
+              arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
+            } else {
+              const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+              const pjs = await pr.json().catch(()=>({}));
+              arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
+            }
             const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
             log(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
             if (openLots >= safeMax) {
@@ -6017,7 +6026,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (slEnabled && finalSL != null) { body.set('sl', String(finalSL)); }
           // Safe max lots guard (manual Auto AI Trade)
           try {
-            let safeMax = NaN;
+            let safeMax = NaN; let useGlobal = false;
             // Prefer global cap, then per-symbol×TF fallback
             const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
             const pref = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
@@ -6025,11 +6034,19 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const map = (pj && pj.prefs) || pj || {};
             const vg = Number(map['safe_max_lots:global']);
             const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
-            if (Number.isFinite(vg) && vg > 0) safeMax = vg; else if (Number.isFinite(vs) && vs > 0) safeMax = vs;
+            if (Number.isFinite(vg) && vg > 0) { safeMax = vg; useGlobal = true; }
+            else if (Number.isFinite(vs) && vs > 0) { safeMax = vs; useGlobal = false; }
             if (Number.isFinite(safeMax) && safeMax > 0) {
-              const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-              const pjs = await pr.json().catch(()=>({}));
-              const arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
+              let arr = [];
+              if (useGlobal) {
+                const pra = await fetch('/api/positions/all', { cache:'no-store' });
+                const ja = await pra.json().catch(()=>({}));
+                arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
+              } else {
+                const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+                const pjs = await pr.json().catch(()=>({}));
+                arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
+              }
               const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
               appendAutoLog(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
               if (openLots >= safeMax) {

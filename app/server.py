@@ -2246,24 +2246,36 @@ class TradeHandler(tornado.web.RequestHandler):
         # Safe max lots guard (enforcement)
         try:
             safe_max = None
+            use_global = False
             if GLOBAL_POOL is not None:
                 tf_key = f"safe_max_lots:{symbol}:{timeframe}" if timeframe else None
                 keys = ["safe_max_lots:global"] + ([tf_key] if tf_key else [])
                 prefs = await get_prefs(GLOBAL_POOL, keys)
+                # Prefer global cap when present and > 0
                 try:
-                    if prefs.get("safe_max_lots:global") is not None:
-                        safe_max = float(prefs["safe_max_lots:global"])  # type: ignore
+                    gval = prefs.get("safe_max_lots:global")
+                    if gval is not None and str(gval).strip() != "":
+                        gv = float(gval)  # type: ignore
+                        if gv > 0:
+                            safe_max = gv
+                            use_global = True
                 except Exception:
-                    safe_max = safe_max
+                    pass
                 if safe_max is None and tf_key and prefs.get(tf_key) is not None:
                     try:
-                        safe_max = float(prefs[tf_key])  # type: ignore
+                        v = float(prefs[tf_key])  # type: ignore
+                        if v > 0:
+                            safe_max = v
+                            use_global = False
                     except Exception:
-                        safe_max = None
+                        pass
             if safe_max and safe_max > 0:
-                # Sum open lots for this symbol
+                # Sum open lots globally when global cap; else only for this symbol
                 try:
-                    positions = mt5_client.list_positions(symbol)
+                    if use_global:
+                        positions = mt5_client.list_positions_all()
+                    else:
+                        positions = mt5_client.list_positions(symbol)
                 except Exception:
                     positions = []
                 open_lots = 0.0
@@ -2275,16 +2287,16 @@ class TradeHandler(tornado.web.RequestHandler):
                 except Exception:
                     pass
                 if open_lots >= safe_max:
-                    logger.info("/api/trade skip: safe_max reached (open=%.3f safe=%.3f)", open_lots, safe_max)
+                    logger.info("/api/trade skip: safe_max reached (global=%s open=%.3f safe=%.3f)", use_global, open_lots, safe_max)
                     self.set_header("Content-Type", "application/json")
                     self.set_header("Cache-Control", "no-store")
                     self.finish(json.dumps({
                         "ok": False,
                         "error": "safe_max_exceeded",
-                        "result": {"ok": False, "skipped": True, "retcode": "SKIP_SAFE_MAX", "open_lots": open_lots, "safe_max": safe_max},
+                        "result": {"ok": False, "skipped": True, "retcode": "SKIP_SAFE_MAX", "open_lots": open_lots, "safe_max": safe_max, "global": use_global},
                     }))
                     return
-        except Exception as _exc:
+        except Exception:
             # Non-fatal: continue
             pass
         try:
