@@ -3574,10 +3574,12 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
         except Exception:
             logger.debug("[freshness.basic] trace logging failed", exc_info=True)
 
+        # Map unknown to stale so clients can act without special-casing
         status = "unknown"
         if last_run_at_dt is not None:
             status = "fresh" if (new_count or 0) == 0 else "stale"
-        elif (new_count or 0) > 0:
+        else:
+            # No prior run → treat as stale (force an initial run)
             status = "stale"
 
         self.set_header("Content-Type", "application/json")
@@ -3685,9 +3687,14 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
         except Exception:
             pass
 
+        # Map unknown to stale so clients can act without special-casing
         status = "unknown"
         if outdated is not None:
             status = "fresh" if outdated == 0 else "stale"
+        else:
+            # No prior run (or cannot determine) → treat as stale and hint 1 bar
+            outdated = 1 if last_run is None else None
+            status = "stale"
 
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")

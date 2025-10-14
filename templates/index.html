@@ -3953,8 +3953,12 @@ const ensureLwMacd = () => {
 
       async function maybeAutoRunBasic(info) {
         if (!isAutoBasicEnabled()) return;
-        const stale = info && info.status === 'stale' && Number(info.new_count || 0) > 0;
-        if (!stale || autoBasicRunning) return;
+        // Treat unknown or no prior run as stale to force initial run
+        const noRun = info && !info.last_run_at;
+        const isUnknown = info && info.status === 'unknown';
+        const isStaleWithNews = info && info.status === 'stale' && Number(info.new_count || 0) > 0;
+        const shouldRun = !!(noRun || isUnknown || isStaleWithNews);
+        if (!shouldRun || autoBasicRunning) return;
         // Cooldown guard to protect provider quota
         const lastKey = getABasicLastKey();
         const lastAt = getLastAt(lastKey);
@@ -3974,8 +3978,12 @@ const ensureLwMacd = () => {
 
       async function maybeAutoRunTech(info) {
         if (!isAutoTechEnabled()) return;
-        const stale = info && info.status === 'stale' && Number(info.outdated_bars || 0) > 0;
-        if (!stale || autoTechRunning) return;
+        // Treat unknown or no prior run as stale to force initial run
+        const noRun = info && !info.last_run_at;
+        const isUnknown = info && info.status === 'unknown';
+        const isStaleWithBars = info && info.status === 'stale' && Number(info.outdated_bars || 0) > 0;
+        const shouldRun = !!(noRun || isUnknown || isStaleWithBars);
+        if (!shouldRun || autoTechRunning) return;
         // Cooldown guard to avoid repeated runs
         const lastKey = getATechLastKey();
         const lastAt = getLastAt(lastKey);
@@ -5524,9 +5532,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'} (strategy=${strat})`);
         } catch {}
         try { const q = new URLSearchParams({ symbol: sym, tf }); const r = await fetch(`/api/tech/freshness?${q.toString()}`, { cache:'no-store' }); tfj = await r.json().catch(()=>({})); if (r.ok && tfj && tfj.ok) log(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`); } catch {}
-        // If stale, run checks (Tech requires snapshot)
-        const needBasic = hj && hj.status === 'stale' && Number(hj.new_count||0) > 0;
-        const needTech = tfj && tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0;
+        // If stale or unknown/no-run, run checks (Tech requires snapshot)
+        const needBasic = !!(hj && ((hj.status === 'stale' && Number(hj.new_count||0) > 0) || hj.status === 'unknown' || !hj.last_run_at));
+        const needTech  = !!(tfj && ((tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0) || tfj.status === 'unknown' || !tfj.last_run_at));
         if (needBasic) log('Outdated: Basic — running new check…');
         if (needTech) log('Outdated: Tech — running new check…');
         let basicId = null, techId = null;
@@ -6050,14 +6058,16 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           try {
             const bstatus = (hj && typeof hj.status === 'string') ? hj.status.toLowerCase() : 'unknown';
             const bnew = Number(hj && hj.new_count != null ? hj.new_count : NaN);
-            // Treat unknown (no recent Basic run) as stale → run
-            runBasic = (bstatus === 'unknown') || (bstatus === 'stale' && Number.isFinite(bnew) && bnew > 0);
+            const bNoRun = !(hj && hj.last_run_at);
+            // Treat unknown or no-run as stale → run, or stale+new>0
+            runBasic = (bstatus === 'unknown') || bNoRun || (bstatus === 'stale' && Number.isFinite(bnew) && bnew > 0);
           } catch {}
           try {
             const tstatus = (tfj && typeof tfj.status === 'string') ? tfj.status.toLowerCase() : 'unknown';
             const out = Number(tfj && tfj.outdated_bars != null ? tfj.outdated_bars : NaN);
-            // Treat unknown (no recent Tech+AI) as stale → run
-            runTech = (tstatus === 'unknown') || (tstatus === 'stale' && Number.isFinite(out) && out > 0);
+            const tNoRun = !(tfj && tfj.last_run_at);
+            // Treat unknown or no-run as stale → run, or stale+out>0
+            runTech = (tstatus === 'unknown') || tNoRun || (tstatus === 'stale' && Number.isFinite(out) && out > 0);
           } catch {}
           if (runBasic) appendAutoLog((hj && hj.status === 'unknown') ? 'No recent Basic check — running new check…' : 'Outdated: Basic — running new check…'); else appendAutoLog('Basic is fresh — using latest run.');
           if (runTech) appendAutoLog((tfj && tfj.status === 'unknown') ? 'No recent Tech+AI — running new check…' : 'Outdated: Tech — running new check…'); else appendAutoLog('Tech is fresh — using latest run.');
