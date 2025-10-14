@@ -432,6 +432,7 @@
             <span class="toggle"></span>
             <span>Periodic Auto Trade</span>
           </label>
+          <span id="autoPeriodicStatePill" class="pill" style="display:inline-block; font-size:12px;">Off</span>
           <label style="display:flex; align-items:center; gap:6px;">
             <span style="min-width:80px; color:var(--muted);">Period</span>
             <select id="autoPeriodicPeriod" style="min-width:120px;">
@@ -5255,9 +5256,38 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       let autoPeriodicTimer = null;
       let autoPeriodicTimeout = null;
       let autoPeriodicRunning = false;
+      let autoPeriodicNextAtMs = 0;
+      let autoPeriodicUiTimer = null;
+      const autoPeriodicStatePill = document.getElementById('autoPeriodicStatePill');
+      function setPeriodicStatePill(text, state='idle') {
+        if (!autoPeriodicStatePill) return;
+        autoPeriodicStatePill.textContent = text || '—';
+        let bg='rgba(158,158,158,0.12)', border='#9e9e9e', color='#424242';
+        if (state==='armed') { bg='rgba(33,150,243,0.12)'; border='#2196f3'; color='#0d47a1'; }
+        if (state==='running') { bg='rgba(255,193,7,0.12)'; border='#ffc107'; color='#7f6000'; }
+        if (state==='off') { bg='rgba(158,158,158,0.12)'; border='#9e9e9e'; color='#424242'; }
+        autoPeriodicStatePill.style.background = bg;
+        autoPeriodicStatePill.style.borderColor = border;
+        autoPeriodicStatePill.style.color = color;
+      }
+      function startPeriodicUiCountdown() {
+        if (autoPeriodicUiTimer) clearInterval(autoPeriodicUiTimer);
+        if (!autoPeriodicNextAtMs) return;
+        autoPeriodicUiTimer = setInterval(() => {
+          if (!autoPeriodicNextAtMs) return;
+          const ms = Math.max(0, autoPeriodicNextAtMs - Date.now());
+          const m = Math.floor(ms/60000); const s = Math.floor((ms%60000)/1000);
+          const when = new Date(autoPeriodicNextAtMs).toLocaleTimeString();
+          setPeriodicStatePill(`Next in ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} • ${when}`, 'armed');
+          if (ms <= 0) { clearInterval(autoPeriodicUiTimer); autoPeriodicUiTimer = null; }
+        }, 1000);
+      }
       function clearAutoPeriodicTimer() {
         if (autoPeriodicTimer) { clearInterval(autoPeriodicTimer); autoPeriodicTimer = null; }
         if (autoPeriodicTimeout) { clearTimeout(autoPeriodicTimeout); autoPeriodicTimeout = null; }
+        autoPeriodicNextAtMs = 0;
+        if (autoPeriodicUiTimer) { clearInterval(autoPeriodicUiTimer); autoPeriodicUiTimer = null; }
+        setPeriodicStatePill('Off', 'off');
       }
       function msToNextAlignedBoundary(stepMinutes) {
         const step = Math.max(1, Math.round(Number(stepMinutes) || 60));
@@ -5287,15 +5317,22 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const periodMs = mins * 60_000;
         const delay = msToNextAlignedBoundary(mins);
         debugLog(`[AutoPeriodic] arming: every ${mins}m, first run in ${Math.round(delay/1000)}s at top-of-${mins}m boundary.`);
+        autoPeriodicNextAtMs = Date.now() + delay;
+        startPeriodicUiCountdown();
         autoPeriodicTimeout = setTimeout(async () => {
           if (autoPeriodicRunning) return;
           autoPeriodicRunning = true;
+          setPeriodicStatePill('Running…', 'running');
           try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
           // After the first aligned run, continue on fixed interval
           autoPeriodicTimer = setInterval(async () => {
             if (autoPeriodicRunning) return;
             autoPeriodicRunning = true;
+            setPeriodicStatePill('Running…', 'running');
             try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
+            // re-arm next label for the subsequent interval
+            autoPeriodicNextAtMs = Date.now() + periodMs;
+            startPeriodicUiCountdown();
           }, periodMs);
         }, delay);
       }
