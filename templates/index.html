@@ -1795,29 +1795,20 @@
           data: {
             labels: [],
             datasets: [
-              {
-                label: 'Deal PnL',
-                type: 'bar',
-                data: [],
-                borderWidth: 0,
-                backgroundColor: (ctx) => {
-                  const y = ctx?.raw?.y;
-                  return (Number(y) >= 0) ? 'rgba(46, 204, 113, 0.45)' : 'rgba(231, 76, 60, 0.45)';
-                },
-              },
-              { label: 'Closed PnL (cum)', data: [], borderColor: '#ff9800', borderWidth: 1.4, pointRadius: 0, tension: 0.1 },
+              { label: 'Closed PnL (cum)', data: [], borderColor: '#ff9800', borderWidth: 1.6, pointRadius: 2, pointHoverRadius: 3, tension: 0.1 },
             ],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: { legend: { display: true } },
-            interaction: { intersect: false, mode: 'index' },
+            interaction: { intersect: false, mode: 'nearest' },
             parsing: false,
             scales: {
               x: { type: 'time', time: { tooltipFormat: 'MMM d HH:mm' }, ticks: { maxRotation: 0, autoSkip: true }, grid: { display: false } },
               y: { position: 'left', grid: { color: '#e0e6ef' } },
             },
+            elements: { line: { stepped: false }, point: { radius: 2 } },
           },
         });
         return true;
@@ -1856,18 +1847,9 @@
         try {
           // Use auto source for refresh; ensure selected account session so server resolves correct account_id
           await ensureSelectedAccountSession?.();
-          const r = await fetch('/api/account/closed_deals?days=5000&source=auto', { cache: 'no-store' });
+          const r = await fetch('/api/account/closed_deals?days=5000&source=auto&debug=1', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!ensurePnlChart()) return;
-          // Per-deal points (all non-zero profits; include negatives and positives). Keep zeros if you prefer: remove filter on y !== 0
-          const dealPts = (js.deals || [])
-            .map(d => {
-              const t = Date.parse(d.ts);
-              const p = Number(d.profit || 0) + Number(d.commission || 0) + Number(d.swap || 0);
-              if (!Number.isFinite(t) || !Number.isFinite(p)) return null;
-              return { x: t, y: p };
-            })
-            .filter(Boolean);
           const cum = (js.cum || [])
             .map(row => {
               const t = Date.parse(row.ts);
@@ -1876,9 +1858,8 @@
               return { x: t, y: v };
             })
             .filter(Boolean);
-          try { console.debug('[PnL] points', { deals: (js.deals||[]).length, bars: dealPts.length, cum: cum.length }); } catch {}
-          pnlChart.data.datasets[0].data = dealPts;
-          pnlChart.data.datasets[1].data = cum;
+          try { console.debug('[PnL] cum points', cum); } catch {}
+          pnlChart.data.datasets[0].data = cum;
           pnlChart.update('none');
         } catch (e) {
           // swallow UI errors

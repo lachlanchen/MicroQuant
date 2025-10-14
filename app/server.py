@@ -2240,6 +2240,24 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
                         await upsert_closed_deals(GLOBAL_POOL, account_id=account_id, rows=deals)
                 except Exception as exc:
                     logger.warning("/api/account/closed_deals upsert failed: %s", exc)
+            elif debug_flag:
+                # Debug sample from DB-sourced rows
+                try:
+                    sample = [
+                        {
+                            "ts": d.get("ts"),
+                            "symbol": d.get("symbol"),
+                            "profit": d.get("profit"),
+                            "entry": d.get("entry"),
+                            "deal": d.get("deal_id") or d.get("deal"),
+                            "order": d.get("order_id") or d.get("order"),
+                            "comment": d.get("comment"),
+                        }
+                        for d in (deals[:5] + deals[-5:] if len(deals) > 10 else deals)
+                    ]
+                    logger.info("[closed_deals debug] db sample=%s", sample)
+                except Exception:
+                    pass
         except Exception as e:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
@@ -2270,6 +2288,10 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             synthetic_points = []
         try:
             logger.info("/api/account/closed_deals ok deals=%d cum_points=%d synthetic=%d (from_db=%s)", len(deals), len(cum_points), len(synthetic_points), from_db)
+            if debug_flag:
+                # Log short cumulative sample
+                cum_samp = (cum_points[:5] + cum_points[-5:]) if len(cum_points) > 10 else cum_points
+                logger.info("[closed_deals debug] cum sample=%s", cum_samp)
         except Exception:
             pass
         self.set_header("Content-Type", "application/json")
