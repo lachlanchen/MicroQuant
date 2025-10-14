@@ -14,6 +14,8 @@ Endpoints and UI
 - Manual refresh: `/api/account/closed_deals?days=5000&source=auto&debug=1&account=...`
   - With `debug=1`, the server logs head/tail samples for both MT5 and DB.
   - WebSocket event `closed_deals_update` prompts the UI to refresh automatically after sync/purge.
+- Filter zero-PnL deals: add `&nonzero=1` to hide rows where `profit+commission+swap==0`.
+  - The UI now passes `nonzero=1` by default for PnL so flat segments from zero-profit rows don’t clutter the chart.
 - Purge then refetch (UI): “Purge + Refetch” button above the PnL chart removes rows for the selected account and reloads from MT5.
 
 What you’ll see in logs
@@ -35,11 +37,10 @@ Code References
   - `templates/index.html:1849` — `refreshClosedDealsSeries()` with explicit console logs and client‑side cumulative fallback.
 
 Known behaviors
-- Flat tail is expected if the last few MT5 deals have zero profit (administrative entries). The cumulative series repeats values until a non‑zero profit row.
+- With `nonzero=1`, zero-profit rows are hidden; otherwise a flat tail is expected if the last few MT5 deals have zero profit (administrative entries).
 - Transfers (symbol='') are currently included (user requested “no filters”). If needed, add a UI toggle to exclude them.
 
 Quick checklist
 1) Click “Fetch Closed” — console should report 10/10 (or more) points and show head/tail samples.
 2) If DB shows fewer rows than MT5 immediately after a sync, ensure the server was restarted with these changes and the future buffer env is set as desired.
 3) If you switch accounts, the UI passes `account=...` to all requests; confirm via logs.
-
