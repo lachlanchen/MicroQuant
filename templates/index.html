@@ -375,10 +375,13 @@
             </div>
             <div id="aiTradePlanBox" style="font-size:13px; color:var(--text);"></div>
             <div id="aiPlanHistoryBox" style="display:none; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:160px; overflow:auto; font-size:12px; color:var(--muted);"></div>
-            <div class="row" style="gap:10px; align-items:center; margin-top:8px;">
-              <button class="btn" id="btnAutoAiTrade" style="padding:6px 10px;">Auto AI Trade</button>
-              <button class="btn secondary" id="btnExecutePlan" disabled style="padding:6px 10px;">Execute Plan</button>
-            </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:8px;">
+          <button class="btn" id="btnAutoAiTrade" style="padding:6px 10px;">Auto AI Trade</button>
+          <button class="btn secondary" id="btnExecutePlan" disabled style="padding:6px 10px;">Execute Plan</button>
+        </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+          <button class="btn secondary" id="btnAddAccountOpen" style="padding:6px 10px;">Add Account</button>
+        </div>
             <!-- Leverage + position size hint -->
             <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
               <label style="display:flex; align-items:center; gap:6px;">
@@ -651,7 +654,38 @@
               <button class="btn" id="btnAutoStart" style="padding:4px 8px;">Start</button>
             </div>
           </div>
+          <div class="row" style="gap:6px; align-items:center; margin-top:6px;">
+            <span style="font-size:12px; color:var(--muted);">Account</span>
+            <select id="autoAccountSelect" style="min-width:200px; padding:4px 6px;"></select>
+          </div>
           <div id="autoLogBoxModal" style="margin-top:6px; font-size:12px; color:var(--muted); border:1px dashed var(--line); border-radius:6px; padding:6px; max-height:170px; overflow:auto;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="addAccountModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true" style="display:none;">
+      <div class="modal-box" style="width:min(420px,94vw); max-height:70vh; overflow:auto;">
+        <div class="modal-head">
+          <h3>Add MT5 Account</h3>
+          <button class="modal-close" id="btnAddAccountClose" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body" style="padding:10px;">
+          <div class="row" style="gap:8px; align-items:center;">
+            <label style="display:flex; flex-direction:column; gap:4px; flex:1;">
+              <span style="font-size:12px; color:var(--muted);">Login</span>
+              <input id="acctLogin" type="text" inputmode="numeric" placeholder="e.g., 68257735" />
+            </label>
+          </div>
+          <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
+            <label style="display:flex; flex-direction:column; gap:4px; flex:1;">
+              <span style="font-size:12px; color:var(--muted);">Password</span>
+              <input id="acctPassword" type="password" placeholder="••••••••" />
+            </label>
+          </div>
+          <div class="row" style="gap:8px; margin-top:10px;">
+            <button class="btn" id="btnAcctSave" style="padding:6px 10px;">Save</button>
+            <button class="btn secondary" id="btnAcctCancel" style="padding:6px 10px;">Cancel</button>
+          </div>
         </div>
       </div>
     </div>
@@ -3756,6 +3790,50 @@ const ensureLwMacd = () => {
       });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
+      // Accounts UI
+      const btnAddAccountOpen = document.getElementById('btnAddAccountOpen');
+      const addAccountModal = document.getElementById('addAccountModal');
+      const btnAddAccountClose = document.getElementById('btnAddAccountClose');
+      const btnAcctSave = document.getElementById('btnAcctSave');
+      const btnAcctCancel = document.getElementById('btnAcctCancel');
+      const autoAccountSelect = document.getElementById('autoAccountSelect');
+      async function loadAccountsSelect() {
+        if (!autoAccountSelect) return;
+        try {
+          const r = await fetch('/api/accounts', { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const arr = Array.isArray(js.accounts) ? js.accounts : [];
+          const last = js.last || '';
+          autoAccountSelect.innerHTML = arr.length ? '' : '<option value="">(none)</option>';
+          let picked = '';
+          for (const a of arr) {
+            const v = String(a.login||'');
+            const opt = document.createElement('option'); opt.value = v; opt.textContent = v; autoAccountSelect.appendChild(opt);
+            if (!picked) picked = v;
+          }
+          if (last) picked = last;
+          if (picked) autoAccountSelect.value = picked;
+        } catch {}
+      }
+      function openAddAccount() { if (addAccountModal) { addAccountModal.style.display = 'flex'; addAccountModal.setAttribute('aria-hidden','false'); setTimeout(()=>{ const el=document.getElementById('acctLogin'); if (el) el.focus(); }, 0); } }
+      function closeAddAccount() { if (addAccountModal) { addAccountModal.style.display = 'none'; addAccountModal.setAttribute('aria-hidden','true'); } }
+      if (btnAddAccountOpen) btnAddAccountOpen.addEventListener('click', openAddAccount);
+      if (btnAddAccountClose) btnAddAccountClose.addEventListener('click', closeAddAccount);
+      if (btnAcctCancel) btnAcctCancel.addEventListener('click', closeAddAccount);
+      if (btnAcctSave) btnAcctSave.addEventListener('click', async ()=>{
+        const login = String((document.getElementById('acctLogin')||{}).value||'').trim();
+        const password = String((document.getElementById('acctPassword')||{}).value||'').trim();
+        if (!login || !password) { alert('Login and password required'); return; }
+        try {
+          const r = await fetch('/api/accounts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login, password }) });
+          const js = await r.json().catch(()=>({}));
+          if (!r.ok || !js.ok) { alert('Failed to save account'); return; }
+          closeAddAccount();
+          await loadAccountsSelect();
+          if (autoAccountSelect) autoAccountSelect.value = login;
+        } catch { alert('Failed to save account'); }
+      });
+      if (autoAccountSelect) autoAccountSelect.addEventListener('change', ()=>{ const v=autoAccountSelect.value||''; if (v) queuePrefUpdate('last_account', v); });
       // Persist Auto controls
       const autoSafeMaxInput = document.getElementById('autoSafeMaxInput');
       const autoVolumeInput = document.getElementById('autoVolumeInput');
@@ -3880,6 +3958,17 @@ const ensureLwMacd = () => {
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
           updateExecuteBtn();
           appendAutoLog('Executing order…');
+          // Ensure selected account is logged in before trading
+          try {
+            const acctSel = document.getElementById('autoAccountSelect');
+            const acct = acctSel && acctSel.value ? acctSel.value : '';
+            if (acct) {
+              appendAutoLog(`Switch account → ${acct}`);
+              const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' });
+              const jlogin = await rlogin.json().catch(()=>({}));
+              if (!rlogin.ok || !(jlogin && jlogin.ok)) { appendAutoLog('Account login failed — proceeding with current session', 'warn'); }
+            }
+          } catch { appendAutoLog('Account login skipped', 'warn'); }
           const sideLower = (side||'').toLowerCase();
           // Use Auto volume if provided, else fall back to top Vol
           let vol = '0.01';
@@ -6718,6 +6807,7 @@ const ensureLwMacd = () => {
         // history and clear log
         if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';
         loadAutoHistory(5, 0);
+        try { await loadAccountsSelect(); } catch {}
         try { const s = document.getElementById('btnAutoStart'); if (s) s.focus(); } catch {}
       }
       try { window.openAutoModal = openAutoModal; } catch {}

@@ -1921,6 +1921,8 @@ async def make_app():
             (r"/api/preferences", PreferencesHandler, dict(pool=pool)),
             (r"/api/ai/trade_plan", TradePlanHandler, dict(pool=pool)),
             (r"/api/auto_trade/log", AutoTradeLogHandler, dict(pool=pool)),
+            (r"/api/accounts", AccountsHandler, dict(pool=pool)),
+            (r"/api/account/login", AccountLoginHandler, dict(pool=pool)),
             (r"/api/config", ConfigHandler),
             (r"/ws/updates", UpdatesSocket),
             (r"/api/trades/signal", SignalTradesHandler, dict(pool=pool)),
@@ -4568,6 +4570,125 @@ class AutoTradeLogHandler(tornado.web.RequestHandler):
                 "run_id": ins.get("id"),
                 "created_at": ins.get("created_at").isoformat() if ins.get("created_at") else None,
             }))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
+
+
+class AccountsHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        try:
+            raw = await get_pref(self.pool, "mt5_accounts")
+            last = await get_pref(self.pool, "last_account")
+            arr = []
+            if raw:
+                try:
+                    arr = json.loads(raw)
+                except Exception:
+                    arr = []
+            # sanitize output (no passwords)
+            out = [{"login": str(x.get("login") or ""), "server": x.get("server")} for x in arr if str(x.get("login") or "")]
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "accounts": out, "last": last or ""}))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
+
+    async def post(self):
+        try:
+            payload = json.loads(self.request.body or b"{}")
+        except Exception:
+            payload = {}
+        login_raw = str(payload.get("login") or payload.get("account") or "").strip()
+        password = str(payload.get("password") or "").strip()
+        server = str(payload.get("server") or os.getenv("MT5_SERVER") or "").strip()
+        if not login_raw or not password:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "login and password required"}))
+            return
+        try:
+            raw = await get_pref(self.pool, "mt5_accounts")
+            arr = []
+            if raw:
+                try:
+                    arr = json.loads(raw)
+                except Exception:
+                    arr = []
+            # upsert by login
+            updated = False
+            for rec in arr:
+                if str(rec.get("login") or "") == login_raw:
+                    rec["password"] = password
+                    if server:
+                        rec["server"] = server
+                    updated = True
+                    break
+            if not updated:
+                rec = {"login": login_raw, "password": password}
+                if server:
+                    rec["server"] = server
+                arr.append(rec)
+            await set_pref(self.pool, "mt5_accounts", json.dumps(arr))
+            await set_pref(self.pool, "last_account", login_raw)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "login": login_raw}))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
+
+
+class AccountLoginHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        try:
+            payload = json.loads(self.request.body or b"{}")
+        except Exception:
+            payload = {}
+        login_raw = str(payload.get("login") or payload.get("account") or "").strip()
+        if not login_raw:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "login required"}))
+            return
+        try:
+            raw = await get_pref(self.pool, "mt5_accounts")
+            accounts = []
+            if raw:
+                try:
+                    accounts = json.loads(raw)
+                except Exception:
+                    accounts = []
+            rec = next((r for r in accounts if str(r.get("login") or "") == login_raw), None)
+            if not rec:
+                self.set_status(404)
+                self.set_header("Content-Type", "application/json")
+                self.finish(json.dumps({"ok": False, "error": "account not found"}))
+                return
+            pw = rec.get("password") or ""
+            srv = rec.get("server") or os.getenv("MT5_SERVER")
+            # Attempt login via MT5 client
+            try:
+                ok = mt5_client.login(int(login_raw), password=pw, server=srv)
+            except Exception as exc:
+                self.set_status(502)
+                self.set_header("Content-Type", "application/json")
+                self.finish(json.dumps({"ok": False, "error": f"login failed: {exc}"}))
+                return
+            await set_pref(self.pool, "last_account", login_raw)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "login": login_raw}))
         except Exception as exc:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
