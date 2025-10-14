@@ -2196,6 +2196,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         source = self.get_argument("source", default="auto").lower()  # auto|db|mt5
         comment_filters = [c for c in self.get_arguments("comment") if c]
         user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
+        account_arg = self.get_argument("account", default=None)
         start_dt = _normalize_dt(start_arg) if start_arg else None
         end_dt = _normalize_dt(end_arg) if end_arg else None
         if not end_dt:
@@ -2203,11 +2204,21 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
         if not start_dt:
             start_dt = end_dt - timedelta(days=max(1, days))
         # Resolve account id
+        account_id = 0
+        current_login = 0
+        if account_arg:
+            try:
+                account_id = int(account_arg)
+            except Exception:
+                account_id = 0
         try:
             info = mt5_client.account_info()
-            account_id = int(info.get("login") or 0)
+            current_login = int(info.get("login") or 0)
+            if account_id == 0:
+                account_id = current_login
         except Exception:
-            account_id = 0
+            # no active MT5 session; keep defaults
+            pass
         try:
             logger.info("/api/account/closed_deals from=%s to=%s days=%s source=%s comment_filters=%s", start_dt, end_dt, days, source, comment_filters)
             deals = []
@@ -2215,7 +2226,7 @@ class ClosedDealsHandler(tornado.web.RequestHandler):
             if source in ("auto", "db"):
                 deals = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
                 from_db = bool(deals)
-            if source == "mt5" or (source == "auto" and not from_db):
+            if source == "mt5" or (source == "auto" and not from_db and account_id == current_login):
                 deals = mt5_client.closed_deals(start_dt, end_dt)
                 if debug_flag:
                     try:

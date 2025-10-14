@@ -1847,7 +1847,10 @@
         try {
           // Use auto source for refresh; ensure selected account session so server resolves correct account_id
           await ensureSelectedAccountSession?.();
-          const r = await fetch('/api/account/closed_deals?days=5000&source=auto&debug=1', { cache: 'no-store' });
+          const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
+          let url = '/api/account/closed_deals?days=5000&source=auto&debug=1';
+          if (acct) url += `&account=${encodeURIComponent(acct)}`;
+          const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!ensurePnlChart()) return;
           const cum = (js.cum || [])
@@ -6327,8 +6330,11 @@ const ensureLwMacd = () => {
         const prev = btnFetchClosed.textContent;
         btnFetchClosed.disabled = true; btnFetchClosed.textContent = 'Fetching…';
         try {
-          // Hit MT5 to upsert latest into DB, then reload from DB for plotting
-          await fetch('/api/account/closed_deals?days=5000&source=mt5&debug=1', { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
+          // Hit MT5 to upsert latest into DB for selected account, then reload
+          const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
+          let url = '/api/account/closed_deals?days=5000&source=mt5&debug=1';
+          if (acct) url += `&account=${encodeURIComponent(acct)}`;
+          await fetch(url, { cache: 'no-store' }).then(r=>r.json()).catch(()=>({}));
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
         finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }
