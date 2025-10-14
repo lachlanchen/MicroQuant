@@ -3405,9 +3405,26 @@ const ensureLwMacd = () => {
         const boll = computeBollingerBands(closes);
         parts.push(toBlock('Bollinger (20,2)', ['Mid','Upper','Lower'], buildSeries3(boll.middle, boll.upper, boll.lower)));
         parts.push(toBlock('Volume', ['Value'], buildSeries(volumes)));
-        parts.push(toBlock('STL Trend', ['Value'], slicePts(stlTrendPoints)));
-        parts.push(toBlock('STL Seasonal', ['Value'], slicePts(stlSeasonPoints)));
-        parts.push(toBlock('STL Residual', ['Value'], slicePts(stlResidPoints)));
+        // Merge current TF STL components into one table with multiple columns
+        const trendPts = slicePts(stlTrendPoints);
+        const seasPts = slicePts(stlSeasonPoints);
+        const residPts = slicePts(stlResidPoints);
+        if (trendPts.length && seasPts.length && residPts.length) {
+          const n = Math.min(trendPts.length, seasPts.length, residPts.length);
+          const combined = [];
+          for (let i = 0; i < n; i += 1) {
+            // Use trend timestamp as the row ts (all three share the same time grid)
+            const ts = trendPts[i].ts;
+            combined.push({ ts, values: [trendPts[i].values[0], seasPts[i].values[0], residPts[i].values[0]] });
+          }
+          parts.push(toBlock('STL (Trend/Seasonal/Residual)', ['Trend','Seasonal','Residual'], combined));
+        } else {
+          // Fallback if any component missing
+          if (trendPts.length) parts.push(toBlock('STL Trend', ['Value'], trendPts));
+          if (seasPts.length) parts.push(toBlock('STL Seasonal', ['Value'], seasPts));
+          if (residPts.length) parts.push(toBlock('STL Residual', ['Value'], residPts));
+        }
+        // Keep derivatives as separate tables
         parts.push(toBlock('STL Speed (ΔTrend)', ['Value'], slicePts(stlSpeedPoints)));
         parts.push(toBlock('STL Acceleration (ΔSpeed)', ['Value'], slicePts(stlAccelPoints)));
         parts.push(toBlock('RSI (14)', ['Value'], buildSeries(rsiValues)));
@@ -3463,7 +3480,17 @@ const ensureLwMacd = () => {
           } catch {}
         }
         const extra = blocks.join('\n\n');
-        return extra ? `${base}\n\n${extra}` : base;
+        if (!extra) return base;
+        // Insert extra blocks directly after the 'Latest Tick (post-bars)' section
+        const marker = 'Latest Tick (post-bars)';
+        const idx = base.indexOf(marker);
+        if (idx === -1) return `${base}\n\n${extra}`;
+        // Find end of that section (double newline after headers+row)
+        const tailStart = base.indexOf('\n\n', idx);
+        if (tailStart === -1) return `${base}\n\n${extra}`;
+        const head = base.slice(0, tailStart + 2);
+        const tail = base.slice(tailStart + 2);
+        return `${head}\n${extra}\n\n${tail}`;
       }
 
       const btnHealthCheck = document.getElementById('btnHealthCheck');
