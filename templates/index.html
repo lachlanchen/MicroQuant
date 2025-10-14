@@ -880,7 +880,7 @@
     <!-- Periodic History Modal -->
     <div id="periodicHistoryModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
       <div class="modal-box" style="width:min(760px,94vw); max-height:74vh; overflow:auto;">
-        <div class="modal-head">
+        <div class="modal-head" style="position:sticky; top:0; z-index:2; background:#fff; border-bottom:1px solid var(--line);">
           <h3>Periodic Auto History</h3>
           <button id="btnPeriodicHistoryClose" class="modal-close" aria-label="Close">×</button>
         </div>
@@ -4800,7 +4800,7 @@ const ensureLwMacd = () => {
           const perSym = await Promise.all(symbols.map(async (sym) => {
             const p = new URLSearchParams();
             if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); } else { p.set('kind','stock'); p.set('symbol', sym); }
-            p.set('group','auto'); p.set('tf', tf); p.set('limit','50'); p.set('offset', String(periodicHistoryOffset||0));
+            p.set('group','auto'); p.set('tf', tf); p.set('limit','10'); p.set('offset', String(periodicHistoryOffset||0));
             const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
             const js = await r.json().catch(()=>({}));
             const runs = Array.isArray(js.runs) ? js.runs : [];
@@ -4888,7 +4888,7 @@ if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () 
         });
       })();
       if (btnPeriodicHistoryClose) btnPeriodicHistoryClose.addEventListener('click', () => { if (periodicHistoryModal) { periodicHistoryModal.style.display = 'none'; periodicHistoryModal.setAttribute('aria-hidden', 'true'); } });
-      if (btnPeriodicHistoryMore) btnPeriodicHistoryMore.addEventListener('click', () => { periodicHistoryOffset += 50; loadPeriodicHistory({ append:true }); });
+      if (btnPeriodicHistoryMore) btnPeriodicHistoryMore.addEventListener('click', () => { periodicHistoryOffset += 10; loadPeriodicHistory({ append:true }); });
       // Persist periodic account multi-selection
       if (autoPeriodicAccountSelect && autoPeriodicAccountSelect.multiple) {
         autoPeriodicAccountSelect.addEventListener('change', () => {
