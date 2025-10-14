@@ -530,13 +530,8 @@ class MT5Client:
                 })
             except Exception:
                 continue
-        # Only keep closing deals (entry OUT=1 and OUT_BY=3) if entry flag available; otherwise return all
-        try:
-            outs = [r for r in out if r.get("entry") in (1, 3, "1", "3")]
-            if outs:
-                out = outs
-        except Exception:
-            pass
+        # Keep all deals; some brokers/netting modes may not mark OUT consistently.
+        # Frontend can choose which to visualize; we store everything for completeness.
         # Sort ascending by ts
         out.sort(key=lambda r: r.get("ts") or "")
         return out
