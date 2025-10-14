@@ -620,12 +620,10 @@
 
     <!-- Auto AI Trade Modal -->
     <div id="autoModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true" style="display:none;">
-      <div class="modal-box" style="width:min(760px,94vw); max-height:86vh; overflow:auto;">
-        <div class="modal-head" style="position:sticky; top:0; background:#fff; z-index:5;">
-          <div class="row" style="justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding-bottom:8px; margin-bottom:8px;">
-            <strong style="color:var(--accent)">Auto AI Trade</strong>
-            <button class="modal-close" id="btnAutoClose" aria-label="Close">×</button>
-          </div>
+      <div class="modal-box" style="width:min(760px,94vw); max-height:86vh; overflow:auto; position:relative;">
+        <div class="modal-head" style="position:sticky; top:0; background:#fff; z-index:5; border-bottom:1px solid var(--line); padding:10px 16px;">
+          <h3 style="margin:0; text-align:center; color:var(--accent); font-size:16px;">Auto AI Trade</h3>
+          <button class="modal-close" id="btnAutoClose" aria-label="Close" style="position:absolute; right:10px; top:6px;">×</button>
         </div>
         <div class="modal-body" style="padding:12px;">
           <div id="autoMeta" style="font-size:13px; color:var(--muted); margin-bottom:8px;"></div>
@@ -6584,6 +6582,30 @@ const ensureLwMacd = () => {
 
       // Auto history click: render full details into the modal log box
       const autoHistoryCache = new Map();
+      function renderAutoRunDetails(run, id) {
+        try {
+          const ans = (run && (run.answers || run.answers_json)) || {};
+          const meta = ans.meta || {};
+          const steps = Array.isArray(ans.log) ? ans.log : [];
+          const lines = [];
+          lines.push(`<div><strong>Run #${id != null ? esc(String(id)) : esc(String(run && run.id || ''))}</strong></div>`);
+          const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
+          lines.push(`<div style=\"margin-top:4px;\">Action: ${esc(meta.action || '—')} • Plan: ${esc(meta.plan_run_id || '—')} • Basic: ${esc(meta.basic_run_id || '—')} • Tech: ${esc(meta.tech_run_id || '—')} ${order? `• Order: ${esc(order)}` : ''}</div>`);
+          if (steps.length) {
+            lines.push('<div style=\"margin-top:6px;\"><strong>Log</strong></div>');
+            for (const s of steps) {
+              const ts = s.ts ? new Date(s.ts).toLocaleString() : '';
+              const lvl = s.level || 'info';
+              const color = lvl === 'error' ? '#e74c3c' : (lvl === 'warn' ? '#ff9800' : 'var(--muted)');
+              lines.push(`<div><span style=\"color:${color}\">[${esc(ts)}]</span> ${esc(s.message || '')}</div>`);
+            }
+          } else {
+            lines.push('<div style=\"margin-top:6px; color:var(--muted);\"><em>No log steps captured</em></div>');
+          }
+          const box = getAutoLogBoxEl();
+          if (box) { box.innerHTML = lines.join(''); box.scrollTop = box.scrollHeight; }
+        } catch {}
+      }
       if (document.getElementById('autoHistoryBox')) {
         document.getElementById('autoHistoryBox').addEventListener('click', (ev)=>{
           const item = ev.target.closest('.auto-item');
@@ -6601,31 +6623,18 @@ const ensureLwMacd = () => {
                 const params = new URLSearchParams();
                 if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
                 else { params.set('kind','stock'); params.set('symbol', sym); }
-                params.set('group','auto'); params.set('tf', tf); params.set('limit','20'); params.set('offset','0');
+                params.set('group','auto'); params.set('tf', tf); params.set('limit','100'); params.set('offset','0');
                 const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
                 const js = await r.json().catch(()=>({}));
                 const runs = Array.isArray(js.runs) ? js.runs : [];
                 runs.forEach((rr)=>{ try { autoHistoryCache.set(Number(rr.id), rr); } catch {} });
                 run = runs.find(x => Number(x.id) === id);
               }
-              const ans = (run && (run.answers || run.answers_json)) || {};
-              const meta = ans.meta || {};
-              const steps = Array.isArray(ans.log) ? ans.log : [];
-              const lines = [];
-              lines.push(`<div><strong>Run #${id}</strong></div>`);
-              const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
-              lines.push(`<div style=\"margin-top:4px;\">Action: ${esc(meta.action || '—')} • Plan: ${esc(meta.plan_run_id || '—')} • Basic: ${esc(meta.basic_run_id || '—')} • Tech: ${esc(meta.tech_run_id || '—')} ${order? `• Order: ${esc(order)}` : ''}</div>`);
-              if (steps.length) {
-                lines.push('<div style=\"margin-top:6px;\"><strong>Log</strong></div>');
-                for (const s of steps) {
-                  const ts = s.ts ? new Date(s.ts).toLocaleString() : '';
-                  const lvl = s.level || 'info';
-                  const color = lvl === 'error' ? '#e74c3c' : (lvl === 'warn' ? '#ff9800' : 'var(--muted)');
-                  lines.push(`<div><span style=\"color:${color}\">[${esc(ts)}]</span> ${esc(s.message || '')}</div>`);
-                }
+              if (run) { renderAutoRunDetails(run, id); }
+              else {
+                const box = getAutoLogBoxEl();
+                if (box) box.innerHTML = `<em style="color:var(--muted)">Details unavailable for #${esc(String(id))}</em>`;
               }
-              const box = getAutoLogBoxEl();
-              if (box) { box.innerHTML = lines.join(''); box.scrollTop = box.scrollHeight; }
             } catch (e) { /* ignore */ }
           })();
         });
