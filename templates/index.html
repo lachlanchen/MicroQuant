@@ -464,6 +464,18 @@
             <span>Set Stop Loss</span>
           </label>
         </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <label class="switch" title="Nudge Stop Loss toward price by a fraction of the SL–TP distance for periodic trades">
+            <input type="checkbox" id="autoPeriodicNudgeToggle" class="toggle-input" />
+            <span class="toggle"></span>
+            <span>Nudge Stop Loss</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:110px; color:var(--muted);">Divider</span>
+            <input id="autoPeriodicNudgeDiv" type="range" min="2" max="10" step="1" value="4" style="width:140px;" />
+            <span id="autoPeriodicNudgeDivVal" style="font-size:12px; color:var(--muted); min-width:20px; text-align:center;">4</span>
+          </label>
+        </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button class="btn secondary" id="btnAddAccountOpen" style="padding:6px 10px;">Manage Accounts</button>
         </div>
@@ -4173,19 +4185,42 @@ const ensureLwMacd = () => {
       });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
-      // Persist/load Auto SL Nudge (enabled + divider) per symbol×TF
+      // Persist/load Auto SL Nudge (enabled + divider) per symbol×TF — modal + right panel mirror
       (function(){
         const toggleEl = document.getElementById('autoSlNudgeToggle');
         const divEl = document.getElementById('autoSlNudgeDiv');
         const divVal = document.getElementById('autoSlNudgeDivVal');
         if (divVal && divEl) { divVal.textContent = String(divEl.value||'4'); }
-        if (!toggleEl && !divEl) return;
+        // Right panel controls
+        const ptoggle = document.getElementById('autoPeriodicNudgeToggle');
+        const pdiv = document.getElementById('autoPeriodicNudgeDiv');
+        const pdivVal = document.getElementById('autoPeriodicNudgeDivVal');
+        if (pdivVal && pdiv) { pdivVal.textContent = String(pdiv.value||'4'); }
+        if (!toggleEl && !divEl && !ptoggle && !pdiv) return;
         const keyEnabled = () => `auto_sl_nudge_enabled:${currentSymbol()}:${currentTf()}`;
         const keyDiv = () => `auto_sl_nudge_div:${currentSymbol()}:${currentTf()}`;
-        const saveEnabled = () => { try { queuePrefUpdate(keyEnabled(), toggleEl && toggleEl.checked ? '1' : '0'); flushPrefQueue(); appendAutoLog(`SL nudge ${toggleEl && toggleEl.checked ? 'ON' : 'OFF'}`); } catch {} };
-        const saveDiv = () => { const v = Number(divEl && divEl.value || '4'); if (Number.isFinite(v) && v>0) { try { if (divVal) divVal.textContent = String(v); queuePrefUpdate(keyDiv(), String(v)); flushPrefQueue(); appendAutoLog(`SL nudge divider set to ${v}`); } catch {} } };
-        if (toggleEl) { toggleEl.addEventListener('change', saveEnabled); }
-        if (divEl) { divEl.addEventListener('input', saveDiv); divEl.addEventListener('change', saveDiv); }
+        const saveEnabled = (src) => { try {
+          const on = src && src.checked ? '1' : (toggleEl && toggleEl.checked ? '1' : (ptoggle && ptoggle.checked ? '1' : '0'));
+          // Mirror state across both controls
+          if (toggleEl && src !== toggleEl) toggleEl.checked = (on === '1');
+          if (ptoggle && src !== ptoggle) ptoggle.checked = (on === '1');
+          queuePrefUpdate(keyEnabled(), on);
+          flushPrefQueue();
+          appendAutoLog(`SL nudge ${on === '1' ? 'ON' : 'OFF'}`);
+        } catch {} };
+        const saveDiv = (src) => { const v = Number((src && src.value) || (divEl && divEl.value) || (pdiv && pdiv.value) || '4'); if (Number.isFinite(v) && v>0) { try {
+          if (divEl && src !== divEl) divEl.value = String(v);
+          if (divVal) divVal.textContent = String(v);
+          if (pdiv && src !== pdiv) pdiv.value = String(v);
+          if (pdivVal) pdivVal.textContent = String(v);
+          queuePrefUpdate(keyDiv(), String(v));
+          flushPrefQueue();
+          appendAutoLog(`SL nudge divider set to ${v}`);
+        } catch {} } };
+        if (toggleEl) { toggleEl.addEventListener('change', () => saveEnabled(toggleEl)); }
+        if (divEl) { divEl.addEventListener('input', () => saveDiv(divEl)); divEl.addEventListener('change', () => saveDiv(divEl)); }
+        if (ptoggle) { ptoggle.addEventListener('change', () => saveEnabled(ptoggle)); }
+        if (pdiv) { pdiv.addEventListener('input', () => saveDiv(pdiv)); pdiv.addEventListener('change', () => saveDiv(pdiv)); }
         // Load existing
         (async () => {
           try {
@@ -4196,7 +4231,9 @@ const ensureLwMacd = () => {
             const on = String(map[keyEnabled()] || '0') === '1';
             const dv = Number(map[keyDiv()] || '4');
             if (toggleEl) toggleEl.checked = on;
+            if (ptoggle) ptoggle.checked = on;
             if (divEl && Number.isFinite(dv) && dv>0) { divEl.value = String(dv); if (divVal) divVal.textContent = String(dv); }
+            if (pdiv && Number.isFinite(dv) && dv>0) { pdiv.value = String(dv); if (pdivVal) pdivVal.textContent = String(dv); }
           } catch {}
         })();
       })();
@@ -4217,6 +4254,9 @@ const ensureLwMacd = () => {
       const autoPeriodicVolumeInput = document.getElementById('autoPeriodicVolumeInput');
       const autoPeriodicSafeMaxInput = document.getElementById('autoPeriodicSafeMaxInput');
       const autoPeriodicSlToggle = document.getElementById('autoPeriodicSlToggle');
+      const autoPeriodicNudgeToggle = document.getElementById('autoPeriodicNudgeToggle');
+      const autoPeriodicNudgeDiv = document.getElementById('autoPeriodicNudgeDiv');
+      const autoPeriodicNudgeDivVal = document.getElementById('autoPeriodicNudgeDivVal');
       const autoPeriodicSymbols = document.getElementById('autoPeriodicSymbols');
       const addAcctSelect = document.getElementById('addAcctSelect');
       const acctLoginInput = document.getElementById('acctLogin');
@@ -4651,8 +4691,8 @@ const ensureLwMacd = () => {
         const slEnabled = !!(inlineSl && inlineSl.checked === true);
         let finalSL = (slEnabled && p.stop_loss != null) ? Number(p.stop_loss) : null;
         try {
-          const nudgeToggle = document.getElementById('autoSlNudgeToggle');
-          const divEl = document.getElementById('autoSlNudgeDiv');
+          const nudgeToggle = document.getElementById('autoPeriodicNudgeToggle') || document.getElementById('autoSlNudgeToggle');
+          const divEl = document.getElementById('autoPeriodicNudgeDiv') || document.getElementById('autoSlNudgeDiv');
           const div = Number(divEl && divEl.value || '4');
           const tpNum = (p.take_profit != null) ? Number(p.take_profit) : null;
           if (slEnabled && nudgeToggle && nudgeToggle.checked && finalSL != null && tpNum != null && Number.isFinite(div) && div>0) {
