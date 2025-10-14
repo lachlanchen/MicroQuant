@@ -2960,7 +2960,8 @@ class PreferencesHandler(tornado.web.RequestHandler):
                 elif isinstance(key, str) and (
                     key.startswith("auto_trade_periodic:") or
                     key.startswith("auto_trade_period:") or
-                    key.startswith("auto_trade_symbols:")
+                    key.startswith("auto_trade_symbols:") or
+                    key.startswith("auto_trade_accounts:")
                 ):
                     allowed = True
                 # Allow per-symbol×timeframe leverage and safe lots
