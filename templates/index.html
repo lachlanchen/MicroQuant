@@ -4278,12 +4278,10 @@ const ensureLwMacd = () => {
             <span class="pill">TP: ${esc(p.take_profit)}</span>
           </div>
           <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
-          // Auto-execute the plan to make Buy/Sell have effect
+          // Prepare plan for execution; do not auto-execute
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
           updateExecuteBtn();
-          // Show executing in output
-          outBox.insertAdjacentHTML('beforeend', `<div style="margin-top:6px; font-size:12px; color:var(--muted);">Executing order…</div>`);
-          await executeAiPlan();
+          outBox.insertAdjacentHTML('beforeend', `<div style="margin-top:6px; font-size:12px; color:var(--muted);">Plan ready — click Execute Plan to trade.</div>`);
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         } finally {
