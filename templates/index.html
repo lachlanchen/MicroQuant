@@ -4325,10 +4325,32 @@ const ensureLwMacd = () => {
           }
         } catch {}
       }
+      // Resolve Basic strategy for a symbol, preferring the UI selection when compatible
+      function resolveBasicStrategyForSymbol(sym) {
+        try {
+          const s = String(sym || '').toUpperCase();
+          const isFx = /^[A-Z]{6,7}$/.test(s);
+          const base = isFx ? s.slice(0,3) : '';
+          const preferMetal = isFx && (base === 'XAU' || base === 'XAG');
+          const uiSel = (typeof healthStrategySelect !== 'undefined' && healthStrategySelect) ? String(healthStrategySelect.value || '') : '';
+          if (uiSel) {
+            if (isFx) return uiSel;
+            if (!isFx && uiSel.includes('stocks_')) return uiSel;
+          }
+          if (isFx) return preferMetal ? 'metal_pair_compact_10q_position.json' : 'forex_pair_compact_10q_position.json';
+          return 'stocks_compact_10q_position.json';
+        } catch { return 'forex_pair_compact_10q_position.json'; }
+      }
+
       async function newBasicCheckForTrade() {
         const sym = currentSymbol();
         const tf = currentTf();
-        const body = { symbol: sym, timeframe: tf };
+        const body = { symbol: sym, timeframe: tf, strategy: resolveBasicStrategyForSymbol(sym) };
+        try {
+          const basicModelSel = document.getElementById('basicAiModel');
+          const basicModel = basicModelSel && basicModelSel.value ? basicModelSel.value : '';
+          if (basicModel) body.model = basicModel;
+        } catch {}
         try {
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
@@ -5121,7 +5143,12 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         } catch {}
         // Freshness
         let hj = null, tfj = null;
-        try { const r = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }); hj = await r.json().catch(()=>({})); if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`); } catch {}
+        try {
+          const strat = resolveBasicStrategyForSymbol(sym);
+          const r = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(strat)}`, { cache:'no-store' });
+          hj = await r.json().catch(()=>({}));
+          if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`);
+        } catch {}
         try { const q = new URLSearchParams({ symbol: sym, tf }); const r = await fetch(`/api/tech/freshness?${q.toString()}`, { cache:'no-store' }); tfj = await r.json().catch(()=>({})); if (r.ok && tfj && tfj.ok) log(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`); } catch {}
         // If stale, run checks (Tech requires snapshot)
         const needBasic = hj && hj.status === 'stale' && Number(hj.new_count||0) > 0;
@@ -5130,7 +5157,18 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (needTech) log('Outdated: Tech — running new check…');
         let basicId = null, techId = null;
         if (needBasic) {
-          try { const body = { symbol: sym, timeframe: tf }; const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' }); const js = await res.json().catch(()=>({})); if (js && js.ok && js.run_id) { basicId = js.run_id; log(`Basic run id=${basicId}`); } } catch {}
+          try {
+            const strategy = resolveBasicStrategyForSymbol(sym);
+            const body = { symbol: sym, timeframe: tf, strategy };
+            try {
+              const basicModelSel = document.getElementById('basicAiModel');
+              const basicModel = basicModelSel && basicModelSel.value ? basicModelSel.value : '';
+              if (basicModel) body.model = basicModel;
+            } catch {}
+            const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+            const js = await res.json().catch(()=>({}));
+            if (js && js.ok && js.run_id) { basicId = js.run_id; log(`Basic run id=${basicId}`); }
+          } catch {}
         }
         if (needTech) {
           try {
@@ -5535,12 +5573,13 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           // Freshness snapshots
           let hj = null;
           try {
-            const hf = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-            hj = await hf.json().catch(()=>({}));
-            if (hf.ok && hj && hj.ok) {
-              appendAutoLog(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`);
-            }
-          } catch {}
+          const basicStrat = resolveBasicStrategyForSymbol(sym);
+          const hf = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(basicStrat)}`, { cache:'no-store' });
+          hj = await hf.json().catch(()=>({}));
+          if (hf.ok && hj && hj.ok) {
+            appendAutoLog(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`);
+          }
+        } catch {}
           let tfj = null;
           try {
             const tfq = new URLSearchParams({ symbol: sym, tf });
@@ -5588,7 +5627,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           try { await updateAutoMirrors(); } catch {}
           try {
             // Re-check freshness quickly to clear stale highlight
-            const hf2 = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+            const strat2 = resolveBasicStrategyForSymbol(sym);
+            const hf2 = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(strat2)}`, { cache:'no-store' });
             const hj2 = await hf2.json().catch(()=>({}));
             const tf2 = await fetch(`/api/tech/freshness?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`, { cache:'no-store' });
             const tj2 = await tf2.json().catch(()=>({}));
