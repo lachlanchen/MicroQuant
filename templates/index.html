@@ -439,6 +439,11 @@
           </label>
         </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <span style="min-width:110px; color:var(--muted);">Auto symbols</span>
+          <select id="autoPeriodicSymbols" multiple size="6" style="min-width:220px; flex:1;"></select>
+          <span style="font-size:12px; color:var(--muted);">(hold Ctrl/Cmd to multi-select)</span>
+        </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <span style="min-width:110px; color:var(--muted);">Account</span>
           <select id="autoPeriodicAccountSelect" style="min-width:220px; flex:1;"></select>
         </div>
@@ -709,20 +714,24 @@
           <button class="modal-close" id="btnAutoClose" aria-label="Close" style="position:absolute; right:10px; top:6px;">×</button>
         </div>
         <div class="modal-body" style="padding:8px 10px;">
-          <div id="autoMeta" style="font-size:13px; color:var(--muted); margin-bottom:2px;"></div>
-          <div class="row" style="gap:6px; align-items:center; margin:0;">
+          <div class="row" style="gap:6px; align-items:center; justify-content:space-between; margin:0;">
+            <span id="autoMeta" style="font-size:13px; color:var(--muted);"></span>
+            <div class="row" style="gap:8px; align-items:center;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="font-size:12px; color:var(--muted);">Auto Vol</span>
+                <input id="autoVolumeInput" type="number" min="0.01" step="0.01" value="0.01" style="width:84px;" />
+              </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="font-size:12px; color:var(--muted);">Safe max lots</span>
+                <input id="autoSafeMaxInput" type="number" min="0.01" step="0.01" value="0.10" style="width:90px;" />
+              </label>
+            </div>
+          </div>
+          <div class="row" style="gap:6px; align-items:center; margin:2px 0 0 0;">
             <label class="switch" title="Include Stop Loss when placing Auto trades" style="gap:6px;">
               <input type="checkbox" id="autoSlToggle" class="toggle-input" />
               <span class="toggle"></span>
               <span>Set Stop Loss</span>
-            </label>
-            <label style="display:flex; align-items:center; gap:6px;">
-              <span style="font-size:12px; color:var(--muted);">Auto Vol</span>
-              <input id="autoVolumeInput" type="number" min="0.01" step="0.01" value="0.01" style="width:84px;" />
-            </label>
-            <label style="display:flex; align-items:center; gap:6px;">
-              <span style="font-size:12px; color:var(--muted);">Safe max lots</span>
-              <input id="autoSafeMaxInput" type="number" min="0.01" step="0.01" value="0.10" style="width:90px;" />
             </label>
             <label class="switch" title="Nudge Stop Loss toward price by a fraction of the SL–TP distance" style="gap:6px;">
               <input type="checkbox" id="autoSlNudgeToggle" class="toggle-input" />
@@ -4208,6 +4217,7 @@ const ensureLwMacd = () => {
       const autoPeriodicVolumeInput = document.getElementById('autoPeriodicVolumeInput');
       const autoPeriodicSafeMaxInput = document.getElementById('autoPeriodicSafeMaxInput');
       const autoPeriodicSlToggle = document.getElementById('autoPeriodicSlToggle');
+      const autoPeriodicSymbols = document.getElementById('autoPeriodicSymbols');
       const addAcctSelect = document.getElementById('addAcctSelect');
       const acctLoginInput = document.getElementById('acctLogin');
       const acctPasswordInput = document.getElementById('acctPassword');
@@ -4434,7 +4444,7 @@ const ensureLwMacd = () => {
       }
       if (autoPeriodicToggle) autoPeriodicToggle.addEventListener('change', ()=>{
         queuePrefUpdate(getAutoPeriodicKey(), autoPeriodicToggle.checked ? '1' : '0');
-        ensureAutoPeriodicTimer();
+      ensureAutoPeriodicTimer();
       });
       if (autoPeriodicPeriod) autoPeriodicPeriod.addEventListener('change', ()=>{
         const raw = Number(autoPeriodicPeriod.value);
@@ -4462,6 +4472,212 @@ const ensureLwMacd = () => {
         queuePrefUpdate(`auto_sl_enabled:${sym}:${tf}`, val);
         try { flushPrefQueue(); } catch {}
       });
+      // Auto symbols persist per TF
+      async function loadAutoPeriodicSymbols() {
+        const sel = document.getElementById('autoPeriodicSymbols');
+        if (!sel) return;
+        // Populate if empty
+        if (!sel.options || sel.options.length === 0) {
+          sel.innerHTML = APP_SYMBOLS.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+        }
+        try {
+          const key = `auto_trade_symbols:${currentTf()}`;
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(key)}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const map = (js && js.prefs) || js || {};
+          const raw = map[key];
+          let set = null;
+          if (raw) {
+            try { const arr = JSON.parse(raw); if (Array.isArray(arr)) set = new Set(arr.map(String)); } catch {}
+          }
+          // Default select current symbol if nothing saved
+          if (!set) set = new Set([currentSymbol()]);
+          for (const opt of sel.options) { opt.selected = set.has(opt.value); }
+        } catch {}
+      }
+      loadAutoPeriodicSymbols();
+      if (autoPeriodicSymbols) autoPeriodicSymbols.addEventListener('change', ()=>{
+        try {
+          const chosen = Array.from(autoPeriodicSymbols.selectedOptions).map(o => o.value);
+          const key = `auto_trade_symbols:${currentTf()}`;
+          queuePrefUpdate(key, JSON.stringify(chosen));
+          flushPrefQueue();
+        } catch {}
+      });
+
+      async function runPeriodicAutoTrades() {
+        // Build list: selected symbols, fallback to current symbol only
+        const sel = document.getElementById('autoPeriodicSymbols');
+        const tf = currentTf();
+        let symbols = [];
+        try { symbols = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); } catch {}
+        if (!Array.isArray(symbols) || symbols.length === 0) symbols = [currentSymbol()];
+        appendAutoLog(`[Periodic] Running Auto AI Trade for ${symbols.length} symbol(s) on ${tf}`);
+        // Parallel execution with Promise.allSettled
+        const tasks = symbols.map(sym => autoAiTradeForSymbol(sym, tf).catch(e => appendAutoLog(`[${sym}] error: ${e && e.message || e}`, 'error')));
+        await Promise.allSettled(tasks);
+        appendAutoLog('[Periodic] Batch complete');
+      }
+
+      async function autoAiTradeForSymbol(sym, tf) {
+        // Minimal clone of autoAiTrade without UI dependence; logs prefixed by [SYM]
+        const log = (m, lvl='info') => appendAutoLog(`[${sym}] ${m}`, lvl);
+        log(`Auto AI Trade started (${tf})`);
+        // Freshness
+        let hj = null, tfj = null;
+        try { const r = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }); hj = await r.json().catch(()=>({})); if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'}`); } catch {}
+        try { const q = new URLSearchParams({ symbol: sym, tf }); const r = await fetch(`/api/tech/freshness?${q.toString()}`, { cache:'no-store' }); tfj = await r.json().catch(()=>({})); if (r.ok && tfj && tfj.ok) log(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`); } catch {}
+        // If stale, run checks (Tech requires snapshot)
+        const needBasic = hj && hj.status === 'stale' && Number(hj.new_count||0) > 0;
+        const needTech = tfj && tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0;
+        if (needBasic) log('Outdated: Basic — running new check…');
+        if (needTech) log('Outdated: Tech — running new check…');
+        let basicId = null, techId = null;
+        if (needBasic) {
+          try { const body = { symbol: sym, timeframe: tf }; const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' }); const js = await res.json().catch(()=>({})); if (js && js.ok && js.run_id) { basicId = js.run_id; log(`Basic run id=${basicId}`); } } catch {}
+        }
+        if (needTech) {
+          try {
+            const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+            const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: 'tech_snapshot_10q_position.json' };
+            const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+            const js = await res.json().catch(()=>({}));
+            if (js && js.ok && js.run_id) { techId = js.run_id; log(`Tech run id=${techId}`); }
+          } catch (e) { log(`Tech run error: ${e && e.message || e}`, 'error'); }
+        }
+        // Determine latest tech signal for side
+        let side = null, latest = null;
+        try {
+          const p = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
+          else { p.set('kind','stock'); p.set('symbol', sym); }
+          p.set('strategy','tech_snapshot_10q_position.json'); p.set('tf', tf); p.set('limit','1');
+          const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          latest = Array.isArray(js.runs) && js.runs.length ? js.runs[0] : null;
+          if (latest) {
+            const ans = latest.answers || latest.answers_json || {};
+            const scores = ans.scores || {};
+            if (typeof scores.NET === 'number') { if (scores.NET > 0) side = 'BUY'; else if (scores.NET < 0) side = 'SELL'; }
+            else if (typeof ans.signal === 'string') { const sig = ans.signal.toUpperCase(); if (sig.includes('BUY')) side = 'BUY'; else if (sig.includes('SELL')) side = 'SELL'; }
+          }
+        } catch {}
+        if (!side) { log('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
+        log(`Signal: ${side}`);
+        // Draft plan via server using snapshot for this symbol
+        let planRunId = null, plan = null;
+        try {
+          const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+          const lev = getLeverageValue();
+          const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
+          const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (!r.ok || !js || js.ok !== true) { log(`Plan failed: ${(js && js.error) || r.statusText || 'unknown'}`, 'error'); return; }
+          planRunId = js.run_id || null; plan = js.plan || {};
+          if (planRunId) log(`Plan run id=${planRunId}`);
+        } catch (e) { log(`Plan error: ${e && e.message || e}`, 'error'); return; }
+        // Execute order (reuse same path as autoAiTrade)
+        await executePlanForSymbol(sym, tf, side, plan, planRunId, latest, basicId, techId, log);
+      }
+
+      async function buildTechSnapshotForSymbol(sym, tf) {
+        try {
+          const limit = Math.max(200, Math.min(1500, currentBarsLimit()));
+          const r = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=${limit}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const rows = Array.isArray(js) ? js : (Array.isArray(js.rows) ? js.rows : []);
+          const windowSize = Math.max(1, resolveTechWindow());
+          const startIdx = Math.max(rows.length - windowSize, 0);
+          const windowRows = rows.slice(startIdx);
+          const closes = rows.map(r => Number(r?.close));
+          const volumes = rows.map(r => { const stack=[r?.real_volume, r?.tick_volume, r?.volume].map(Number).filter(v => Number.isFinite(v) && v>0); return stack.length?stack[0]:null; });
+          const rsi = computeRSI(closes);
+          const macd = computeMACD(closes);
+          const { atr, tr } = computeAtrSeries(rows);
+          const adx = computeAdxSeries(rows, tr);
+          const boll = computeBollingerBands(closes);
+          const fmtRow = (ts, vals) => `${formatDateTime(ts)}\t${vals.map((v)=> (Number.isFinite(Number(v)) ? formatTechNumber(Number(v)) : '—')).join('\t')}`;
+          const toBlock = (title, headers, dataRows) => {
+            const lines = [title, 'Time\t' + headers.join('\t')];
+            for (const rr of dataRows) lines.push(fmtRow(rr.ts, rr.values));
+            return lines.join('\n');
+          };
+          const buildSeries = (arr) => windowRows.map((row, offset) => ({ ts: row.ts, values: [arr[startIdx + offset]] }));
+          const buildSeries3 = (a,b,c) => windowRows.map((row, offset) => ({ ts: row.ts, values: [a[startIdx + offset], b[startIdx + offset], c[startIdx + offset]] }));
+          const parts = [];
+          const head = `${sym} • TF ${tf} • N=${windowSize}`;
+          parts.push(head);
+          parts.push(toBlock(`${tf} Close Price`, ['Value'], buildSeries(closes)));
+          parts.push(toBlock('Bollinger (20,2)', ['Mid','Upper','Lower'], buildSeries3(boll.middle, boll.upper, boll.lower)));
+          parts.push(toBlock('Volume', ['Value'], buildSeries(volumes)));
+          parts.push(toBlock('RSI (14)', ['Value'], buildSeries(rsi)));
+          parts.push(toBlock('MACD (12,26,9)', ['MACD','Signal','Hist'], buildSeries3(macd.macd, macd.signal, macd.histogram)));
+          parts.push(toBlock('ATR (14)', ['Value'], buildSeries(atr)));
+          parts.push(toBlock('ADX (14)', ['ADX','+DI','-DI'], buildSeries3(adx.adx, adx.plusDI, adx.minusDI)));
+          return parts.join('\n\n');
+        } catch (e) {
+          return `${sym} • TF ${tf} • N=${resolveTechWindow()}\n(no snapshot)`;
+        }
+      }
+
+      async function executePlanForSymbol(sym, tf, side, planObj, planRunId, latestTechRun, basicId, techId, logFn) {
+        const log = (m,l) => (typeof logFn === 'function' ? logFn(m,l) : appendAutoLog(m,l));
+        try { await ensureSelectedAccountSession?.(); } catch {}
+        // Account
+        const acctInline = document.getElementById('autoPeriodicAccountSelect');
+        const acctAuto = document.getElementById('autoAccountSelect');
+        const acctTradeInline = document.getElementById('tradeAccountSelectInline');
+        const acct = (acctInline && acctInline.value) ? acctInline.value : (acctAuto && acctAuto.value) ? acctAuto.value : (acctTradeInline && acctTradeInline.value) ? acctTradeInline.value : '';
+        if (acct) {
+          log(`Switch account → ${acct}`);
+          try { const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }); const jlogin = await rlogin.json().catch(()=>({})); if (!rlogin.ok || !(jlogin && jlogin.ok)) log('Account login failed — proceeding with current session', 'warn'); } catch {}
+        }
+        // Volume
+        let vol = '0.01';
+        try {
+          const key = encodeURIComponent(`auto_volume:${sym}:${tf}`);
+          const r = await fetch(`/api/preferences?keys=${key}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const map = (js && js.prefs) || js || {};
+          const v = Number(map[`auto_volume:${sym}:${tf}`]);
+          if (Number.isFinite(v) && v > 0) vol = String(v);
+        } catch {}
+        // Price
+        let mkt = null; try { const rt = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }); const jt = await rt.json().catch(()=>({})); if (jt && (jt.bid!=null || jt.ask!=null || jt.last!=null)) mkt = jt; } catch {}
+        const px = mkt ? (side==='BUY' ? (mkt.ask ?? mkt.last ?? mkt.bid) : (mkt.bid ?? mkt.last ?? mkt.ask)) : null;
+        // SL/TP and nudge
+        const p = planObj || {};
+        const inlineSl = document.getElementById('autoPeriodicSlToggle');
+        const slEnabled = !!(inlineSl && inlineSl.checked === true);
+        let finalSL = (slEnabled && p.stop_loss != null) ? Number(p.stop_loss) : null;
+        try {
+          const nudgeToggle = document.getElementById('autoSlNudgeToggle');
+          const divEl = document.getElementById('autoSlNudgeDiv');
+          const div = Number(divEl && divEl.value || '4');
+          const tpNum = (p.take_profit != null) ? Number(p.take_profit) : null;
+          if (slEnabled && nudgeToggle && nudgeToggle.checked && finalSL != null && tpNum != null && Number.isFinite(div) && div>0) {
+            const delta = (tpNum - finalSL) / div; finalSL = finalSL - delta; log(`[SL Nudge:${sym}] div=${div} delta=${delta.toFixed ? delta.toFixed(4) : delta} newSL=${finalSL.toFixed ? finalSL.toFixed(2) : finalSL}`);
+          }
+        } catch {}
+        if (slEnabled && finalSL != null && px != null) {
+          const invalid = (side === 'BUY') ? (finalSL >= px) : (finalSL <= px);
+          log(`SL preflight: side=${side} price=${px!=null? (px.toFixed?px.toFixed(2):px):'market'} SL=${finalSL!=null?(finalSL.toFixed?finalSL.toFixed(2):finalSL):'—'} → ${invalid ? 'INVALID' : 'OK'}` , invalid ? 'error' : 'info');
+          if (invalid) { log('Skip: invalid stops', 'error'); return; }
+        }
+        const body = new URLSearchParams({ symbol: sym, side: side.toLowerCase(), volume: vol });
+        if (slEnabled && finalSL != null) body.set('sl', String(finalSL));
+        if (p.take_profit != null) body.set('tp', String(p.take_profit));
+        log(`Order params: acct=${acct||'current'} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
+        const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
+        const tj = await tr.json().catch(()=>({}));
+        const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
+        if (ok) log(`Order placed: id=${(tj && tj.result && (tj.result.order || tj.result.deal)) || '—'}`); else { const errMsg = (tj && (tj.error || (tj.result && (tj.result.comment || tj.result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`; const code = (tj && tj.result && (tj.result.retcode != null)) ? ` (retcode=${tj.result.retcode})` : ''; log(`Order failed: ${errMsg}${code}`, 'error'); }
+        try {
+          const save = await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latestTechRun && latestTechRun.id) || techId || null, plan_run_id: planRunId || null, used_volume: vol, sl_enabled: slEnabled, order_result: tj || {}, steps: (tradeState.autoSteps || []) }) });
+          const saved = await save.json().catch(()=>({}));
+          if (saved && saved.ok && saved.run_id) log(`Saved log run id=${saved.run_id}`);
+        } catch {}
+      }
       let autoPeriodicTimer = null;
       let autoPeriodicRunning = false;
       function clearAutoPeriodicTimer() { if (autoPeriodicTimer) { clearInterval(autoPeriodicTimer); autoPeriodicTimer = null; } }
@@ -4473,7 +4689,7 @@ const ensureLwMacd = () => {
         autoPeriodicTimer = setInterval(async () => {
           if (autoPeriodicRunning) return;
           autoPeriodicRunning = true;
-          try { await autoAiTrade(); } catch {} finally { autoPeriodicRunning = false; }
+          try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
         }, ms);
       }
       // Persist Auto controls

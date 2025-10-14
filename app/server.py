@@ -2956,10 +2956,11 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     key.startswith("auto_check_tech:")
                 ):
                     allowed = True
-                # Allow per-symbol×timeframe Auto Trade periodic toggles and period
+                # Allow per-symbol×timeframe Auto Trade periodic toggles and period/symbol list
                 elif isinstance(key, str) and (
                     key.startswith("auto_trade_periodic:") or
-                    key.startswith("auto_trade_period:")
+                    key.startswith("auto_trade_period:") or
+                    key.startswith("auto_trade_symbols:")
                 ):
                     allowed = True
                 # Allow per-symbol×timeframe leverage and safe lots
