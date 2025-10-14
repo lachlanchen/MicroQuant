@@ -4946,6 +4946,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         await Promise.allSettled(tasks);
         appendAutoLog('[Periodic] Batch complete');
         setPeriodicStatus('', false);
+        // Refresh freshness pills for the current symbol/timeframe (UI)
+        try { await refreshTechFreshness(); } catch {}
+        try { await refreshHealthFreshness(); } catch {}
       }
 
       async function autoAiTradeForSymbol(sym, tf) {
