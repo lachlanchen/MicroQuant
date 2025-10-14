@@ -953,6 +953,8 @@ PREF_KEYS = [
     "last_slow",
     "chart_shift",
     "trade_ai_model",
+    "basic_ai_model",
+    "tech_ai_model",
     "balance_poll_min",
     "closed_orders_poll_min",
 ]

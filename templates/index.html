@@ -1306,6 +1306,44 @@
         })();
       }
 
+      // Basic AI model preference
+      (function initBasicModelPref(){
+        try {
+          const sel = el('basicAiModel');
+          if (!sel) return;
+          sel.addEventListener('change', () => {
+            try { queuePrefUpdate('basic_ai_model', sel.value || ''); } catch {}
+          });
+          (async () => {
+            try {
+              const r = await fetch(`${PREF_ENDPOINT}?keys=basic_ai_model`, { cache: 'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const saved = js && js.prefs && js.prefs.basic_ai_model;
+              if (saved && typeof saved === 'string') sel.value = saved;
+            } catch {}
+          })();
+        } catch {}
+      })();
+
+      // Tech+AI model preference
+      (function initTechModelPref(){
+        try {
+          const sel = el('techAiModel');
+          if (!sel) return;
+          sel.addEventListener('change', () => {
+            try { queuePrefUpdate('tech_ai_model', sel.value || ''); } catch {}
+          });
+          (async () => {
+            try {
+              const r = await fetch(`${PREF_ENDPOINT}?keys=tech_ai_model`, { cache: 'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const saved = js && js.prefs && js.prefs.tech_ai_model;
+              if (saved && typeof saved === 'string') sel.value = saved;
+            } catch {}
+          })();
+        } catch {}
+      })();
+
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
         const date = new Date(iso);
