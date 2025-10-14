@@ -1823,7 +1823,12 @@
           const url = acct ? `/api/account/balance_series?user=lachlan&limit=1000&account=${encodeURIComponent(acct)}` : '/api/account/balance_series?user=lachlan&limit=1000';
           const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
-          try { console.debug('[PnL] auto refresh deals=', (js.deals||[]).length, 'cum=', (js.cum||[]).length); } catch {}
+          try {
+            console.debug('[PnL] auto refresh deals=', (js.deals||[]).length, 'cum=', (js.cum||[]).length);
+            const deals = Array.isArray(js.deals) ? js.deals : [];
+            const samp = deals.slice(-10).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
+            console.debug('[PnL] auto deals sample (last 10)=', samp);
+          } catch {}
           if (!r.ok || !js || js.ok !== true) return;
           if (!ensureBalanceChart()) return;
           const points = (js.rows || [])
@@ -6341,7 +6346,12 @@ const ensureLwMacd = () => {
           if (acct) url += `&account=${encodeURIComponent(acct)}`;
           const mt5Res = await fetch(url, { cache: 'no-store' });
           const mt5Js = await mt5Res.json().catch(()=>({}));
-          try { console.debug('[PnL] mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length); } catch {}
+          try {
+            console.debug('[PnL] mt5 fetch deals=', (mt5Js.deals||[]).length, 'cum=', (mt5Js.cum||[]).length);
+            const deals = Array.isArray(mt5Js.deals) ? mt5Js.deals : [];
+            const samp = deals.slice(-10).map(d => ({ ts: d.ts, sym: d.symbol, profit: Number(d.profit||0) }));
+            console.debug('[PnL] mt5 deals sample (last 10)=', samp);
+          } catch {}
           await refreshClosedDealsSeries();
         } catch (e) { /* ignore */ }
         finally { btnFetchClosed.disabled = false; btnFetchClosed.textContent = prev; }

@@ -2435,6 +2435,21 @@ class ClosedDealsSyncHandler(tornado.web.RequestHandler):
                     cur = nxt
                 await emit_closed_deals_event()
                 logger.info("[closed_sync] completed total=%d", total)
+                # Print DB rows used by frontend (count + samples)
+                try:
+                    rows = await fetch_closed_deals_between(GLOBAL_POOL, account_id=account_id, start_ts=start_dt, end_ts=end_dt)
+                    head = rows[:5]
+                    tail = rows[-5:] if len(rows) > 5 else []
+                    logger.info("[closed_sync debug] db count=%d acct=%s", len(rows), account_id)
+                    logger.info("[closed_sync debug] head=%s", [
+                        {"ts": r.get("ts"), "symbol": r.get("symbol"), "profit": r.get("profit")} for r in head
+                    ])
+                    if tail:
+                        logger.info("[closed_sync debug] tail=%s", [
+                            {"ts": r.get("ts"), "symbol": r.get("symbol"), "profit": r.get("profit")} for r in tail
+                        ])
+                except Exception as exc:
+                    logger.debug("[closed_sync debug] listing failed: %s", exc)
             except Exception as exc:
                 logger.exception("[closed_sync] failed: %s", exc)
         tornado.ioloop.IOLoop.current().spawn_callback(runner)
