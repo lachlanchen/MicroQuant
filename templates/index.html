@@ -4432,7 +4432,11 @@ const ensureLwMacd = () => {
       });
       if (autoPeriodicSlToggle) autoPeriodicSlToggle.addEventListener('change', ()=>{
         const sym = currentSymbol(); const tf = currentTf();
-        queuePrefUpdate(`auto_sl_enabled:${sym}:${tf}`, autoPeriodicSlToggle.checked ? '1' : '0');
+        const val = autoPeriodicSlToggle.checked ? '1' : '0';
+        // Mirror to modal toggle if present
+        try { const t = document.getElementById('autoSlToggle'); if (t) t.checked = (val === '1'); } catch {}
+        queuePrefUpdate(`auto_sl_enabled:${sym}:${tf}`, val);
+        try { flushPrefQueue(); } catch {}
       });
       let autoPeriodicTimer = null;
       let autoPeriodicRunning = false;
@@ -4469,7 +4473,11 @@ const ensureLwMacd = () => {
         if (btnAutoStart) btnAutoStart.disabled = Number.isFinite(openLots) && Number.isFinite(safeNum) && safeNum>0 ? (openLots > safeNum) : false;
       } catch{} });
       if (autoVolumeInput) autoVolumeInput.addEventListener('change', _saveAutoPrefs);
-      if (autoSlToggle) autoSlToggle.addEventListener('change', _saveAutoPrefs);
+      if (autoSlToggle) autoSlToggle.addEventListener('change', ()=>{
+        // Persist and mirror to periodic toggle for consistency
+        _saveAutoPrefs();
+        try { const pt = document.getElementById('autoPeriodicSlToggle'); if (pt) pt.checked = !!autoSlToggle.checked; } catch {}
+      });
       async function executeAiPlan() {
         if (!lastAiPlan) return;
         const side = (lastAiPlan.position || '').toLowerCase();
@@ -7691,7 +7699,7 @@ const ensureLwMacd = () => {
             queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(baseVol));
             queuePrefUpdate(`trade_volume:${sym}:${tf}`, String(baseVol));
           } catch {}
-          // Initialize SL toggle from preference (default OFF)
+          // Initialize SL toggle from preference (default OFF) and mirror to periodic toggle
           try {
             const slT = document.getElementById('autoSlToggle');
             if (slT) {
@@ -7699,7 +7707,9 @@ const ensureLwMacd = () => {
               const r = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
               const js = await r.json().catch(()=>({}));
               const map = (js && js.prefs) || js || {};
-              slT.checked = String(map[`auto_sl_enabled:${sym}:${tf}`] || '0') === '1';
+              const on = String(map[`auto_sl_enabled:${sym}:${tf}`] || '0') === '1';
+              slT.checked = on;
+              try { const pt = document.getElementById('autoPeriodicSlToggle'); if (pt) pt.checked = on; } catch {}
             }
           } catch {}
         } catch {
