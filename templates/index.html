@@ -670,6 +670,12 @@
           <button class="modal-close" id="btnAddAccountClose" aria-label="Close">×</button>
         </div>
         <div class="modal-body" style="padding:10px;">
+          <div class="row" style="gap:8px; align-items:center; margin-bottom:6px;">
+            <label style="display:flex; flex-direction:column; gap:4px; flex:1;">
+              <span style="font-size:12px; color:var(--muted);">Existing accounts</span>
+              <select id="addAcctSelect" style="padding:6px; min-width:220px;"></select>
+            </label>
+          </div>
           <div class="row" style="gap:8px; align-items:center;">
             <label style="display:flex; flex-direction:column; gap:4px; flex:1;">
               <span style="font-size:12px; color:var(--muted);">Login</span>
@@ -3797,6 +3803,7 @@ const ensureLwMacd = () => {
       const btnAcctSave = document.getElementById('btnAcctSave');
       const btnAcctCancel = document.getElementById('btnAcctCancel');
       const autoAccountSelect = document.getElementById('autoAccountSelect');
+      const addAcctSelect = document.getElementById('addAcctSelect');
       async function loadAccountsSelect() {
         if (!autoAccountSelect) return;
         try {
@@ -3815,7 +3822,32 @@ const ensureLwMacd = () => {
           if (picked) autoAccountSelect.value = picked;
         } catch {}
       }
-      function openAddAccount() { if (addAccountModal) { addAccountModal.style.display = 'flex'; addAccountModal.setAttribute('aria-hidden','false'); setTimeout(()=>{ const el=document.getElementById('acctLogin'); if (el) el.focus(); }, 0); } }
+      async function loadAccountsIntoAddModal() {
+        if (!addAcctSelect) return;
+        try {
+          const r = await fetch('/api/accounts', { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const arr = Array.isArray(js.accounts) ? js.accounts : [];
+          const last = js.last || '';
+          addAcctSelect.innerHTML = arr.length ? '' : '<option value="">(none)</option>';
+          let picked = '';
+          for (const a of arr) {
+            const v = String(a.login||'');
+            const opt = document.createElement('option'); opt.value = v; opt.textContent = v; addAcctSelect.appendChild(opt);
+            if (!picked) picked = v;
+          }
+          if (last) picked = last;
+          if (picked) addAcctSelect.value = picked;
+        } catch {}
+      }
+      async function openAddAccount() {
+        if (addAccountModal) {
+          addAccountModal.style.display = 'flex';
+          addAccountModal.setAttribute('aria-hidden','false');
+          try { await loadAccountsIntoAddModal(); } catch {}
+          setTimeout(()=>{ const el=document.getElementById('acctLogin'); if (el) el.focus(); }, 0);
+        }
+      }
       function closeAddAccount() { if (addAccountModal) { addAccountModal.style.display = 'none'; addAccountModal.setAttribute('aria-hidden','true'); } }
       if (btnAddAccountOpen) btnAddAccountOpen.addEventListener('click', openAddAccount);
       if (btnAddAccountClose) btnAddAccountClose.addEventListener('click', closeAddAccount);
@@ -3830,9 +3862,11 @@ const ensureLwMacd = () => {
           if (!r.ok || !js.ok) { alert('Failed to save account'); return; }
           closeAddAccount();
           await loadAccountsSelect();
+          await loadAccountsIntoAddModal();
           if (autoAccountSelect) autoAccountSelect.value = login;
         } catch { alert('Failed to save account'); }
       });
+      if (addAcctSelect) addAcctSelect.addEventListener('change', ()=>{ const v = addAcctSelect.value||''; const field = document.getElementById('acctLogin'); if (field) field.value = v; });
       if (autoAccountSelect) autoAccountSelect.addEventListener('change', ()=>{ const v=autoAccountSelect.value||''; if (v) queuePrefUpdate('last_account', v); });
       // Persist Auto controls
       const autoSafeMaxInput = document.getElementById('autoSafeMaxInput');
