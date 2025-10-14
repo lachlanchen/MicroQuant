@@ -1247,6 +1247,8 @@ async def _perform_fetch(
     event_scope: str | None = None,
     background: bool = False,
     deferred: bool = False,
+    from_dt = None,
+    to_dt = None,
 ) -> dict[str, object]:
     """Unified fetch routine used by both the interactive handler and bulk/background jobs."""
     loop = tornado.ioloop.IOLoop.current()
@@ -1263,7 +1265,14 @@ async def _perform_fetch(
         try:
             bars: list[dict] = []
             fetch_mode: str | None = None
-            if timeframe == "Y1":
+            if from_dt is not None or to_dt is not None:
+                # Range fetch (both bounds required)
+                if from_dt is None or to_dt is None:
+                    raise ValueError("both from and to must be provided for range fetch")
+                fetch_mode = "range"
+                fetch_fn = partial(mt5_client.fetch_bars_range, symbol, timeframe, from_dt, to_dt)
+                bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+            elif timeframe == "Y1":
                 fetch_mode = "derived_yearly"
                 yearly_count = count if count and count > 0 else None
                 bars = await _compute_yearly_bars(symbol, count=yearly_count)
@@ -1634,6 +1643,10 @@ class FetchHandler(tornado.web.RequestHandler):
         symbol = self.get_argument("symbol", default=default_symbol())
         timeframe = self.get_argument("tf", default="H1").upper()
         count = int(self.get_argument("count", default="500"))
+        from_arg = self.get_argument("from", default=None)
+        to_arg = self.get_argument("to", default=None)
+        from_dt = _normalize_dt(from_arg) if from_arg else None
+        to_dt = _normalize_dt(to_arg) if to_arg else None
         mode = self.get_argument("mode", default="inc")  # inc | full_async | full
         background_param = self.get_argument("background", default=None)
         background_requested: bool | None = None
@@ -1654,7 +1667,10 @@ class FetchHandler(tornado.web.RequestHandler):
                 return False
             return str(v).strip().lower() in {"1", "true", "yes", "on"}
         persist_flag = _truthy(persist_arg)
-        logger.info("/api/fetch symbol=%s tf=%s count=%s mode=%s persist=%s", symbol, timeframe, count, mode, persist_flag)
+        if from_dt or to_dt:
+            logger.info("/api/fetch symbol=%s tf=%s range=%s→%s mode=%s persist=%s", symbol, timeframe, from_dt, to_dt, mode, persist_flag)
+        else:
+            logger.info("/api/fetch symbol=%s tf=%s count=%s mode=%s persist=%s", symbol, timeframe, count, mode, persist_flag)
         schedule_backfill = (mode == "inc")
         info = await _perform_fetch(
             self.pool,
@@ -1667,6 +1683,8 @@ class FetchHandler(tornado.web.RequestHandler):
             event_scope="interactive",
             background=background_flag,
             deferred=deferred,
+            from_dt=from_dt,
+            to_dt=to_dt,
         )
         if info.get("ok"):
             logger.info(

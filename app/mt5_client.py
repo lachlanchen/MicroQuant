@@ -242,6 +242,63 @@ class MT5Client:
             )
         return out
 
+    def fetch_bars_range(self, symbol: str, timeframe: str, start_dt, end_dt) -> list[dict]:
+        """Fetch bars in [start_dt, end_dt] using copy_rates_range.
+        Datetimes should be timezone-aware UTC (or naive UTC). A small future buffer is applied to end_dt
+        using MT5_HISTORY_FUTURE_HOURS env (default 12) to avoid boundary misses.
+        """
+        if not self.initialized:
+            self.initialize()
+
+        if timeframe not in TF_MAP:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+        tf = TF_MAP[timeframe]
+
+        if start_dt is None or end_dt is None:
+            return []
+        if getattr(start_dt, 'tzinfo', None) is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if getattr(end_dt, 'tzinfo', None) is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+        try:
+            fwd_hours = int(os.getenv("MT5_HISTORY_FUTURE_HOURS", "12"))
+        except Exception:
+            fwd_hours = 12
+        from datetime import timedelta
+        eff_end = end_dt + timedelta(hours=max(0, fwd_hours))
+
+        self.logger.info("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, start_dt, eff_end)
+        mt5.symbol_select(symbol, True)
+        rates = mt5.copy_rates_range(symbol, tf, start_dt, eff_end)
+        if rates is None:
+            code, msg = mt5.last_error()
+            self.logger.warning("copy_rates_range returned None for %s %s (%s→%s): %s %s", symbol, timeframe, start_dt, eff_end, code, msg)
+            return []
+
+        names = set(getattr(rates, "dtype", None).names or [])
+        out = []
+        for r in rates:
+            ts = datetime.fromtimestamp(int(r["time"]), tz=timezone.utc)
+            tick_volume = int(r["tick_volume"]) if "tick_volume" in names else 0
+            spread = int(r["spread"]) if "spread" in names else 0
+            real_volume = int(r["real_volume"]) if "real_volume" in names else 0
+            out.append(
+                {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "ts": ts,
+                    "open": float(r["open"]),
+                    "high": float(r["high"]),
+                    "low": float(r["low"]),
+                    "close": float(r["close"]),
+                    "tick_volume": tick_volume,
+                    "spread": spread,
+                    "real_volume": real_volume,
+                }
+            )
+        return out
+
     # --- Trading helpers (demo-first; use at your own risk) ---
     def _ensure_initialized(self):
         if not self.initialized:
