@@ -2654,6 +2654,8 @@ const ensureLwMacd = () => {
         const priceData = buildFromArray(closes);
         const volumeData = buildFromArray(volumes);
         const rsiData = buildFromArray(rsiValues);
+        const boll = computeBollingerBands(closes);
+        const bollData = buildFromArrays([boll.middle, boll.upper, boll.lower]);
         const macdData = buildFromArrays([macdObj.macd, macdObj.signal, macdObj.histogram]);
         const atrData = buildFromArray(atr);
         const adxData = buildFromArrays([adxObj.adx, adxObj.plusDI, adxObj.minusDI]);
@@ -2665,6 +2667,7 @@ const ensureLwMacd = () => {
 
         const sections = [
           buildTechTable(`${tf} Close Price`, ['Value'], priceData),
+          buildTechTable('Bollinger (20,2)', ['Mid', 'Upper', 'Lower'], bollData),
           buildTechTable('Volume', ['Value'], volumeData),
           buildTechTable('STL Trend', ['Value'], trendData),
           buildTechTable('STL Seasonal', ['Value'], seasonalData),
@@ -2999,6 +3002,8 @@ const ensureLwMacd = () => {
         const head = `${symbol} • TF ${tf}` + (stlLastMeta && Number.isFinite(Number(stlLastMeta.period)) ? ` • STL period ${Number(stlLastMeta.period)}` : '') + ` • N=${windowSize}`;
         parts.push(head);
         parts.push(toBlock(`${tf} Close Price`, ['Value'], buildSeries(closes)));
+        const boll = computeBollingerBands(closes);
+        parts.push(toBlock('Bollinger (20,2)', ['Mid','Upper','Lower'], buildSeries3(boll.middle, boll.upper, boll.lower)));
         parts.push(toBlock('Volume', ['Value'], buildSeries(volumes)));
         parts.push(toBlock('STL Trend', ['Value'], slicePts(stlTrendPoints)));
         parts.push(toBlock('STL Seasonal', ['Value'], slicePts(stlSeasonPoints)));
