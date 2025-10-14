@@ -4,11 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Micro Quant</title>
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#1976d2" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="/static/logo.png" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
   <!-- Time scale adapter for Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      try { navigator.serviceWorker.register('/static/sw.js'); } catch (e) {}
+    }
+  </script>
   <!-- Config via data attributes (avoids HTML entity issues) -->
   <div id="app-cfg" data-symbols="{{ symbols_csv }}" data-default="{{ default_symbol_plain }}" data-ai="{{ 1 if news_ai_available else 0 }}" style="display:none"></div>
   <!-- Minimal modal container for full news text -->

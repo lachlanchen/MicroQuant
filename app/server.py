@@ -1600,6 +1600,14 @@ def refresh_supported_symbols():
 
 class MainHandler(tornado.web.RequestHandler):
     async def get(self):
+        # Auto-redirect phones to the mobile web app unless explicitly overridden
+        try:
+            ua = (self.request.headers.get("User-Agent") or "").lower()
+            if any(tok in ua for tok in ("mobi", "iphone", "ipad", "android")) and self.get_argument("desktop", default=None) is None:
+                self.redirect("/app", permanent=False)
+                return
+        except Exception:
+            pass
         # Optional overrides: reset query flag, or pin defaults via env
         def _truthy(v: str | None) -> bool:
             if v is None:
@@ -1997,6 +2005,7 @@ async def make_app():
     return tornado.web.Application(
         [
             (r"/", MainHandler),
+            (r"/app", MobileHandler),
             (r"/api/fetch", FetchHandler, dict(pool=pool)),
             (r"/api/fetch_bulk", BulkFetchHandler, dict(pool=pool)),
             (r"/api/data", DataHandler, dict(pool=pool)),
@@ -5279,3 +5288,41 @@ def main():
 
 if __name__ == "__main__":
     main()
+class MobileHandler(tornado.web.RequestHandler):
+    async def get(self):
+        # Render the standalone mobile view with the same defaults as desktop
+        pool = self.settings.get("pool")
+        try:
+            last_sym = await get_pref(pool, "last_symbol") if pool else None
+            last_tf = await get_pref(pool, "last_tf") if pool else None
+        except Exception:
+            last_sym = None
+            last_tf = None
+        sym = (last_sym or default_symbol()).upper()
+        tf = (last_tf or "H1").upper()
+        if sym not in SUPPORTED_SYMBOLS:
+            sym = default_symbol()
+        if tf not in ALL_TIMEFRAMES:
+            tf = "H1"
+        extras = {}
+        try:
+            if pool:
+                extras = await get_prefs(pool, [
+                    "last_count", "chart_type", "stl_auto_period", "stl_manual_period",
+                    "balance_poll_min", "closed_orders_poll_min"
+                ])
+        except Exception:
+            extras = {}
+        count_pref = extras.get("last_count") or "500"
+        chart_pref = (extras.get("chart_type") or "candlestick").lower()
+        self.render(
+            "mobile.html",
+            symbols=SUPPORTED_SYMBOLS,
+            default_symbol=sym,
+            symbols_csv=",".join(SUPPORTED_SYMBOLS),
+            default_symbol_plain=sym,
+            default_count=count_pref,
+            default_chart_type=chart_pref,
+            default_tf=tf,
+            news_ai_available=bool(AI_CLIENT),
+        )

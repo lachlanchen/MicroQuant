@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Micro Quant — Mobile</title>
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <meta name="theme-color" content="#1976d2" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="apple-touch-icon" href="/static/logo.png" />
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+  <style>
+    :root {
+      --accent: #1976d2;
+      --accent2: #ff9800;
+      --buy: #2ecc71;
+      --sell: #e74c3c;
+      --muted: #555;
+      --bg: #ffffff;
+      --panel: #f7f9fc;
+      --text: #111;
+      --line: #e0e6ef;
+    }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 10px 12px; background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#fff; position:sticky; top:0; z-index:10; }
+    header h2 { margin:0; font-size:16px; font-weight:700; }
+    .tabs { display:flex; gap:6px; padding:6px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:52px; z-index:9; }
+    .tab { flex:1; text-align:center; padding:8px; border-radius:8px; border:1px solid var(--line); background:#fff; font-weight:600; }
+    .tab.active { border-color: var(--accent); box-shadow: 0 1px 6px rgba(25,118,210,0.18); }
+    .page { display:none; padding: 10px 12px; }
+    .page.active { display:block; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    select, input, button { padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--text); }
+    button.btn { font-weight:600; }
+    button.buy { background: var(--buy); color:#fff; border:none; }
+    button.sell { background: var(--sell); color:#fff; border:none; }
+    .pill { display:inline-block; padding:4px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; background:#fff; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
+    #mChart { width: 100%; height: 54vh; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px; margin:8px 0; }
+  </style>
+</head>
+<body>
+  <div id="app-cfg" data-symbols="{{ symbols_csv }}" data-default="{{ default_symbol_plain }}" data-ai="{{ 1 if news_ai_available else 0 }}" style="display:none"></div>
+  <header>
+    <h2>Micro Quant</h2>
+    <div class="row" style="gap:8px; align-items:center;">
+      <span id="mTicker" class="pill">—</span>
+      <select id="mSymbol"></select>
+      <select id="mTf">
+        <option>H1</option><option>H4</option><option>D1</option>
+      </select>
+    </div>
+  </header>
+  <nav class="tabs">
+    <button class="tab active" data-tab="chart">Chart</button>
+    <button class="tab" data-tab="news">News</button>
+    <button class="tab" data-tab="ai">AI Check</button>
+    <button class="tab" data-tab="auto">Auto Trade</button>
+  </nav>
+  <main>
+    <section id="page-chart" class="page active">
+      <div class="row" style="margin-bottom:8px;">
+        <label>BARS <input id="mBars" type="number" min="100" max="5000" value="{{ default_count }}" style="width:88px;"/></label>
+        <button class="btn" id="mRefresh">Refresh</button>
+        <button class="btn" id="mFetch">Fetch+Save</button>
+      </div>
+      <div id="mChart" class="panel"></div>
+    </section>
+    <section id="page-news" class="page">
+      <div class="row" style="margin-bottom:6px;">
+        <button class="btn" id="mNewsRefresh">Refresh News</button>
+        <span id="mNewsStatus" class="pill">—</span>
+      </div>
+      <div id="mNewsList"></div>
+    </section>
+    <section id="page-ai" class="page">
+      <div class="panel">
+        <div class="row" style="margin-bottom:6px;">
+          <label>Basic model <select id="mBasicModel"><option value="">(default)</option><option value="deepseek-chat">deepseek-chat</option><option value="deepseek-reasoner">deepseek-reasoner</option><option value="gpt-4o">gpt-4o</option></select></label>
+          <button class="btn" id="mRunBasic">Basic Check</button>
+          <span id="mBasicPill" class="pill">—</span>
+        </div>
+        <div class="row">
+          <label>Tech+AI model <select id="mTechModel"><option value="">(default)</option><option value="deepseek-chat">deepseek-chat</option><option value="deepseek-reasoner">deepseek-reasoner</option><option value="gpt-4o">gpt-4o</option></select></label>
+          <button class="btn" id="mRunTech">Tech+AI</button>
+          <span id="mTechPill" class="pill">—</span>
+        </div>
+      </div>
+      <div id="mAiOut" style="margin-top:8px;"></div>
+    </section>
+    <section id="page-auto" class="page">
+      <div class="panel">
+        <div class="row" style="margin-bottom:6px;">
+          <label>Trade model <select id="mTradeModel"><option value="deepseek-chat">deepseek-chat</option><option value="deepseek-reasoner">deepseek-reasoner</option><option value="gpt-4o">gpt-4o</option></select></label>
+          <button class="btn" id="mDraftPlan">Draft Plan</button>
+        </div>
+        <div id="mPlanBox" style="font-size:13px;"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // SW registration
+    if ('serviceWorker' in navigator) {
+      try { navigator.serviceWorker.register('/static/sw.js'); } catch (e) {}
+    }
+    const cfg = document.getElementById('app-cfg');
+    const APP_SYMBOLS = (cfg?.getAttribute('data-symbols')||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const APP_DEFAULT = cfg?.getAttribute('data-default')||'XAUUSD';
+    const mSymbol = document.getElementById('mSymbol');
+    const mTf = document.getElementById('mTf');
+    const mBars = document.getElementById('mBars');
+    const mTicker = document.getElementById('mTicker');
+    const chartEl = document.getElementById('mChart');
+    let lwChart = null, lwSeries = null;
+    function curSymbol(){ return (mSymbol?.value||APP_DEFAULT).toUpperCase(); }
+    function curTf(){ return (mTf?.value||'H1').toUpperCase(); }
+    function curBars(){ return Math.max(100, Math.min(5000, Number(mBars?.value||500))); }
+
+    // Fill selects
+    (function initSelects(){
+      if (mSymbol) mSymbol.innerHTML = APP_SYMBOLS.map(s=>`<option>${s}</option>`).join('');
+      if (mSymbol && APP_SYMBOLS.includes(APP_DEFAULT)) mSymbol.value = APP_DEFAULT;
+      if (mTf) mTf.value = '{{ default_tf }}';
+    })();
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('page-'+btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Chart
+    function ensureChart(){
+      if (!lwChart) {
+        lwChart = LightweightCharts.createChart(chartEl, {
+          layout: { background: { color: '#f7f9fc' }, textColor: '#111' },
+          rightPriceScale: { borderColor: '#e0e6ef' },
+          grid: { vertLines: { color:'#e0e6ef' }, horzLines: { color:'#e0e6ef' } },
+          timeScale: { rightOffset: 10, fixRightEdge: false },
+        });
+        lwSeries = lwChart.addCandlestickSeries({ upColor:'#2ecc71', downColor:'#e74c3c', wickUpColor:'#2ecc71', wickDownColor:'#e74c3c', borderVisible:false });
+      }
+      return lwChart;
+    }
+    async function loadChart(){
+      ensureChart();
+      const sym = curSymbol(), tf = curTf();
+      const r = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=${curBars()}`, { cache:'no-store' });
+      const js = await r.json().catch(()=>({}));
+      const rows = Array.isArray(js.rows) ? js.rows : [];
+      const data = rows.map(r=>({ time: Math.floor(new Date(r.ts).getTime()/1000), open:+r.open, high:+r.high, low:+r.low, close:+r.close }));
+      lwSeries.setData(data);
+      lwChart.timeScale().fitContent();
+    }
+    async function pollTick(){
+      try {
+        const sym = curSymbol();
+        const r = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        const bid = Number(js.bid), ask = Number(js.ask);
+        if (Number.isFinite(bid) && Number.isFinite(ask)) {
+          mTicker.textContent = `${sym} • Bid ${bid} • Ask ${ask}`;
+        }
+      } catch {}
+      setTimeout(pollTick, 2000);
+    }
+    document.getElementById('mRefresh').addEventListener('click', loadChart);
+    document.getElementById('mFetch').addEventListener('click', async ()=>{
+      const sym = curSymbol(), tf = curTf();
+      await fetch(`/api/fetch?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&count=${curBars()}`, { cache:'no-store' });
+      loadChart();
+    });
+    mSymbol.addEventListener('change', loadChart);
+    mTf.addEventListener('change', loadChart);
+
+    // News
+    async function loadNews(){
+      const sym = curSymbol();
+      const box = document.getElementById('mNewsList');
+      const pill = document.getElementById('mNewsStatus');
+      try {
+        pill.textContent = 'Loading…';
+        const r = await fetch(`/api/news?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        const arr = js && js.rows ? js.rows : [];
+        box.innerHTML = arr.map(a=>`<div class="card"><div style="font-weight:600;">${(a.title||a.headline||'').slice(0,160)}</div><div style="font-size:12px; color:var(--muted);">${a.source||''} • ${a.published_at||''}</div><div style="margin-top:6px;">${(a.summary||a.snippet||'').slice(0,280)}</div></div>`).join('');
+        pill.textContent = `Loaded ${arr.length}`;
+      } catch (e) { pill.textContent = 'Error'; }
+    }
+    document.getElementById('mNewsRefresh').addEventListener('click', loadNews);
+
+    // AI: Basic & Tech
+    const PREF = '/api/preferences';
+    async function loadAiPrefs(){
+      try {
+        const r = await fetch(`${PREF}?keys=basic_ai_model,tech_ai_model,trade_ai_model`, { cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        const p = (js && js.prefs) || {};
+        const b = document.getElementById('mBasicModel'); if (b && p.basic_ai_model) b.value = p.basic_ai_model;
+        const t = document.getElementById('mTechModel'); if (t && p.tech_ai_model) t.value = p.tech_ai_model;
+        const tm = document.getElementById('mTradeModel'); if (tm && p.trade_ai_model) tm.value = p.trade_ai_model;
+      } catch {}
+    }
+    async function runBasic(){
+      const sym = curSymbol();
+      const tf = curTf();
+      const model = document.getElementById('mBasicModel').value;
+      const out = document.getElementById('mAiOut');
+      out.textContent = 'Running Basic…';
+      const payload = { symbol: sym, timeframe: tf, n_bars: 50 };
+      if (model) payload.model = model;
+      try {
+        const r = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        out.textContent = JSON.stringify(js, null, 2);
+        document.getElementById('mBasicPill').textContent = js && js.signal ? js.signal : '—';
+      } catch (e) { out.textContent = String(e); }
+    }
+    async function runTech(){
+      const sym = curSymbol();
+      const tf = curTf();
+      const model = document.getElementById('mTechModel').value;
+      const out = document.getElementById('mAiOut');
+      out.textContent = 'Running Tech+AI…';
+      // Build a minimal snapshot: last N closes + tick line
+      const data = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=${200}`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+      const closes = (data.rows||[]).map(r=>+r.close);
+      const tick = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+      const tline = tick && (Number.isFinite(+tick.bid) && Number.isFinite(+tick.ask)) ? `Latest Tick — Bid ${tick.bid} • Ask ${tick.ask}` : '';
+      const snapshot = `Close Price\n` + closes.slice(-50).map(v=>String(v)).join(', ') + (tline?`\n${tline}`:'');
+      const body = { symbol:sym, timeframe:tf, tech_snapshot:snapshot, strategy:'tech_snapshot_10q_position.json' };
+      if (model) body.model = model;
+      try {
+        const r = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        out.textContent = JSON.stringify(js, null, 2);
+        document.getElementById('mTechPill').textContent = js && js.signal ? js.signal : '—';
+      } catch (e) { out.textContent = String(e); }
+    }
+    document.getElementById('mRunBasic').addEventListener('click', runBasic);
+    document.getElementById('mRunTech').addEventListener('click', runTech);
+
+    // Auto Trade: draft plan only (non-blocking)
+    async function draftPlan(){
+      const sym = curSymbol(); const tf = curTf();
+      const model = document.getElementById('mTradeModel').value;
+      const out = document.getElementById('mPlanBox'); out.textContent='Drafting…';
+      const data = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&limit=300`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+      const closes = (data.rows||[]).map(r=>+r.close);
+      const tick = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({}));
+      const tline = tick && (Number.isFinite(+tick.bid) && Number.isFinite(+tick.ask)) ? `Latest Tick — Bid ${tick.bid} • Ask ${tick.ask}` : '';
+      const snapshot = `Close Price\n` + closes.slice(-50).map(v=>String(v)).join(', ') + (tline?`\n${tline}`:'');
+      const body = { symbol:sym, timeframe:tf, action:'BUY', tech_snapshot:snapshot, model };
+      try {
+        const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        out.textContent = JSON.stringify(js, null, 2);
+      } catch (e) { out.textContent = String(e); }
+    }
+    document.getElementById('mDraftPlan').addEventListener('click', draftPlan);
+
+    // Init
+    loadAiPrefs();
+    loadChart();
+    loadNews();
+    pollTick();
+  </script>
+</body>
+</html>
+
