@@ -722,9 +722,15 @@
               <span style="font-size:12px; color:var(--muted);">Safe max lots</span>
               <input id="autoSafeMaxInput" type="number" min="0.01" step="0.01" value="0.10" style="width:90px;" />
             </label>
+            <label class="switch" title="Nudge Stop Loss toward price by a fraction of the SL–TP distance" style="gap:6px;">
+              <input type="checkbox" id="autoSlNudgeToggle" class="toggle-input" />
+              <span class="toggle"></span>
+              <span>Nudge Stop Loss</span>
+            </label>
             <label style="display:flex; align-items:center; gap:6px;">
-              <span style="font-size:12px; color:var(--muted);">SL scale</span>
-              <input id="autoSlScaleInput" type="number" min="0.1" step="0.1" value="1.5" style="width:72px;" />
+              <span style="font-size:12px; color:var(--muted);">Divider</span>
+              <input id="autoSlNudgeDiv" type="range" min="2" max="10" step="1" value="4" style="width:120px;" />
+              <span id="autoSlNudgeDivVal" style="font-size:12px; color:var(--muted); min-width:20px; text-align:center;">4</span>
             </label>
             <span id="autoSafeHint" style="font-size:12px; color:var(--muted);"></span>
           </div>
@@ -4156,16 +4162,32 @@ const ensureLwMacd = () => {
       });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
-      // Persist/load Auto SL scale preference per symbol×TF
+      // Persist/load Auto SL Nudge (enabled + divider) per symbol×TF
       (function(){
-        const slScaleEl = document.getElementById('autoSlScaleInput');
-        if (!slScaleEl) return;
-        const key = () => `auto_sl_scale:${currentSymbol()}:${currentTf()}`;
-        const save = () => { const v = Number(slScaleEl.value||''); if (Number.isFinite(v) && v>0) { try { queuePrefUpdate(key(), String(v)); flushPrefQueue(); appendAutoLog(`SL scale set to ${v}`); } catch {} } };
-        slScaleEl.addEventListener('change', save);
-        slScaleEl.addEventListener('blur', save);
+        const toggleEl = document.getElementById('autoSlNudgeToggle');
+        const divEl = document.getElementById('autoSlNudgeDiv');
+        const divVal = document.getElementById('autoSlNudgeDivVal');
+        if (divVal && divEl) { divVal.textContent = String(divEl.value||'4'); }
+        if (!toggleEl && !divEl) return;
+        const keyEnabled = () => `auto_sl_nudge_enabled:${currentSymbol()}:${currentTf()}`;
+        const keyDiv = () => `auto_sl_nudge_div:${currentSymbol()}:${currentTf()}`;
+        const saveEnabled = () => { try { queuePrefUpdate(keyEnabled(), toggleEl && toggleEl.checked ? '1' : '0'); flushPrefQueue(); appendAutoLog(`SL nudge ${toggleEl && toggleEl.checked ? 'ON' : 'OFF'}`); } catch {} };
+        const saveDiv = () => { const v = Number(divEl && divEl.value || '4'); if (Number.isFinite(v) && v>0) { try { if (divVal) divVal.textContent = String(v); queuePrefUpdate(keyDiv(), String(v)); flushPrefQueue(); appendAutoLog(`SL nudge divider set to ${v}`); } catch {} } };
+        if (toggleEl) { toggleEl.addEventListener('change', saveEnabled); }
+        if (divEl) { divEl.addEventListener('input', saveDiv); divEl.addEventListener('change', saveDiv); }
         // Load existing
-        (async () => { try { const r = await fetch(`/api/preferences?keys=${encodeURIComponent(key())}`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const val = js && js.prefs ? js.prefs[key()] : null; if (val) slScaleEl.value = String(val); } catch {} })();
+        (async () => {
+          try {
+            const keys = encodeURIComponent(`${keyEnabled()},${keyDiv()}`);
+            const r = await fetch(`/api/preferences?keys=${keys}`, { cache:'no-store' });
+            const js = await r.json().catch(()=>({}));
+            const map = (js && js.prefs) || js || {};
+            const on = String(map[keyEnabled()] || '0') === '1';
+            const dv = Number(map[keyDiv()] || '4');
+            if (toggleEl) toggleEl.checked = on;
+            if (divEl && Number.isFinite(dv) && dv>0) { divEl.value = String(dv); if (divVal) divVal.textContent = String(dv); }
+          } catch {}
+        })();
       })();
       // Accounts UI
       const btnAddAccountOpen = document.getElementById('btnAddAccountOpen');
@@ -4753,23 +4775,27 @@ const ensureLwMacd = () => {
             if (jt && (jt.bid!=null || jt.ask!=null || jt.last!=null)) mkt = jt;
           } catch {}
           const px = mkt ? (sideLower==='buy' ? (mkt.ask ?? mkt.last ?? mkt.bid) : (mkt.bid ?? mkt.last ?? mkt.ask)) : null;
-          // Plan SL and optional scale suggestion (but scaling is disabled for execution)
+          // Plan SL and optional Nudge (apply if enabled): newSL = planSL - (TP - planSL)/div
           const planSL = (slEnabled && p.stop_loss != null) ? Number(p.stop_loss) : null;
+          let finalSL = planSL;
           try {
-            const slScaleEl = document.getElementById('autoSlScaleInput');
-            const scale = slScaleEl ? Number(slScaleEl.value||'1') : 1;
-            if (slEnabled && planSL != null && px != null && Number.isFinite(scale) && scale>0 && scale !== 1) {
-              const suggested = Number(px) + (planSL - Number(px)) * scale;
-              appendAutoLog(`SL scale is DISABLED for execution. Context → side=${side}, price=${px.toFixed ? px.toFixed(2) : px}, planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL}, scale=${scale}, suggestedSL=${suggested.toFixed ? suggested.toFixed(2) : suggested}. Using planSL unchanged.`);
+            const nudgeToggle = document.getElementById('autoSlNudgeToggle');
+            const divEl = document.getElementById('autoSlNudgeDiv');
+            const div = Number(divEl && divEl.value || '4');
+            const tpNum = (p.take_profit != null) ? Number(p.take_profit) : null;
+            if (slEnabled && nudgeToggle && nudgeToggle.checked && planSL != null && tpNum != null && Number.isFinite(div) && div>0) {
+              const delta = (tpNum - planSL) / div;
+              const suggested = planSL - delta;
+              appendAutoLog(`[SL Nudge] side=${side} price=${px!=null? (px.toFixed?px.toFixed(2):px):'market'} planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL} TP=${tpNum.toFixed ? tpNum.toFixed(2) : tpNum} div=${div} → delta=${delta.toFixed ? delta.toFixed(4) : delta} nudgedSL=${suggested.toFixed ? suggested.toFixed(2) : suggested}`);
+              finalSL = suggested;
             } else if (slEnabled && planSL != null) {
-              appendAutoLog(`SL scale disabled. Using planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL}.`);
+              appendAutoLog(`[SL Nudge] disabled or missing TP — using planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL}.`);
             }
           } catch {}
           // Preflight: invalid SL relative to current price? (BUY: SL < price; SELL: SL > price)
-          if (slEnabled && planSL != null && px != null) {
-            const invalid = (sideLower === 'buy') ? (planSL >= px) : (planSL <= px);
-            const relation = (sideLower === 'buy') ? 'below' : 'above';
-            appendAutoLog(`SL preflight: side=${side} price=${px.toFixed ? px.toFixed(2) : px} planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL} → ${invalid ? 'INVALID' : 'OK'} (BUY requires SL<price; SELL requires SL>price).` , invalid ? 'error' : 'info');
+          if (slEnabled && finalSL != null && px != null) {
+            const invalid = (sideLower === 'buy') ? (finalSL >= px) : (finalSL <= px);
+            appendAutoLog(`SL preflight: side=${side} price=${px.toFixed ? px.toFixed(2) : px} SL=${finalSL.toFixed ? finalSL.toFixed(2) : finalSL} → ${invalid ? 'INVALID' : 'OK'} (BUY requires SL<price; SELL requires SL>price).` , invalid ? 'error' : 'info');
             if (invalid) {
               try {
                 const save = await fetch('/api/auto_trade/log', {
@@ -4779,14 +4805,13 @@ const ensureLwMacd = () => {
                 const saved = await save.json().catch(()=>({}));
                 if (saved && saved.ok && saved.run_id) { appendAutoLog(`Saved log run id=${saved.run_id}`); autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
               } catch {}
-              // Abort before placing the order
               if (btnAutoStart) { btnAutoStart.disabled = false; btnAutoStart.textContent = 'Start'; }
               return;
             }
           }
-          // Write original plan SL to request if enabled (scaling disabled for execution)
-          if (slEnabled && planSL != null) { body.set('sl', String(planSL)); }
-          appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${planSL!=null? String(planSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
+          // Write SL (nudged or plan) to request if enabled
+          if (slEnabled && finalSL != null) { body.set('sl', String(finalSL)); }
+          appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
           const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
           const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));

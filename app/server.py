@@ -2971,6 +2971,8 @@ class PreferencesHandler(tornado.web.RequestHandler):
                 # Allow per-symbol×timeframe SL/volume preferences used by Auto Trade
                 elif isinstance(key, str) and (
                     key.startswith("auto_sl_enabled:") or
+                    key.startswith("auto_sl_nudge_enabled:") or
+                    key.startswith("auto_sl_nudge_div:") or
                     key.startswith("auto_sl_scale:") or
                     key.startswith("auto_volume:") or
                     key.startswith("trade_volume:")
