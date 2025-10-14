@@ -532,6 +532,53 @@ async def fetch_account_balances(
         })
     return out
 
+async def fetch_account_balances_daily(
+    pool: asyncpg.pool.Pool,
+    *,
+    user_name: str,
+    account_id: int,
+    limit_days: int = 365,
+) -> list[dict]:
+    q = (
+        """
+        WITH daily AS (
+            SELECT
+                date_trunc('day', ts) AS day,
+                ts,
+                balance,
+                equity,
+                margin,
+                free_margin,
+                currency,
+                ROW_NUMBER() OVER (
+                    PARTITION BY date_trunc('day', ts)
+                    ORDER BY ts DESC
+                ) AS rn
+            FROM account_balances
+            WHERE user_name=$1 AND account_id=$2
+        )
+        SELECT day, ts, balance, equity, margin, free_margin, currency
+        FROM daily
+        WHERE rn=1
+        ORDER BY day DESC
+        LIMIT $3
+        """
+    )
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(q, user_name, int(account_id), int(limit_days))
+    out = []
+    for r in reversed(rows):  # ascending by day for charting
+        ts = r["day"] if r.get("day") is not None else r.get("ts")
+        out.append({
+            "ts": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+            "balance": float(r["balance"]) if r["balance"] is not None else None,
+            "equity": float(r["equity"]) if r["equity"] is not None else None,
+            "margin": float(r["margin"]) if r["margin"] is not None else None,
+            "free_margin": float(r["free_margin"]) if r["free_margin"] is not None else None,
+            "currency": r["currency"],
+        })
+    return out
+
 # --- Closed deals ---
 async def upsert_closed_deals(
     pool: asyncpg.pool.Pool,

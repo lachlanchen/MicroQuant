@@ -2175,6 +2175,7 @@ class AccountBalanceHandler(tornado.web.RequestHandler):
         user = self.get_argument("user", default=os.getenv("DEFAULT_USER", "lachlan"))
         acct_arg = self.get_argument("account", default=None)
         limit = int(self.get_argument("limit", default="500"))
+        daily_flag = self.get_argument("daily", default="0").lower() in ("1", "true", "yes", "on")
         refresh_flag = self.get_argument("refresh", default="0").lower() in ("1", "true", "yes")
         # Resolve account id
         account_id = None
@@ -2199,7 +2200,10 @@ class AccountBalanceHandler(tornado.web.RequestHandler):
                 await poll_and_store_account_balance(user=user)
             except Exception as exc:
                 logger.warning("/api/account/balance_series refresh failed: %s", exc)
-        rows = await fetch_account_balances(self.pool, user_name=user, account_id=account_id, limit=limit)
+        if daily_flag:
+            rows = await fetch_account_balances_daily(self.pool, user_name=user, account_id=account_id, limit_days=limit)
+        else:
+            rows = await fetch_account_balances(self.pool, user_name=user, account_id=account_id, limit=limit)
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "user": user, "account": account_id, "rows": rows}))

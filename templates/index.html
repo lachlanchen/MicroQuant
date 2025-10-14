@@ -1820,7 +1820,9 @@
         try {
           await ensureSelectedAccountSession?.();
           const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
-          const url = acct ? `/api/account/balance_series?user=lachlan&limit=1000&account=${encodeURIComponent(acct)}` : '/api/account/balance_series?user=lachlan&limit=1000';
+          const url = acct
+            ? `/api/account/balance_series?user=lachlan&limit=1000&daily=1&account=${encodeURIComponent(acct)}`
+            : '/api/account/balance_series?user=lachlan&limit=1000&daily=1';
           const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           try {
