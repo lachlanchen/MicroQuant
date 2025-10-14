@@ -1774,7 +1774,10 @@
       async function refreshBalanceSeries() {
         if (fetchingBalance) return; fetchingBalance = true;
         try {
-          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1000', { cache: 'no-store' });
+          await ensureSelectedAccountSession?.();
+          const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
+          const url = acct ? `/api/account/balance_series?user=lachlan&limit=1000&account=${encodeURIComponent(acct)}` : '/api/account/balance_series?user=lachlan&limit=1000';
+          const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) return;
           if (!ensureBalanceChart()) return;
@@ -1816,7 +1819,8 @@
         const prev = btn ? btn.textContent : '';
         if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
         try {
-          // Prefer DB to avoid noisy MT5 calls during normal refresh
+          // Prefer DB and ensure selected account session so server resolves correct account_id
+          await ensureSelectedAccountSession?.();
           const r = await fetch('/api/account/closed_deals?days=5000&source=db&comment=auto-quant-close', { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!ensureBalanceChart()) return;
@@ -3253,9 +3257,23 @@ const ensureLwMacd = () => {
         }
         return null;
       };
+      let __lastLoginSession = '';
+      async function ensureSelectedAccountSession() {
+        try {
+          const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : (window.lastAccountPref || '');
+          if (!acct || acct === __lastLoginSession) return;
+          const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' });
+          const jlogin = await rlogin.json().catch(()=>({}));
+          if (rlogin.ok && jlogin && jlogin.ok) { __lastLoginSession = acct; }
+        } catch {}
+      }
+
       async function refreshAccountBalanceQuick() {
         try {
-          const r = await fetch('/api/account/balance_series?user=lachlan&limit=1', { cache: 'no-store' });
+          await ensureSelectedAccountSession();
+          const acct = (typeof resolveSelectedAccountValue === 'function') ? resolveSelectedAccountValue() : '';
+          const url = acct ? `/api/account/balance_series?user=lachlan&limit=1&account=${encodeURIComponent(acct)}` : '/api/account/balance_series?user=lachlan&limit=1';
+          const r = await fetch(url, { cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           const rows = Array.isArray(js.rows) ? js.rows : [];
           if (rows.length) {
@@ -6103,6 +6121,7 @@ const ensureLwMacd = () => {
 
       async function refreshPositions() {
         const symbol = currentSymbol();
+        try { await ensureSelectedAccountSession?.(); } catch {}
         const r = await fetch(`/api/positions?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
         const js = await r.json().catch(() => ({}));
         if (js.ok) {
@@ -7025,6 +7044,7 @@ const ensureLwMacd = () => {
         if (autoModal) { autoModal.style.display = 'flex'; autoModal.setAttribute('aria-hidden', 'false'); }
         // meta line: symbol • TF • Open lots • Safe max lots (red)
         try {
+          try { await ensureSelectedAccountSession?.(); } catch {}
           const posRes = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
           const posJs = await posRes.json().catch(()=>([]));
           const positions = Array.isArray(posJs) ? posJs : (Array.isArray(posJs.positions) ? posJs.positions : []);
