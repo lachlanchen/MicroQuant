@@ -316,8 +316,45 @@ TRADE_PLAN_SCHEMA: dict[str, Any] = {
 
 
 def _articles_to_text(items: list[dict[str, Any]]) -> str:
+    """Render articles as numbered blocks in ascending time order (newest at end).
+
+    Accepts items with any of: published_at, publishedAt, published, publishedDate.
+    Items without a timestamp are kept at the start in original order.
+    """
+    from datetime import datetime
+
+    def _parse_ts(val: Any):
+        if not val:
+            return None
+        s = str(val).strip()
+        # Normalize common Zulu suffix
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        # Try ISO parse
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            pass
+        # Try compact forms like YYYYMMDDHHMM or YYYYMMDDHHMMSS
+        try:
+            if len(s) == 12 and s.isdigit():
+                return datetime.strptime(s, "%Y%m%d%H%M")
+            if len(s) == 14 and s.isdigit():
+                return datetime.strptime(s, "%Y%m%d%H%M%S")
+        except Exception:
+            pass
+        return None
+
+    # Stable sort by parsed timestamp ascending; None timestamps come first by keeping original index
+    indexed: list[tuple[int, Any, dict[str, Any]]] = []
+    for idx, it in enumerate(items):
+        ts_raw = it.get("published_at") or it.get("publishedAt") or it.get("published") or it.get("publishedDate")
+        ts_parsed = _parse_ts(ts_raw)
+        indexed.append((idx, ts_parsed, it))
+    indexed.sort(key=lambda t: (t[1] is not None, t[1] or 0, t[0]))  # None first in original order, else by ts
+
     parts: list[str] = []
-    for i, it in enumerate(items, 1):
+    for i, (_, _, it) in enumerate(indexed, 1):
         title = str(it.get("title") or it.get("headline") or "").strip()
         # Prefer full body when available (FMP 'text' is passed as 'body')
         summary = str(
@@ -446,7 +483,8 @@ def _build_pair_position_prompt(pair_symbol: str, items: list[dict], timeframe: 
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
-        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+        n = len(closes)
+        prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
@@ -461,7 +499,8 @@ def _build_pair_prompt_position_question(question_text: str, pair_symbol: str, i
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
-        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+        n = len(closes)
+        prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are an FX analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
@@ -477,7 +516,8 @@ def _build_stock_position_prompt(ticker: str, items: list[dict], timeframe: str 
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
-        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+        n = len(closes)
+        prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
@@ -492,7 +532,8 @@ def _build_stock_prompt_position_question(question_text: str, ticker: str, items
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     prices_line = ""
     if closes:
-        prices_line = "\nRecent prices (last N closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
+        n = len(closes)
+        prices_line = f"\nRecent prices (last {n} closes):\n" + ", ".join(str(round(x, 6)).rstrip('0').rstrip('.') if isinstance(x, float) else str(x) for x in closes) + "\n"
     return (
         "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
