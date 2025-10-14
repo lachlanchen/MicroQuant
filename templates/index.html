@@ -3862,7 +3862,16 @@ const ensureLwMacd = () => {
           const r = await fetch('/api/accounts', { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           const arr = Array.isArray(js.accounts) ? js.accounts : [];
-          const last = js.last || '';
+          let last = js.last || '';
+          // Fallback to prefs if API did not return last
+          if (!last) {
+            try {
+              const pr = await fetch(`${PREF_ENDPOINT}?keys=last_account`, { cache:'no-store' });
+              const pj = await pr.json().catch(()=>({}));
+              const m = (pj && pj.prefs) || pj || {};
+              last = m.last_account || '';
+            } catch {}
+          }
           const fill = (sel) => {
             if (!sel) return;
             sel.innerHTML = arr.length ? '' : '<option value="">(none)</option>';
@@ -3923,6 +3932,8 @@ const ensureLwMacd = () => {
           await loadAccountsSelect();
           await loadAccountsIntoAddModal();
           if (autoAccountSelect) autoAccountSelect.value = login;
+          // Persist selection as last_account in preferences
+          try { persistLastAccount(login); } catch {}
         } catch { alert('Failed to save account'); }
       });
       if (addAcctSelect) addAcctSelect.addEventListener('change', ()=>{ const v = addAcctSelect.value||''; const field = document.getElementById('acctLogin'); if (field) field.value = v; });
