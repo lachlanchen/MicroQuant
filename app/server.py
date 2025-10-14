@@ -2138,6 +2138,7 @@ async def make_app():
             (r"/api/trade", TradeHandler),
             (r"/api/close", CloseHandler),
             (r"/api/positions", PositionsHandler),
+            (r"/api/positions/all", PositionsAllHandler),
             (r"/api/tick", TickHandler),
             (r"/api/health/freshness", HealthFreshnessHandler, dict(pool=pool)),
             (r"/api/tech/freshness", TechFreshnessHandler, dict(pool=pool)),
@@ -2402,6 +2403,22 @@ class PositionsHandler(tornado.web.RequestHandler):
             positions = mt5_client.list_positions(symbol)
         except Exception as e:
             logger.exception("list positions failed: %s", e)
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": str(e)}))
+            return
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "positions": positions}))
+
+
+class PositionsAllHandler(tornado.web.RequestHandler):
+    async def get(self):
+        try:
+            positions = mt5_client.list_positions_all()
+        except Exception as e:
+            logger.exception("list all positions failed: %s", e)
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
             self.set_header("Cache-Control", "no-store")

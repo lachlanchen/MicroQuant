@@ -349,6 +349,31 @@ class MT5Client:
                 continue
         return out
 
+    def list_positions_all(self) -> list[dict]:
+        """Return simplified open positions across all symbols."""
+        self._ensure_initialized()
+        try:
+            all_pos = mt5.positions_get() or []
+        except Exception:
+            all_pos = []
+        out: list[dict] = []
+        for p in all_pos:
+            try:
+                out.append({
+                    "symbol": str(getattr(p, "symbol", "")),
+                    "ticket": int(getattr(p, "ticket", 0)),
+                    "type": int(getattr(p, "type", 0)),
+                    "volume": float(getattr(p, "volume", 0.0)),
+                    "price_open": float(getattr(p, "price_open", 0.0)),
+                    "sl": float(getattr(p, "sl", 0.0)),
+                    "tp": float(getattr(p, "tp", 0.0)),
+                    "profit": float(getattr(p, "profit", 0.0)),
+                    "time": int(getattr(p, "time", 0)),
+                })
+            except Exception:
+                continue
+        return out
+
     def place_market(self, symbol: str, side: str, volume: float, deviation: int = 20, comment: str = "auto-quant", sl: float | None = None, tp: float | None = None) -> dict:
         self._ensure_initialized()
         info = self.symbol_info(symbol)

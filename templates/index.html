@@ -501,6 +501,7 @@
             <input id="autoPeriodicSafeMaxInput" type="number" min="0.01" step="0.01" style="width:110px;" />
           </label>
         </div>
+        <div id="openLotsSummary" style="margin-top:4px; font-size:12px; color:var(--muted);"></div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button class="btn secondary" id="btnPeriodicHistoryOpen" style="padding:6px 10px;">Periodic History</button>
           <button class="btn" id="btnPeriodicTrigger" style="padding:6px 10px; background:#e53935; color:#fff; border:none;">Danger Trigger Auto AI Trade</button>
@@ -4972,6 +4973,7 @@ const ensureLwMacd = () => {
       });
       if (autoPeriodicSafeMaxInput) autoPeriodicSafeMaxInput.addEventListener('change', ()=>{
         queuePrefUpdate(`safe_max_lots:global`, String(autoPeriodicSafeMaxInput.value||''));
+        updateOpenLotsSummary();
       });
       if (autoPeriodicSlToggle) autoPeriodicSlToggle.addEventListener('change', ()=>{
         const val = autoPeriodicSlToggle.checked ? '1' : '0';
@@ -5159,10 +5161,13 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (autoPeriodicRunning) { appendAutoLog('[Periodic] Already running; trigger skipped', 'warn'); return; }
         autoPeriodicRunning = true;
         appendAutoLog('[Periodic] Manual trigger');
+        try { await updateOpenLotsSummary(); } catch {}
         setPeriodicStatus('Triggering periodic run…', true);
         try { await runPeriodicAutoTrades(); } catch (e) { appendAutoLog(`[Periodic] Trigger error: ${e && e.message || e}`, 'error'); }
         finally { setPeriodicStatus('', false); autoPeriodicRunning = false; }
       });
+      // Initial lots summary
+      (async () => { try { await updateOpenLotsSummary(); } catch {} })();
       // Execute periodic batch across selected symbols (parallel by symbol)
       async function runPeriodicAutoTrades() {
         const sel = document.getElementById('autoPeriodicSymbols');
@@ -5425,7 +5430,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (Number.isFinite(safeMax) && safeMax > 0) {
             const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
             const pjs = await pr.json().catch(()=>({}));
-            const arr = Array.isArray(pjs) ? pjs : (Array.isArray(pjs.rows) ? pjs.rows : []);
+            const arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
             const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
             log(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
             if (openLots >= safeMax) {
@@ -5436,6 +5441,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
                   body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: !!slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax }, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' })
                 });
               } catch {}
+              try { await updateOpenLotsSummary(); } catch {}
               return;
             }
           }
@@ -5447,6 +5453,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const slStrLog = (slEnabled && finalSL != null) ? formatPriceForSymbol(sym, finalSL) : 'off';
         const pxStr2 = Number.isFinite(px) ? formatPriceForSymbol(sym, px) : 'market';
         log(`Order params: acct=${acct||'current'} side=${side} vol=${vol} price=${pxStr2} ${slEnabled? `SL=${slStrLog}` : 'SL=off'} ${tpStrLog? `TP=${tpStrLog}`:''}`);
+        body.set('tf', tf);
         const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
         const tj = await tr.json().catch(()=>({}));
         const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
@@ -5456,6 +5463,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const saved = await save.json().catch(()=>({}));
           if (saved && saved.ok && saved.run_id) log(`Saved log run id=${saved.run_id}`);
         } catch {}
+        try { await updateOpenLotsSummary(); } catch {}
       }
       let autoPeriodicTimer = null;
       let autoPeriodicTimeout = null;
@@ -5463,6 +5471,23 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       let autoPeriodicNextAtMs = 0;
       let autoPeriodicUiTimer = null;
       const autoPeriodicStatePill = document.getElementById('autoPeriodicStatePill');
+      async function updateOpenLotsSummary() {
+        const box = document.getElementById('openLotsSummary');
+        if (!box) return;
+        try {
+          const r = await fetch('/api/positions/all', { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const arr = Array.isArray(js && js.positions) ? js.positions : [];
+          const sym = currentSymbol();
+          const sum = (pred) => arr.filter(pred).reduce((a,x)=>a+(Number(x && x.volume)||0),0);
+          const cur = sum(x => String(x.symbol||'').toUpperCase() === String(sym||'').toUpperCase());
+          const xau = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAU'));
+          const xag = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAG'));
+          const fxOther = sum(x => { const s=String(x.symbol||'').toUpperCase(); return /^[A-Z]{6,7}$/.test(s) && !s.startsWith('XAU') && !s.startsWith('XAG'); });
+          const stocks = sum(x => { const s=String(x.symbol||'').toUpperCase(); return !/^[A-Z]{6,7}$/.test(s); });
+          box.textContent = `Open lots — cur ${sym}: ${cur.toFixed(2)} • XAU: ${xau.toFixed(2)} • XAG: ${xag.toFixed(2)} • FX: ${fxOther.toFixed(2)} • Stocks: ${stocks.toFixed(2)}`;
+        } catch { /* ignore */ }
+      }
       function setPeriodicStatePill(text, state='idle') {
         if (!autoPeriodicStatePill) return;
         autoPeriodicStatePill.textContent = text || '—';
@@ -5930,7 +5955,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             if (Number.isFinite(safeMax) && safeMax > 0) {
               const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
               const pjs = await pr.json().catch(()=>({}));
-              const arr = Array.isArray(pjs) ? pjs : (Array.isArray(pjs.rows) ? pjs.rows : []);
+              const arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
               const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
               appendAutoLog(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
               if (openLots >= safeMax) {
@@ -5943,6 +5968,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
                   const saved = await save.json().catch(()=>({}));
                   if (saved && saved.ok && saved.run_id) { appendAutoLog(`Saved log run id=${saved.run_id}`); autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
                 } catch {}
+                try { await updateOpenLotsSummary(); } catch {}
                 if (btnAutoStart) { btnAutoStart.disabled = false; btnAutoStart.textContent = 'Start'; }
                 return;
               }
@@ -5979,6 +6005,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           } catch {}
           try { await refreshChart(); } catch {}
           try { await refreshPositions(); } catch {}
+          try { await updateOpenLotsSummary(); } catch {}
           status('Auto AI Trade finished.');
         } catch (e) {
           status(`Auto AI Trade failed: ${e && e.message || e}`);

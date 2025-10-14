@@ -145,6 +145,7 @@
           <button class="btn" id="mManageAccounts">Manage Accounts</button>
         </div>
         <div id="mAutoStatus" style="font-size:12px; color:var(--muted);"></div>
+        <div id="mLotsSummary" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
       </div>
     </section>
   </main>
@@ -446,8 +447,25 @@
       try { Array.from(sel.options).forEach(o=>{ o.selected = (o.value===curSymbol()); }); } catch {}
     }
     function selectedValues(sel){ return Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); }
+    async function updateMobileLotsSummary(){
+      const lotsBox = document.getElementById('mLotsSummary');
+      try {
+        const r = await fetch('/api/positions/all', { cache:'no-store' });
+        const js = await r.json().catch(()=>({}));
+        const arr = Array.isArray(js && js.positions) ? js.positions : [];
+        const sum = (pred) => arr.filter(pred).reduce((a,x)=>a+(Number(x && x.volume)||0),0);
+        const cur = sum(x => String(x.symbol||'').toUpperCase() === String(curSymbol()||'').toUpperCase());
+        const xau = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAU'));
+        const xag = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAG'));
+        const fxOther = sum(x => { const s=String(x.symbol||'').toUpperCase(); return /^[A-Z]{6,7}$/.test(s) && !s.startsWith('XAU') && !s.startsWith('XAG'); });
+        const stocks = sum(x => { const s=String(x.symbol||'').toUpperCase(); return !/^[A-Z]{6,7}$/.test(s); });
+        if (lotsBox) lotsBox.textContent = `Open lots — cur ${curSymbol()}: ${cur.toFixed(2)} • XAU: ${xau.toFixed(2)} • XAG: ${xag.toFixed(2)} • FX: ${fxOther.toFixed(2)} • Stocks: ${stocks.toFixed(2)}`;
+      } catch {}
+    }
+
     async function runPeriodicBatch(){
       const info = document.getElementById('mAutoStatus');
+      await updateMobileLotsSummary();
       const symSel = document.getElementById('mPeriodicSymbols');
       const acctSel = document.getElementById('mPeriodicAccounts');
       const symbols = selectedValues(symSel);
@@ -488,8 +506,8 @@
               const safeMax = Number.isFinite(vg) && vg>0 ? vg : (Number.isFinite(vs) && vs>0 ? vs : NaN);
               if (Number.isFinite(safeMax) && safeMax > 0) {
                 const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-                const pjs = await pr.json().catch(()=>({}));
-                const arr = Array.isArray(pjs) ? pjs : (Array.isArray(pjs.rows) ? pjs.rows : []);
+              const pjs = await pr.json().catch(()=>({}));
+              const arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
                 const openLots = arr.reduce((acc, x)=>acc+(Number(x && x.volume)||0), 0);
                 if (openLots >= safeMax) {
                   info.textContent = `[${sym}] Skip: safe max lots reached — no trade.`;
@@ -529,6 +547,8 @@
     document.getElementById('mPeriodicToggle').addEventListener('change', ensurePeriodic);
     document.getElementById('mPeriodicPeriod').addEventListener('change', ensurePeriodic);
     document.getElementById('mPeriodicTrigger').addEventListener('click', runPeriodicBatch);
+    // Initial lots summary
+    (async ()=>{ try { await updateMobileLotsSummary(); } catch {} })();
     document.getElementById('mManageAccounts').addEventListener('click', async ()=>{
       const login = prompt('Login (account id):'); if (!login) return;
       const password = prompt('Password:'); if (!password) return;
