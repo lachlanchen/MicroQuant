@@ -2934,7 +2934,7 @@ const ensureLwMacd = () => {
         </div>`;
       };
 
-      function openTechHealth() {
+      async function openTechHealth() {
         applyTechWindowDefault(false);
         const modal = el('techModal');
         const box = el('techSummaryBox');
@@ -2942,6 +2942,10 @@ const ensureLwMacd = () => {
         if (!modal || !box || !metaBox) return;
         const symbol = currentSymbol();
         const tf = currentTf();
+        // Ensure STL is freshly computed for current TF (limit 1500)
+        try {
+          await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: tf, limit: 1500, scope: 'current', blocking: 1 }) });
+        } catch {}
         const rows = Array.isArray(lastPriceRows) ? lastPriceRows : [];
         const windowSize = Math.max(1, resolveTechWindow());
         const startIdx = Math.max(rows.length - windowSize, 0);
@@ -3014,14 +3018,26 @@ const ensureLwMacd = () => {
           return [{ time: tStr, values: [bidS, askS, midS] }];
         })();
 
+        // Merge STL components into a single 3-column table for current TF
+        const mergeStlRows = (() => {
+          const n = Math.min(trendData.length, seasonalData.length, residData.length);
+          const rows = [];
+          for (let i = 0; i < n; i += 1) {
+            const time = trendData[i]?.time || seasonalData[i]?.time || residData[i]?.time || '';
+            const tVal = trendData[i]?.values?.[0] ?? '—';
+            const sVal = seasonalData[i]?.values?.[0] ?? '—';
+            const rVal = residData[i]?.values?.[0] ?? '—';
+            rows.push({ time, values: [tVal, sVal, rVal] });
+          }
+          return rows;
+        })();
+
         const sections = [
           buildTechTable(`${tf} OHLC`, ['Open','High','Low','Close'], priceOhlcData),
           (tickRows.length ? buildTechTable('Latest Tick (post-bars)', ['Bid','Ask','Mid'], tickRows) : ''),
           buildTechTable('Bollinger (20,2)', ['Mid', 'Upper', 'Lower'], bollData),
           buildTechTable('Volume', ['Value'], volumeData),
-          buildTechTable('STL Trend', ['Value'], trendData),
-          buildTechTable('STL Seasonal', ['Value'], seasonalData),
-          buildTechTable('STL Residual', ['Value'], residData),
+          (mergeStlRows.length ? buildTechTable('STL (Trend/Seasonal/Residual)', ['Trend','Seasonal','Residual'], mergeStlRows) : buildTechTable('STL Trend', ['Value'], trendData) + buildTechTable('STL Seasonal', ['Value'], seasonalData) + buildTechTable('STL Residual', ['Value'], residData)),
           buildTechTable('STL Speed (ΔTrend)', ['Value'], speedData),
           buildTechTable('STL Acceleration (ΔSpeed)', ['Value'], accelData),
           buildTechTable('RSI (14)', ['Value'], rsiData),
@@ -3031,6 +3047,43 @@ const ensureLwMacd = () => {
         ];
 
         box.innerHTML = sections.join('');
+        // After rendering, inject cross‑TF STL rows (M1, prev TF, next TF, Y1) below Latest Tick
+        try {
+          const tfList = [];
+          const prev = prevTimeframe(tf);
+          const next = nextTimeframe(tf);
+          if (tf !== 'M1') tfList.push('M1');
+          if (prev && !tfList.includes(prev)) tfList.push(prev);
+          if (next && !tfList.includes(next)) tfList.push(next);
+          if (!tfList.includes('Y1')) tfList.push('Y1');
+          const buildMini = async (t) => {
+            try {
+              await fetch('/api/stl/compute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ symbol, timeframe: t, limit: 1500, scope: 'current', blocking: 1 }) });
+            } catch {}
+            try {
+              const p = new URLSearchParams({ symbol, tf: t, include_runs: '1', include_data: '1', all_data: '1' });
+              const r = await fetch(`/api/stl?${p.toString()}`, { cache: 'no-store' });
+              const j = await r.json().catch(()=>({}));
+              const rows = Array.isArray(j.rows) ? j.rows : [];
+              const lastN = rows.slice(Math.max(0, rows.length - 10));
+              const fmt = (v) => (Number.isFinite(Number(v)) ? formatTechNumber(Number(v)) : '—');
+              const merged = lastN.map(rr => ({ time: formatDateTime(rr.ts), values: [fmt(rr.trend), fmt(rr.seasonal), fmt(rr.resid)] }));
+              return buildTechTable(`${t} STL (last 10)`, ['Trend','Seasonal','Residual'], merged);
+            } catch { return ''; }
+          };
+          const htmlBlocks = [];
+          for (const t of tfList) { const h = await buildMini(t); if (h) htmlBlocks.push(h); }
+          if (htmlBlocks.length) {
+            const anchorIndex = tickRows.length ? 1 : 0; // after Latest Tick, else after OHLC
+            const anchor = box.children && box.children[anchorIndex];
+            const html = htmlBlocks.join('');
+            if (anchor && anchor.insertAdjacentHTML) {
+              anchor.insertAdjacentHTML('afterend', html);
+            } else {
+              box.innerHTML = [sections[0], html, ...sections.slice(1)].join('');
+            }
+          }
+        } catch {}
         const metaParts = [symbol, `TF ${tf}`, 'Seasonal-Trend decomposition using Loess (STL)'];
         if (stlLastMeta && Number.isFinite(Number(stlLastMeta.period))) {
           metaParts.push(`STL period ${Number(stlLastMeta.period)}`);
@@ -3447,7 +3500,7 @@ const ensureLwMacd = () => {
         const tfList = [];
         const prev = prevTimeframe(tf);
         const next = nextTimeframe(tf);
-        if ('M1' && tf !== 'M1') tfList.push('M1');
+        if (tf !== 'M1') tfList.push('M1');
         if (prev && !tfList.includes(prev)) tfList.push(prev);
         if (next && !tfList.includes(next)) tfList.push(next);
         if (!tfList.includes('Y1')) tfList.push('Y1');
