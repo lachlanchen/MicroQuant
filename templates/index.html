@@ -384,6 +384,44 @@
           <button class="btn" id="btnAutoAiTrade" style="padding:6px 10px;">Auto AI Trade</button>
           <button class="btn secondary" id="btnExecutePlan" disabled style="padding:6px 10px;">Execute Plan</button>
         </div>
+        <!-- Periodic Auto AI Trade controls -->
+        <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+          <label class="switch">
+            <input type="checkbox" id="autoPeriodicToggle" />
+            <span>Periodic Auto Trade</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:80px; color:var(--muted);">Period</span>
+            <select id="autoPeriodicPeriod" style="min-width:120px;">
+              <option value="15">15m</option>
+              <option value="30">30m</option>
+              <option value="60" selected>1h</option>
+              <option value="120">2h</option>
+              <option value="240">4h</option>
+              <option value="1440">1d</option>
+            </select>
+          </label>
+        </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <span style="min-width:110px; color:var(--muted);">Account</span>
+          <select id="autoPeriodicAccountSelect" style="min-width:220px; flex:1;"></select>
+        </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:110px; color:var(--muted);">Auto volume</span>
+            <input id="autoPeriodicVolumeInput" type="number" min="0.01" step="0.01" value="0.01" style="width:110px;" />
+          </label>
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:110px; color:var(--muted);">Safe max lots</span>
+            <input id="autoPeriodicSafeMaxInput" type="number" min="0.01" step="0.01" style="width:110px;" />
+          </label>
+        </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <label class="switch">
+            <input type="checkbox" id="autoPeriodicSlToggle" />
+            <span>Set Stop Loss</span>
+          </label>
+        </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button class="btn secondary" id="btnAddAccountOpen" style="padding:6px 10px;">Add Account</button>
         </div>
@@ -3811,6 +3849,13 @@ const ensureLwMacd = () => {
       const autoAccountSelect = document.getElementById('autoAccountSelect');
       const tradeAccountSelect = document.getElementById('tradeAccountSelect'); // (modal, may be absent)
       const tradeAccountSelectInline = document.getElementById('tradeAccountSelectInline');
+      // Periodic auto-trade inline controls
+      const autoPeriodicAccountSelect = document.getElementById('autoPeriodicAccountSelect');
+      const autoPeriodicToggle = document.getElementById('autoPeriodicToggle');
+      const autoPeriodicPeriod = document.getElementById('autoPeriodicPeriod');
+      const autoPeriodicVolumeInput = document.getElementById('autoPeriodicVolumeInput');
+      const autoPeriodicSafeMaxInput = document.getElementById('autoPeriodicSafeMaxInput');
+      const autoPeriodicSlToggle = document.getElementById('autoPeriodicSlToggle');
       const addAcctSelect = document.getElementById('addAcctSelect');
       async function loadAccountsSelect() {
         try {
@@ -3833,6 +3878,7 @@ const ensureLwMacd = () => {
           fill(autoAccountSelect);
           fill(tradeAccountSelect);
           fill(tradeAccountSelectInline);
+          fill(autoPeriodicAccountSelect);
         } catch {}
       }
       async function loadAccountsIntoAddModal() {
@@ -3884,8 +3930,83 @@ const ensureLwMacd = () => {
       if (autoAccountSelect) autoAccountSelect.addEventListener('change', ()=>{ persistLastAccount(autoAccountSelect.value||''); });
       if (tradeAccountSelect) tradeAccountSelect.addEventListener('change', ()=>{ persistLastAccount(tradeAccountSelect.value||''); });
       if (tradeAccountSelectInline) tradeAccountSelectInline.addEventListener('change', ()=>{ persistLastAccount(tradeAccountSelectInline.value||''); });
+      if (autoPeriodicAccountSelect) autoPeriodicAccountSelect.addEventListener('change', ()=>{ persistLastAccount(autoPeriodicAccountSelect.value||''); });
       // Populate account dropdowns on initial load
       try { loadAccountsSelect(); } catch {}
+      // Load periodic auto-trade prefs and arm timer (if enabled)
+      try { loadAutoPeriodicPrefs(); } catch {}
+      try { ensureAutoPeriodicTimer(); } catch {}
+      
+      // Periodic Auto AI Trade: preferences and scheduler
+      const getAutoPeriodicKey = () => `auto_trade_periodic:${currentSymbol()}:${currentTf()}`;
+      const getAutoPeriodicPeriodKey = () => `auto_trade_period:${currentSymbol()}:${currentTf()}`;
+      async function loadAutoPeriodicPrefs() {
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const keys = [
+          getAutoPeriodicKey(),
+          getAutoPeriodicPeriodKey(),
+          `auto_volume:${sym}:${tf}`,
+          `safe_max_lots:${sym}:${tf}`,
+          `auto_sl_enabled:${sym}:${tf}`,
+        ];
+        try {
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(keys.join(','))}`, { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const map = (js && js.prefs) || js || {};
+          if (autoPeriodicToggle) autoPeriodicToggle.checked = String(map[getAutoPeriodicKey()]||'0') === '1';
+          if (autoPeriodicPeriod) {
+            const minStr = String(map[getAutoPeriodicPeriodKey()]||'60');
+            autoPeriodicPeriod.value = (/^\d+$/.test(minStr) ? minStr : '60');
+          }
+          const vol = map[`auto_volume:${sym}:${tf}`];
+          if (autoPeriodicVolumeInput) autoPeriodicVolumeInput.value = (vol && Number(vol) > 0) ? String(vol) : '0.01';
+          const safe = map[`safe_max_lots:${sym}:${tf}`];
+          if (autoPeriodicSafeMaxInput) autoPeriodicSafeMaxInput.value = (safe && Number(safe) > 0) ? String(safe) : '';
+          const sl = map[`auto_sl_enabled:${sym}:${tf}`];
+          if (autoPeriodicSlToggle) autoPeriodicSlToggle.checked = String(sl||'0') === '1';
+        } catch {}
+      }
+      if (autoPeriodicToggle) autoPeriodicToggle.addEventListener('change', ()=>{
+        queuePrefUpdate(getAutoPeriodicKey(), autoPeriodicToggle.checked ? '1' : '0');
+        ensureAutoPeriodicTimer();
+      });
+      if (autoPeriodicPeriod) autoPeriodicPeriod.addEventListener('change', ()=>{
+        const raw = Number(autoPeriodicPeriod.value);
+        const safe = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 60;
+        autoPeriodicPeriod.value = String(safe);
+        queuePrefUpdate(getAutoPeriodicPeriodKey(), String(safe));
+        ensureAutoPeriodicTimer();
+      });
+      if (autoPeriodicVolumeInput) autoPeriodicVolumeInput.addEventListener('change', ()=>{
+        const v = String(autoPeriodicVolumeInput.value||'');
+        const sym = currentSymbol(); const tf = currentTf();
+        queuePrefUpdate(`auto_volume:${sym}:${tf}`, v);
+        queuePrefUpdate(`trade_volume:${sym}:${tf}`, v);
+        queuePrefUpdate('last_volume', v);
+      });
+      if (autoPeriodicSafeMaxInput) autoPeriodicSafeMaxInput.addEventListener('change', ()=>{
+        const sym = currentSymbol(); const tf = currentTf();
+        queuePrefUpdate(`safe_max_lots:${sym}:${tf}`, String(autoPeriodicSafeMaxInput.value||''));
+      });
+      if (autoPeriodicSlToggle) autoPeriodicSlToggle.addEventListener('change', ()=>{
+        const sym = currentSymbol(); const tf = currentTf();
+        queuePrefUpdate(`auto_sl_enabled:${sym}:${tf}`, autoPeriodicSlToggle.checked ? '1' : '0');
+      });
+      let autoPeriodicTimer = null;
+      let autoPeriodicRunning = false;
+      function clearAutoPeriodicTimer() { if (autoPeriodicTimer) { clearInterval(autoPeriodicTimer); autoPeriodicTimer = null; } }
+      function ensureAutoPeriodicTimer() {
+        clearAutoPeriodicTimer();
+        if (!autoPeriodicToggle || !autoPeriodicToggle.checked) return;
+        const mins = Number(autoPeriodicPeriod && autoPeriodicPeriod.value);
+        const ms = (Number.isFinite(mins) && mins > 0 ? mins : 60) * 60_000;
+        autoPeriodicTimer = setInterval(async () => {
+          if (autoPeriodicRunning) return;
+          autoPeriodicRunning = true;
+          try { await autoAiTrade(); } catch {} finally { autoPeriodicRunning = false; }
+        }, ms);
+      }
       // Persist Auto controls
       const autoSafeMaxInput = document.getElementById('autoSafeMaxInput');
       const autoVolumeInput = document.getElementById('autoVolumeInput');
@@ -4028,8 +4149,13 @@ const ensureLwMacd = () => {
           appendAutoLog('Executing order…');
           // Ensure selected account is logged in before trading
           try {
-            const acctSel = document.getElementById('autoAccountSelect');
-            const acct = acctSel && acctSel.value ? acctSel.value : '';
+            const acctInline = document.getElementById('autoPeriodicAccountSelect');
+            const acctAuto = document.getElementById('autoAccountSelect');
+            const acctTradeInline = document.getElementById('tradeAccountSelectInline');
+            const acct = (acctInline && acctInline.value) ? acctInline.value
+                      : (acctAuto && acctAuto.value) ? acctAuto.value
+                      : (acctTradeInline && acctTradeInline.value) ? acctTradeInline.value
+                      : '';
             if (acct) {
               appendAutoLog(`Switch account → ${acct}`);
               const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' });
@@ -4040,13 +4166,16 @@ const ensureLwMacd = () => {
           const sideLower = (side||'').toLowerCase();
           // Use Auto volume if provided, else fall back to top Vol
           let vol = '0.01';
+          const periodicVolEl = document.getElementById('autoPeriodicVolumeInput');
           const autoVolEl = document.getElementById('autoVolumeInput');
-          if (autoVolEl && Number(autoVolEl.value) > 0) vol = String(autoVolEl.value);
+          if (periodicVolEl && Number(periodicVolEl.value) > 0) vol = String(periodicVolEl.value);
+          else if (autoVolEl && Number(autoVolEl.value) > 0) vol = String(autoVolEl.value);
           else if (el('volume')) vol = String(el('volume').value);
           const body = new URLSearchParams({ symbol: sym, side: sideLower, volume: vol });
           // Respect Set Stop Loss toggle
+          const inlineSl = document.getElementById('autoPeriodicSlToggle');
           const slToggle = document.getElementById('autoSlToggle');
-          const slEnabled = !!(slToggle && slToggle.checked === true);
+          const slEnabled = !!((inlineSl && inlineSl.checked === true) || (slToggle && slToggle.checked === true));
           if (slEnabled && p.stop_loss != null) body.set('sl', String(p.stop_loss));
           if (p.take_profit != null) body.set('tp', String(p.take_profit));
           appendAutoLog(`Order params: vol=${vol} ${slEnabled? `SL=${String(p.stop_loss)}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
@@ -5537,8 +5666,10 @@ const ensureLwMacd = () => {
           await refreshHealthFreshness();
           await loadAutoBasicPref();
           await loadAutoTechPref();
+          await loadAutoPeriodicPrefs();
           await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
+          ensureAutoPeriodicTimer();
           // Inline AI trade plan preview disabled on symbol change (run from modal Start)
         }
       });
@@ -5567,8 +5698,10 @@ const ensureLwMacd = () => {
           await refreshHealthFreshness();
           await loadAutoBasicPref();
           await loadAutoTechPref();
+          await loadAutoPeriodicPrefs();
           await loadLatestAiPlanPreview();
           if (autoTimer) startAuto({ announce: false });
+          ensureAutoPeriodicTimer();
           // Inline AI trade plan preview disabled on timeframe change (run from modal Start)
         }
       });
