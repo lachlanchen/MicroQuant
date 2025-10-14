@@ -90,6 +90,11 @@
     #autoModal .row { gap: 6px; margin-bottom: 4px; }
     #autoModal #autoMeta { margin-bottom: 4px; }
     #autoModal #autoHistoryBox { padding: 6px; }
+    /* Auto history row highlighting for skipped entries */
+    #autoModal .auto-row-skip {
+      background: rgba(255, 193, 7, 0.14) !important; /* amber */
+      border-color: #ffb300 !important;
+    }
     /* Hide duplicated Open/Safe hint under controls; meta line already shows it */
     #autoModal #autoSafeHint { display: none; }
     #autoModal h3 { margin: 0; font-size: 16px; }
@@ -4593,7 +4598,23 @@ const ensureLwMacd = () => {
               else if (sig.includes('SELL')) side = 'SELL';
             }
           }
-          if (!side) { status('Tech+AI is neutral — no trade.'); appendAutoLog('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
+          if (!side) {
+            status('Tech+AI is neutral — no trade.');
+            appendAutoLog('Skip: Tech+AI neutral — no trade.', 'warn');
+            try {
+              const save = await fetch('/api/auto_trade/log', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: null, skipped: true, skip_reason: 'tech_neutral', steps: (tradeState.autoSteps || []) })
+              });
+              const saved = await save.json().catch(()=>({}));
+              if (saved && saved.ok && saved.run_id) {
+                appendAutoLog(`Saved log run id=${saved.run_id}`);
+                autoHistoryOffset = 0;
+                await loadAutoHistory(5, 0);
+              }
+            } catch {}
+            return;
+          }
           // Check Basic alignment with Tech
           let basicSide = null;
           if (basicId) {
@@ -4618,8 +4639,40 @@ const ensureLwMacd = () => {
               }
             } catch {}
           }
-          if (!basicSide) { appendAutoLog('Skip: Basic is neutral — not aligned with Tech.', 'warn'); status('Basic check neutral — no trade.'); return; }
-          if (basicSide !== side) { appendAutoLog(`Skip: Tech (${side}) and Basic (${basicSide}) not aligned.`, 'warn'); status('Tech and Basic not aligned — no trade.'); return; }
+          if (!basicSide) {
+            appendAutoLog('Skip: Basic is neutral — not aligned with Tech.', 'warn');
+            status('Basic check neutral — no trade.');
+            try {
+              const save = await fetch('/api/auto_trade/log', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: null, skipped: true, skip_reason: 'basic_neutral', steps: (tradeState.autoSteps || []) })
+              });
+              const saved = await save.json().catch(()=>({}));
+              if (saved && saved.ok && saved.run_id) {
+                appendAutoLog(`Saved log run id=${saved.run_id}`);
+                autoHistoryOffset = 0;
+                await loadAutoHistory(5, 0);
+              }
+            } catch {}
+            return;
+          }
+          if (basicSide !== side) {
+            appendAutoLog(`Skip: Tech (${side}) and Basic (${basicSide}) not aligned.`, 'warn');
+            status('Tech and Basic not aligned — no trade.');
+            try {
+              const save = await fetch('/api/auto_trade/log', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: null, skipped: true, skip_reason: 'not_aligned', steps: (tradeState.autoSteps || []) })
+              });
+              const saved = await save.json().catch(()=>({}));
+              if (saved && saved.ok && saved.run_id) {
+                appendAutoLog(`Saved log run id=${saved.run_id}`);
+                autoHistoryOffset = 0;
+                await loadAutoHistory(5, 0);
+              }
+            } catch {}
+            return;
+          }
           appendAutoLog(`Signal: ${side}`);
           appendAutoLog(`Drafting ${side} plan…`);
           const planResp = await (async ()=>{
@@ -7432,15 +7485,16 @@ const ensureLwMacd = () => {
               const j3 = await r3.json().catch(()=>({}));
               const runs3 = Array.isArray(j3.runs) ? j3.runs : [];
               if (!runs3.length) { autoHistoryBox.innerHTML = '<em style="color:var(--muted)">No recent auto logs</em>'; return; }
-              const html3 = runs3.map(r => {
-                const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
-                const ans = r.answers || r.answers_json || {};
-                const meta = ans.meta || {};
-                const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
-                const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
-                const orderStr = order ? ` • order ${esc(order)}` : '';
-                return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
-              }).join('');
+          const html3 = runs3.map(r => {
+            const t = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+            const ans = r.answers || r.answers_json || {};
+            const meta = ans.meta || {};
+            const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
+            const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
+            const orderStr = order ? ` • order ${esc(order)}` : '';
+            const cls = meta && meta.skipped ? ' auto-row-skip' : '';
+            return `<div class=\"row${cls}\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
+          }).join('');
               if (html3) autoHistoryBox.insertAdjacentHTML('beforeend', html3);
               return;
             }
@@ -7451,7 +7505,8 @@ const ensureLwMacd = () => {
               const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
               const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
               const orderStr = order ? ` • order ${esc(order)}` : '';
-              return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
+              const cls = meta && meta.skipped ? ' auto-row-skip' : '';
+              return `<div class=\"row${cls}\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
             }).join('');
             if (html2) autoHistoryBox.insertAdjacentHTML('beforeend', html2);
             return;
@@ -7465,7 +7520,8 @@ const ensureLwMacd = () => {
             const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
             const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
             const orderStr = order ? ` • order ${esc(order)}` : '';
-            return `<div class=\"row auto-item\" data-run-id=\"${r.id}\" style=\"cursor:pointer; justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
+            const cls = meta && meta.skipped ? ' auto-row-skip' : '';
+            return `<div class=\"row auto-item${cls}\" data-run-id=\"${r.id}\" style=\"cursor:pointer; justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
           }).join('');
           if (html) autoHistoryBox.insertAdjacentHTML('beforeend', html);
         } catch (e) {

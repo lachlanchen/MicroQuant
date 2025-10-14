@@ -4797,6 +4797,8 @@ class AutoTradeLogHandler(tornado.web.RequestHandler):
         plan_run_id = payload.get("plan_run_id")
         order_result = payload.get("order_result") or {}
         steps = payload.get("steps") or []
+        skipped = bool(payload.get("skipped") or False)
+        skip_reason = payload.get("skip_reason") or None
         # Determine kind + base/quote
         kind = "forex_pair" if _is_fx_symbol(symbol) else "stock"
         base_ccy = symbol[:3] if kind == "forex_pair" else None
@@ -4814,6 +4816,8 @@ class AutoTradeLogHandler(tornado.web.RequestHandler):
                 "tech_run_id": tech_run_id,
                 "plan_run_id": plan_run_id,
                 "order_result": order_result,
+                **({"skipped": True} if skipped else {}),
+                **({"skip_reason": skip_reason} if skip_reason else {}),
             },
         }
         try:
