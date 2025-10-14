@@ -27,7 +27,7 @@
     body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
     header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 10px 12px; background: linear-gradient(90deg, var(--accent), var(--accent2)); color:#fff; position:sticky; top:0; z-index:10; }
     header h2 { margin:0; font-size:16px; font-weight:700; }
-    .tabs { display:flex; gap:6px; padding:6px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:52px; z-index:9; }
+    .tabs { display:none; gap:6px; padding:6px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:52px; z-index:9; }
     .tab { flex:1; text-align:center; padding:8px; border-radius:8px; border:1px solid var(--line); background:#fff; font-weight:600; }
     .tab.active { border-color: var(--accent); box-shadow: 0 1px 6px rgba(25,118,210,0.18); }
     .page { display:none; padding: 10px 12px; }
@@ -41,6 +41,16 @@
     .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
     #mChart { width: 100%; height: 54vh; }
     .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px; margin:8px 0; }
+
+    /* Footer navigation (WeChat/MetaTrader style) */
+    main { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+    .footer-nav { position: fixed; bottom: 0; left: 0; right: 0; background:#fff; border-top:1px solid var(--line); z-index: 20; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
+    .footer-nav .row { justify-content: space-around; gap: 0; }
+    .nav-item { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-width:64px; padding:6px 8px; border:none; background:transparent; color: var(--muted); font-weight:600; }
+    .nav-item svg { width:22px; height:22px; }
+    .nav-item.active { color: var(--accent); }
+    .nav-item.active .dot { background: var(--accent); }
+    .dot { width:6px; height:6px; border-radius:50%; background:transparent; }
   </style>
 </head>
 <body>
@@ -103,6 +113,31 @@
     </section>
   </main>
 
+  <footer class="footer-nav">
+    <div class="row" style="width:100%;">
+      <button class="nav-item active" data-tab="chart" aria-label="Chart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Chart</span>
+        <span class="dot"></span>
+      </button>
+      <button class="nav-item" data-tab="news" aria-label="News">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>News</span>
+        <span class="dot"></span>
+      </button>
+      <button class="nav-item" data-tab="ai" aria-label="AI Check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.6 15 1.65 1.65 0 0 0 2 14h-.09a2 2 0 1 1 0-4H2a1.65 1.65 0 0 0 1.6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8 3.6 1.65 1.65 0 0 0 9 2V1.91a2 2 0 1 1 4 0V2a1.65 1.65 0 0 0 1 1.6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.4 8c.36.34.6.81.6 1.33 0 .52-.24.99-.6 1.33A1.65 1.65 0 0 0 22 12h.09a2 2 0 1 1 0 4H22a1.65 1.65 0 0 0-1.6 1z"/></svg>
+        <span>AI</span>
+        <span class="dot"></span>
+      </button>
+      <button class="nav-item" data-tab="auto" aria-label="Auto Trade">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Auto</span>
+        <span class="dot"></span>
+      </button>
+    </div>
+  </footer>
+
   <script>
     // SW registration
     if ('serviceWorker' in navigator) {
@@ -128,14 +163,21 @@
       if (mTf) mTf.value = '{{ default_tf }}';
     })();
 
-    // Tabs
+    function switchTab(name){
+      // Pages
+      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+      const pg = document.getElementById('page-'+name);
+      if (pg) pg.classList.add('active');
+      // Bottom nav
+      document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.tab===name));
+      // (Top tabs hidden by default, but sync anyway if later enabled)
+      document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+    }
+    document.querySelectorAll('.nav-item').forEach(btn=>{
+      btn.addEventListener('click', ()=> switchTab(btn.dataset.tab));
+    });
     document.querySelectorAll('.tab').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-        document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('page-'+btn.dataset.tab).classList.add('active');
-      });
+      btn.addEventListener('click', ()=> switchTab(btn.dataset.tab));
     });
 
     // Chart
@@ -276,4 +318,3 @@
   </script>
 </body>
 </html>
-
