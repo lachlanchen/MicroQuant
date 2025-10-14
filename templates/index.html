@@ -6048,9 +6048,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           // Decide whether to run new checks based on freshness
           let runBasic = false, runTech = false;
           try { runBasic = (hj && hj.status === 'stale' && Number(hj.new_count||0) > 0); } catch {}
-          try { runTech = (tfj && tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0); } catch {}
+          try {
+            const tstatus = (tfj && typeof tfj.status === 'string') ? tfj.status.toLowerCase() : 'unknown';
+            const out = Number(tfj && tfj.outdated_bars != null ? tfj.outdated_bars : NaN);
+            // Treat unknown (no recent Tech+AI) as stale → run
+            runTech = (tstatus === 'unknown') || (tstatus === 'stale' && Number.isFinite(out) && out > 0);
+          } catch {}
           if (runBasic) appendAutoLog('Outdated: Basic — running new check…'); else appendAutoLog('Basic is fresh — using latest run.');
-          if (runTech) appendAutoLog('Outdated: Tech — running new check…'); else appendAutoLog('Tech is fresh — using latest run.');
+          if (runTech) appendAutoLog((tfj && tfj.status === 'unknown') ? 'No recent Tech+AI — running new check…' : 'Outdated: Tech — running new check…'); else appendAutoLog('Tech is fresh — using latest run.');
           let basicId = null, techId = null;
           if (runBasic) basicId = await newBasicCheckForTrade();
           if (runTech) techId = await newTechCheckForTrade();
