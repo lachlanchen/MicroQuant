@@ -3095,6 +3095,21 @@ const ensureLwMacd = () => {
             }
           };
 
+          // Create deterministic placeholders after the status line to preserve order (M1, prev, next, Y1)
+          try {
+            const statusNode = document.getElementById('crossTfStatus');
+            if (statusNode && statusNode.parentElement) {
+              let last = statusNode;
+              for (const t of tfList) {
+                const holder = document.createElement('div');
+                holder.id = `crossTf_${t}`;
+                holder.innerHTML = `<div style=\"padding:6px; color:var(--muted)\">${t} STL loading…</div>`;
+                last.insertAdjacentElement('afterend', holder);
+                last = holder;
+              }
+            }
+          } catch {}
+
           const buildMini = async (t) => {
             // Fetch latest bars for each TF before STL compute
             try {
@@ -3118,7 +3133,10 @@ const ensureLwMacd = () => {
           // Build and inject each TF block as soon as it is ready (parallel)
           const tasks = tfList.map(async (t) => {
             const html = await buildMini(t);
-            if (html) injectAfterTick(html);
+            try {
+              const holder = document.getElementById(`crossTf_${t}`);
+              if (holder) holder.innerHTML = html || '';
+            } catch {}
             try { const s = el('crossTfStatus'); if (s) s.textContent = `Loaded ${t}`; } catch {}
           });
           Promise.allSettled(tasks).then(() => { try { const s = el('crossTfStatus'); if (s) s.remove(); } catch {} });
