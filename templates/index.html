@@ -5080,18 +5080,51 @@ const ensureLwMacd = () => {
         } catch {}
       }
       let autoPeriodicTimer = null;
+      let autoPeriodicTimeout = null;
       let autoPeriodicRunning = false;
-      function clearAutoPeriodicTimer() { if (autoPeriodicTimer) { clearInterval(autoPeriodicTimer); autoPeriodicTimer = null; } }
+      function clearAutoPeriodicTimer() {
+        if (autoPeriodicTimer) { clearInterval(autoPeriodicTimer); autoPeriodicTimer = null; }
+        if (autoPeriodicTimeout) { clearTimeout(autoPeriodicTimeout); autoPeriodicTimeout = null; }
+      }
+      function msToNextAlignedBoundary(stepMinutes) {
+        const step = Math.max(1, Math.round(Number(stepMinutes) || 60));
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const d = now.getDate();
+        const H = now.getHours();
+        const M = now.getMinutes();
+        const S = now.getSeconds();
+        const ms = now.getMilliseconds();
+        const minOfDay = H * 60 + M;
+        let nextMod = Math.floor(minOfDay / step) * step + step; // strictly after current bucket
+        let addDays = 0;
+        if (nextMod >= 24 * 60) { nextMod -= 24 * 60; addDays = 1; }
+        const nextHour = Math.floor(nextMod / 60);
+        const nextMin = nextMod % 60;
+        const next = new Date(y, m, d + addDays, nextHour, nextMin, 0, 0);
+        const delay = Math.max(0, next.getTime() - now.getTime());
+        return delay;
+      }
       function ensureAutoPeriodicTimer() {
         clearAutoPeriodicTimer();
         if (!autoPeriodicToggle || !autoPeriodicToggle.checked) return;
-        const mins = Number(autoPeriodicPeriod && autoPeriodicPeriod.value);
-        const ms = (Number.isFinite(mins) && mins > 0 ? mins : 60) * 60_000;
-        autoPeriodicTimer = setInterval(async () => {
+        const minsRaw = Number(autoPeriodicPeriod && autoPeriodicPeriod.value);
+        const mins = (Number.isFinite(minsRaw) && minsRaw > 0) ? minsRaw : 60;
+        const periodMs = mins * 60_000;
+        const delay = msToNextAlignedBoundary(mins);
+        debugLog(`[AutoPeriodic] arming: every ${mins}m, first run in ${Math.round(delay/1000)}s at top-of-${mins}m boundary.`);
+        autoPeriodicTimeout = setTimeout(async () => {
           if (autoPeriodicRunning) return;
           autoPeriodicRunning = true;
           try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
-        }, ms);
+          // After the first aligned run, continue on fixed interval
+          autoPeriodicTimer = setInterval(async () => {
+            if (autoPeriodicRunning) return;
+            autoPeriodicRunning = true;
+            try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
+          }, periodMs);
+        }, delay);
       }
       // Persist Auto controls
       const autoSafeMaxInput = document.getElementById('autoSafeMaxInput');
