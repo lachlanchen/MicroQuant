@@ -501,11 +501,28 @@ class MT5Client:
         if not t:
             code, msg = mt5.last_error()
             raise RuntimeError(f"symbol_info_tick failed: {code} {msg}")
+        # Enrich with symbol metadata when available so the UI can format prices precisely
+        info = None
+        try:
+            info = mt5.symbol_info(symbol)
+        except Exception:
+            info = None
+        digits = int(getattr(info, "digits", 0) or 0) if info is not None else None
+        point = float(getattr(info, "point", 0.0) or 0.0) if info is not None else None
+        contract_size = float(getattr(info, "trade_contract_size", 0.0) or 0.0) if info is not None else None
+        min_vol = float(getattr(info, "volume_min", 0.0) or 0.0) if info is not None else None
+        vol_step = float(getattr(info, "volume_step", 0.0) or 0.0) if info is not None else None
         return {
             "bid": float(getattr(t, "bid", 0.0)),
             "ask": float(getattr(t, "ask", 0.0)),
             "last": float(getattr(t, "last", 0.0)) if hasattr(t, "last") else None,
             "time": int(getattr(t, "time", 0)),
+            # optional meta
+            "digits": digits,
+            "point": point,
+            "contract_size": contract_size,
+            "min_volume": min_vol,
+            "volume_step": vol_step,
         }
 
     def closed_deals(self, from_dt=None, to_dt=None) -> list[dict]:

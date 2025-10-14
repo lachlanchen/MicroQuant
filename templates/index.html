@@ -1315,6 +1315,59 @@
         return value.toFixed(8);
       };
 
+      // --- Symbol-aware price formatting ---
+      const __symbolDigits = new Map();
+      const __symbolMeta = new Map(); // stores { point }
+      function updateSymbolMetaFromTick(sym, tick) {
+        try {
+          const s = (sym || '').toUpperCase();
+          if (!s) return;
+          const d = tick && tick.digits;
+          const p = tick && tick.point;
+          if (Number.isFinite(d) && d >= 0) {
+            __symbolDigits.set(s, Number(d));
+          }
+          if (Number.isFinite(p) && p > 0) {
+            const meta = __symbolMeta.get(s) || {};
+            meta.point = Number(p);
+            __symbolMeta.set(s, meta);
+          }
+        } catch {}
+      }
+      function getSymbolDigits(sym) {
+        const s = (sym || '').toUpperCase();
+        if (!s) return 2;
+        const cached = __symbolDigits.get(s);
+        if (Number.isFinite(cached)) return Number(cached);
+        // Fallback heuristic
+        return priceDigits(s, isFxPair(s) ? 'forex' : 'equity');
+      }
+      function getSymbolPoint(sym) {
+        const s = (sym || '').toUpperCase();
+        const meta = __symbolMeta.get(s);
+        return meta && Number.isFinite(meta.point) && meta.point > 0 ? Number(meta.point) : null;
+      }
+      function stripTrailingZeros(str) {
+        if (typeof str !== 'string') return str;
+        if (!str.includes('.')) return str;
+        // remove trailing zeros then trailing dot
+        return str.replace(/\.0+$/, '').replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.$/, '');
+      }
+      function formatPriceForSymbol(sym, value) {
+        if (value == null) return '—';
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '—';
+        const digits = getSymbolDigits(sym);
+        let v = n;
+        const point = getSymbolPoint(sym);
+        if (Number.isFinite(point) && point > 0) {
+          // Quantize to tick size
+          v = Math.round(v / point) * point;
+        }
+        const fixed = v.toFixed(Math.max(0, Math.min(8, digits)));
+        return stripTrailingZeros(fixed);
+      }
+
       // STL runs lazy list state
       let stlRunsAll = [];
       let stlRunsShown = 5;
@@ -2817,8 +2870,9 @@ const ensureLwMacd = () => {
             const sl = Number(val.sl);
             const tp = Number(val.tp);
             const parts = [];
-            if (Number.isFinite(sl)) parts.push(`SL ${sl.toFixed(2)}`);
-            if (Number.isFinite(tp)) parts.push(`TP ${tp.toFixed(2)}`);
+            const symHere = currentSymbol();
+            if (Number.isFinite(sl)) parts.push(`SL ${formatPriceForSymbol(symHere, sl)}`);
+            if (Number.isFinite(tp)) parts.push(`TP ${formatPriceForSymbol(symHere, tp)}`);
             if (parts.length) extra = `<span class="pill" style="margin-left:6px;">${esc(parts.join(' • '))}</span>`;
           } else if (typeof val === 'boolean') {
             const isTrue = val === true;
@@ -2899,8 +2953,9 @@ const ensureLwMacd = () => {
           const bg = isBuy ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
           const border = isBuy ? '#2ecc71' : '#e74c3c';
           const color = isBuy ? '#1b5e20' : '#b71c1c';
-          const slStr = Number.isFinite(Number(pos.sl)) ? formatTechNumber(Number(pos.sl)) : '—';
-          const tpStr = Number.isFinite(Number(pos.tp)) ? formatTechNumber(Number(pos.tp)) : '—';
+          const symHere2 = currentSymbol();
+          const slStr = Number.isFinite(Number(pos.sl)) ? formatPriceForSymbol(symHere2, Number(pos.sl)) : '—';
+          const tpStr = Number.isFinite(Number(pos.tp)) ? formatPriceForSymbol(symHere2, Number(pos.tp)) : '—';
           const expl = (pos.explanation || '').toString();
           positionBlock = `
             <div style="margin-top:8px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel);">
@@ -3661,13 +3716,15 @@ const ensureLwMacd = () => {
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: js.symbol, timeframe: js.timeframe };
           const enforced = js.enforced ? ' (risk cap applied)' : '';
           const created = js.created_at ? new Date(js.created_at).toLocaleString() : '';
+          const fmtSL = p.stop_loss != null ? formatPriceForSymbol(js.symbol || sym, p.stop_loss) : '—';
+          const fmtTP = p.take_profit != null ? formatPriceForSymbol(js.symbol || sym, p.take_profit) : '—';
           outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
             <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>
           </div>
           <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
             <span class="pill" style="background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};">${esc(p.position||'')}</span>
-            <span class="pill">SL: ${esc(p.stop_loss)}</span>
-            <span class="pill">TP: ${esc(p.take_profit)}</span>
+            <span class="pill">SL: ${esc(fmtSL)}</span>
+            <span class="pill">TP: ${esc(fmtTP)}</span>
           </div>
           <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
           try { loadAiPlanHistory(); } catch {}
@@ -3777,7 +3834,9 @@ const ensureLwMacd = () => {
           const created = run.created_at ? new Date(run.created_at).toLocaleString() : '';
           const outBox = el('aiTradePlanBox');
           const enforced = (ans.meta && ans.meta.enforced) ? ' (risk cap applied)' : '';
-          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${(p.position||'').toUpperCase()==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${(p.position||'').toUpperCase()==='BUY'?'#2ecc71':'#e74c3c'};\">${esc((p.position||'').toUpperCase())}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
+          const fmtSL1 = p.stop_loss != null ? formatPriceForSymbol(sym, p.stop_loss) : '—';
+          const fmtTP1 = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '—';
+          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${(p.position||'').toUpperCase()==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${(p.position||'').toUpperCase()==='BUY'?'#2ecc71':'#e74c3c'};\">${esc((p.position||'').toUpperCase())}</span>\n            <span class=\"pill\">SL: ${esc(fmtSL1)}</span>\n            <span class=\"pill\">TP: ${esc(fmtTP1)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
           // Update execute button context
           lastAiPlan = { position: String(p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
           updateExecuteBtn();
@@ -3831,7 +3890,9 @@ const ensureLwMacd = () => {
           const p = js.plan || {};
           const enforced = js.enforced ? ' (risk cap applied)' : '';
           const created = js.created_at ? new Date(js.created_at).toLocaleString() : '';
-          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};\">${esc(p.position||'')}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
+          const fmtSL2 = p.stop_loss != null ? formatPriceForSymbol(js.symbol || sym, p.stop_loss) : '—';
+          const fmtTP2 = p.take_profit != null ? formatPriceForSymbol(js.symbol || sym, p.take_profit) : '—';
+          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(js.symbol)} ${esc(js.timeframe)} • lev ${esc(js.leverage)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${p.position==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${p.position==='BUY'?'#2ecc71':'#e74c3c'};\">${esc(p.position||'')}</span>\n            <span class=\"pill\">SL: ${esc(fmtSL2)}</span>\n            <span class=\"pill\">TP: ${esc(fmtTP2)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
           // Update inline preview cache and Execute button
           lastAiPlan = { position: (p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: js.symbol, timeframe: js.timeframe };
           updateExecuteBtn();
@@ -3915,7 +3976,9 @@ const ensureLwMacd = () => {
           const created = run.created_at ? new Date(run.created_at).toLocaleString() : '';
           const outBox = el('tradeResultsBox');
           const enforced = (ans.meta && ans.meta.enforced) ? ' (risk cap applied)' : '';
-          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${(p.position||'').toUpperCase()==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${(p.position||'').toUpperCase()==='BUY'?'#2ecc71':'#e74c3c'};\">${esc((p.position||'').toUpperCase())}</span>\n            <span class=\"pill\">SL: ${esc(p.stop_loss)}</span>\n            <span class=\"pill\">TP: ${esc(p.take_profit)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
+          const fmtSL3 = p.stop_loss != null ? formatPriceForSymbol(sym, p.stop_loss) : '—';
+          const fmtTP3 = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '—';
+          if (outBox) outBox.innerHTML = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\">\n            <strong>Plan</strong><span style=\"font-size:12px; color:var(--muted)\">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>\n          </div>\n          <div style=\"margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;\">\n            <span class=\"pill\" style=\"background:${(p.position||'').toUpperCase()==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${(p.position||'').toUpperCase()==='BUY'?'#2ecc71':'#e74c3c'};\">${esc((p.position||'').toUpperCase())}</span>\n            <span class=\"pill\">SL: ${esc(fmtSL3)}</span>\n            <span class=\"pill\">TP: ${esc(fmtTP3)}</span>\n          </div>\n          <div style=\"margin-top:6px; color:var(--muted);\">${esc(p.explanation||'')}</div>`;
           // Sync Execute Plan state
           lastAiPlan = { position: String(p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
           updateExecuteBtn();
@@ -4060,8 +4123,8 @@ const ensureLwMacd = () => {
             const ans = r.answers || r.answers_json || {};
             const plan = ans.plan || {};
             const pos = (plan.position || '').toUpperCase();
-            const sl = plan.stop_loss;
-            const tp = plan.take_profit;
+            const sl = plan.stop_loss != null ? formatPriceForSymbol(r.symbol || sym, plan.stop_loss) : '—';
+            const tp = plan.take_profit != null ? formatPriceForSymbol(r.symbol || sym, plan.take_profit) : '—';
             const posPill = pos ? `<span class=\"pill\" style=\"background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};\">${pos}</span>` : '';
             return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:13px; color:var(--muted);\">${t}</span>\n              <span>${posPill} <span style=\"font-size:12px; color:var(--muted);\">SL ${esc(sl)} • TP ${esc(tp)}</span></span>\n            </div>`;
           }).join('');
@@ -4290,7 +4353,12 @@ const ensureLwMacd = () => {
       let lastAccountPref = '';
       function setAllAccountSelects(value) {
         [autoAccountSelect, tradeAccountSelect, tradeAccountSelectInline, autoPeriodicAccountSelect].forEach(sel => {
-          try { if (sel && value) sel.value = value; } catch {}
+          try {
+            if (!sel || !value) return;
+            // Do not override multi-select periodic accounts
+            if (sel.multiple) return;
+            sel.value = value;
+          } catch {}
         });
       }
       function resolveSelectedAccountValue() {
@@ -4480,7 +4548,7 @@ const ensureLwMacd = () => {
       if (autoAccountSelect) autoAccountSelect.addEventListener('change', onAccountChangeSync(autoAccountSelect));
       if (tradeAccountSelect) tradeAccountSelect.addEventListener('change', onAccountChangeSync(tradeAccountSelect));
       if (tradeAccountSelectInline) tradeAccountSelectInline.addEventListener('change', onAccountChangeSync(tradeAccountSelectInline));
-      if (autoPeriodicAccountSelect) autoPeriodicAccountSelect.addEventListener('change', onAccountChangeSync(autoPeriodicAccountSelect));
+      if (autoPeriodicAccountSelect && !autoPeriodicAccountSelect.multiple) autoPeriodicAccountSelect.addEventListener('change', onAccountChangeSync(autoPeriodicAccountSelect));
       // Populate account dropdowns on initial load
       try { loadAccountsSelect(); } catch {}
       // Hoisted helpers for periodic auto-trade keys
@@ -4826,18 +4894,25 @@ const ensureLwMacd = () => {
           const div = Number(divEl && divEl.value || '4');
           const tpNum = (p.take_profit != null) ? Number(p.take_profit) : null;
           if (slEnabled && nudgeToggle && nudgeToggle.checked && finalSL != null && tpNum != null && Number.isFinite(div) && div>0) {
-            const delta = (tpNum - finalSL) / div; finalSL = finalSL - delta; log(`[SL Nudge:${sym}] div=${div} delta=${delta.toFixed ? delta.toFixed(4) : delta} newSL=${finalSL.toFixed ? finalSL.toFixed(2) : finalSL}`);
+            const delta = (tpNum - finalSL) / div; finalSL = finalSL - delta;
+            const newSlStr = formatPriceForSymbol(sym, finalSL);
+            appendAutoLog(`[SL Nudge:${sym}] div=${div} delta=${delta.toFixed ? delta.toFixed(4) : delta} newSL=${newSlStr}`);
           }
         } catch {}
         if (slEnabled && finalSL != null && px != null) {
           const invalid = (side === 'BUY') ? (finalSL >= px) : (finalSL <= px);
-          log(`SL preflight: side=${side} price=${px!=null? (px.toFixed?px.toFixed(2):px):'market'} SL=${finalSL!=null?(finalSL.toFixed?finalSL.toFixed(2):finalSL):'—'} → ${invalid ? 'INVALID' : 'OK'}` , invalid ? 'error' : 'info');
+          const pxStr = Number.isFinite(px) ? formatPriceForSymbol(sym, px) : 'market';
+          const slStr = finalSL != null ? formatPriceForSymbol(sym, finalSL) : '—';
+          log(`SL preflight: side=${side} price=${pxStr} SL=${slStr} → ${invalid ? 'INVALID' : 'OK'}` , invalid ? 'error' : 'info');
           if (invalid) { log('Skip: invalid stops', 'error'); return; }
         }
         const body = new URLSearchParams({ symbol: sym, side: side.toLowerCase(), volume: vol });
         if (slEnabled && finalSL != null) body.set('sl', String(finalSL));
         if (p.take_profit != null) body.set('tp', String(p.take_profit));
-        log(`Order params: acct=${acct||'current'} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
+        const tpStrLog = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '';
+        const slStrLog = (slEnabled && finalSL != null) ? formatPriceForSymbol(sym, finalSL) : 'off';
+        const pxStr2 = Number.isFinite(px) ? formatPriceForSymbol(sym, px) : 'market';
+        log(`Order params: acct=${acct||'current'} side=${side} vol=${vol} price=${pxStr2} ${slEnabled? `SL=${slStrLog}` : 'SL=off'} ${tpStrLog? `TP=${tpStrLog}`:''}`);
         const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
         const tj = await tr.json().catch(()=>({}));
         const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
@@ -5174,16 +5249,22 @@ const ensureLwMacd = () => {
             if (slEnabled && nudgeToggle && nudgeToggle.checked && planSL != null && tpNum != null && Number.isFinite(div) && div>0) {
               const delta = (tpNum - planSL) / div;
               const suggested = planSL - delta;
-              appendAutoLog(`[SL Nudge] side=${side} price=${px!=null? (px.toFixed?px.toFixed(2):px):'market'} planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL} TP=${tpNum.toFixed ? tpNum.toFixed(2) : tpNum} div=${div} → delta=${delta.toFixed ? delta.toFixed(4) : delta} nudgedSL=${suggested.toFixed ? suggested.toFixed(2) : suggested}`);
+              const pxStr = Number.isFinite(px) ? formatPriceForSymbol(sym, px) : 'market';
+              const planSlStr = formatPriceForSymbol(sym, planSL);
+              const tpStr = formatPriceForSymbol(sym, tpNum);
+              const nudgedStr = formatPriceForSymbol(sym, suggested);
+              appendAutoLog(`[SL Nudge] side=${side} price=${pxStr} planSL=${planSlStr} TP=${tpStr} div=${div} → delta=${delta.toFixed ? delta.toFixed(4) : delta} nudgedSL=${nudgedStr}`);
               finalSL = suggested;
             } else if (slEnabled && planSL != null) {
-              appendAutoLog(`[SL Nudge] disabled or missing TP — using planSL=${planSL.toFixed ? planSL.toFixed(2) : planSL}.`);
+              appendAutoLog(`[SL Nudge] disabled or missing TP — using planSL=${formatPriceForSymbol(sym, planSL)}.`);
             }
           } catch {}
           // Preflight: invalid SL relative to current price? (BUY: SL < price; SELL: SL > price)
           if (slEnabled && finalSL != null && px != null) {
             const invalid = (sideLower === 'buy') ? (finalSL >= px) : (finalSL <= px);
-            appendAutoLog(`SL preflight: side=${side} price=${px.toFixed ? px.toFixed(2) : px} SL=${finalSL.toFixed ? finalSL.toFixed(2) : finalSL} → ${invalid ? 'INVALID' : 'OK'} (BUY requires SL<price; SELL requires SL>price).` , invalid ? 'error' : 'info');
+            const pxStr3 = formatPriceForSymbol(sym, px);
+            const slStr3 = formatPriceForSymbol(sym, finalSL);
+            appendAutoLog(`SL preflight: side=${side} price=${pxStr3} SL=${slStr3} → ${invalid ? 'INVALID' : 'OK'} (BUY requires SL<price; SELL requires SL>price).` , invalid ? 'error' : 'info');
             if (invalid) {
               try {
                 const save = await fetch('/api/auto_trade/log', {
@@ -5199,7 +5280,12 @@ const ensureLwMacd = () => {
           }
           // Write SL (nudged or plan) to request if enabled
           if (slEnabled && finalSL != null) { body.set('sl', String(finalSL)); }
-          appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${px!=null? String(px):'market'} ${slEnabled? `SL=${finalSL!=null? String(finalSL):'off'}` : 'SL=off'} ${p.take_profit!=null? `TP=${String(p.take_profit)}`:''}`);
+          {
+            const pxStr = Number.isFinite(px) ? formatPriceForSymbol(sym, px) : 'market';
+            const slStr = (slEnabled && finalSL != null) ? formatPriceForSymbol(sym, finalSL) : 'off';
+            const tpStr = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '';
+            appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${pxStr} ${slEnabled? `SL=${slStr}` : 'SL=off'} ${tpStr? `TP=${tpStr}`:''}`);
+          }
           const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
           const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
@@ -7357,13 +7443,15 @@ const ensureLwMacd = () => {
         return num.toLocaleString();
       };
       const priceDigits = (sym, type) => {
+        // Heuristic fallback when broker digits are unknown
         const upper = (sym || '').toUpperCase();
         if (type === 'forex') {
-          if (upper.startsWith('XAU') || upper.startsWith('XAG') || upper.startsWith('XPT') || upper.startsWith('XPD')) {
-            return 2;
-          }
-          return 5;
+          if (upper.startsWith('XAU')) return 2; // gold tends to 2 decimals
+          if (upper.startsWith('XAG')) return 3; // silver often 3 (broker-dependent)
+          if (upper.endsWith('JPY')) return 3;  // JPY pairs frequently 3 decimals
+          return 5; // most FX 5 decimals (fractional pips)
         }
+        // Equities/indices default to 2
         return 2;
       };
 
@@ -7872,11 +7960,14 @@ const ensureLwMacd = () => {
           const r = await fetch(`/api/tick?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' });
           const js = await r.json().catch(() => ({}));
           if (js && js.ok && js.tick) {
+            // Cache broker digits/point if provided
+            try { updateSymbolMetaFromTick(symbol, js.tick); } catch {}
             const { bid, ask } = js.tick;
             const spr = (Number(ask) - Number(bid));
-            const sprStr = Number.isFinite(spr) ? spr.toFixed(3) : '—';
-            const bidStr = Number.isFinite(Number(bid)) ? Number(bid).toFixed(3) : '—';
-            const askStr = Number.isFinite(Number(ask)) ? Number(ask).toFixed(3) : '—';
+            const digits = getSymbolDigits(symbol);
+            const bidStr = Number.isFinite(Number(bid)) ? formatPriceForSymbol(symbol, Number(bid)) : '—';
+            const askStr = Number.isFinite(Number(ask)) ? formatPriceForSymbol(symbol, Number(ask)) : '—';
+            const sprStr = Number.isFinite(spr) ? stripTrailingZeros(spr.toFixed(Math.max(1, Math.min(5, digits)))) : '—';
             const tk = document.getElementById('ticker');
             if (tk) tk.textContent = `${symbol}  Bid ${bidStr}  Ask ${askStr}  Spr ${sprStr}`;
             const b = document.getElementById('btnBuy');
