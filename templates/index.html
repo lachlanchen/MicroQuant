@@ -4818,6 +4818,11 @@ const ensureLwMacd = () => {
             const tb = new Date(b.run.created_at || b.run.created_at_iso || 0).getTime();
             return tb - ta;
           });
+          try { periodicRowsById = new Map(rows.map(({sym, run}) => [String(run.id), { sym, run }])); } catch {}
+          
+            const tb = new Date(b.run.created_at || b.run.created_at_iso || 0).getTime();
+            return tb - ta;
+          });
           const html = rows.map(({sym, run}) => {
             const t = run.created_at ? new Date(run.created_at).toLocaleString() : '';
             const ans = run.answers || run.answers_json || {};
@@ -4834,7 +4839,33 @@ const ensureLwMacd = () => {
           if (list) list.innerHTML = append ? (list.innerHTML + html) : (html || '<em style="color:var(--muted)">No periodic logs</em>');
         } catch (e) { if (list && !append) list.innerHTML = `<em style="color:var(--muted)">Failed to load</em>`; }
       }
-      if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () => { if (periodicHistoryModal) { periodicHistoryModal.style.display = 'flex'; periodicHistoryModal.setAttribute('aria-hidden', 'false'); } loadPeriodicHistory({ append:false }); });
+      
+      // Click-to-view details in Periodic History
+      (function attachPeriodicHistoryClick(){
+        const list = document.getElementById('periodicHistoryList');
+        const detail = document.getElementById('periodicHistoryDetail');
+        if (!list || !detail) return;
+        list.addEventListener('click', (ev) => {
+          const row = ev.target.closest('.ph-row');
+          if (!row) return;
+          const rid = row.getAttribute('data-run-id') || '';
+          const item = rid && periodicRowsById ? periodicRowsById.get(rid) : null;
+          if (!item || !item.run) return;
+          const sym = item.sym || '';
+          const run = item.run;
+          const t = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+          const ans = run.answers || run.answers_json || {};
+          const meta = ans.meta || {};
+          const order = meta.order_result || {};
+          const steps = Array.isArray(ans.log) ? ans.log : [];
+          const lines = steps.map(s => `<div style=\"padding:2px 0;\">• ${esc(s.message || JSON.stringify(s))}</div>`).join('');
+          const ord = Object.keys(order).length ? `<div style=\"margin-top:6px;\"><strong>Order</strong><pre style=\"white-space:pre-wrap; background:#fff; border:1px solid var(--line); padding:6px; border-radius:6px;\">${esc(JSON.stringify(order, null, 2))}</pre></div>` : '';
+          const head = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><strong>${esc(sym)}</strong><span style=\"font-size:12px; color:var(--muted)\">${t}</span></div>`;
+          const body = `<div style=\"margin-top:6px;\"><strong>Steps</strong>${lines || '<div style=\"color:var(--muted)\"><em>No detailed steps</em></div>'}</div>`;
+          detail.innerHTML = head + body + ord;
+        });
+      })();
+if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () => { if (periodicHistoryModal) { periodicHistoryModal.style.display = 'flex'; periodicHistoryModal.setAttribute('aria-hidden', 'false'); } loadPeriodicHistory({ append:false }); });
       // Click-to-view details inside Periodic History
       (function attachPeriodicListClick(){
         const list = document.getElementById('periodicHistoryList');
@@ -4879,35 +4910,28 @@ const ensureLwMacd = () => {
       const periodicStatusLine = document.getElementById('periodicStatusLine');
       function setPeriodicStatus(text, busy=false) {
         if (periodicStatusLine) periodicStatusLine.textContent = text || '';
-        if (btnPeriodicTrigger) { btnPeriodicTrigger.disabled = !!busy; btnPeriodicTrigger.textContent = busy ? 'Running…' : 'Danger Trigger Auto AI Trade'; }
-      }
+        
       if (btnPeriodicTrigger) btnPeriodicTrigger.addEventListener('click', async ()=>{
+        try {
+          const sel = document.getElementById('autoPeriodicSymbols');
+          const tf = currentTf();
+          const syms = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value);
+          const accountsSel = document.getElementById('autoPeriodicAccountSelect');
+          const accts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
+          const msg = `Run periodic batch now?
+TF ${tf}
+Symbols: ${(syms && syms.length)? syms.join(', ') : currentSymbol()}
+Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
+          if (!window.confirm(msg)) return;
+        } catch {}
+        if (autoPeriodicRunning) { appendAutoLog('[Periodic] Already running; trigger skipped', 'warn'); return; }
+        autoPeriodicRunning = true;
         appendAutoLog('[Periodic] Manual trigger');
         setPeriodicStatus('Triggering periodic run…', true);
         try { await runPeriodicAutoTrades(); } catch (e) { appendAutoLog(`[Periodic] Trigger error: ${e && e.message || e}`, 'error'); }
-        finally { setPeriodicStatus('', false); }
+        finally { setPeriodicStatus('', false); autoPeriodicRunning = false; }
       });
 
-      async function runPeriodicAutoTrades() {
-        // Build list: selected symbols, fallback to current symbol only
-        const sel = document.getElementById('autoPeriodicSymbols');
-        const tf = currentTf();
-        let symbols = [];
-        try { symbols = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); } catch {}
-        if (!Array.isArray(symbols) || symbols.length === 0) symbols = [currentSymbol()];
-        appendAutoLog(`[Periodic] Running Auto AI Trade for ${symbols.length} symbol(s) on ${tf}`);
-        try {
-          const accountsSel0 = document.getElementById('autoPeriodicAccountSelect');
-          const accounts0 = Array.from(accountsSel0 && accountsSel0.selectedOptions ? accountsSel0.selectedOptions : []).map(o=>o.value);
-          setPeriodicStatus(`[Periodic] Running ${symbols.join(', ')} on ${tf}${accounts0.length? ` • accounts ${accounts0.join(', ')}`:''}`, true);
-        } catch {}
-        try {
-          const accountsSel = document.getElementById('autoPeriodicAccountSelect');
-          const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
-          if (accounts && accounts.length) appendAutoLog(`[Periodic] Accounts selected: ${accounts.join(', ')}`);
-        } catch {}
-        // Parallel execution with Promise.allSettled
-        const tasks = symbols.map(sym => autoAiTradeForSymbol(sym, tf).catch(e => appendAutoLog(`[${sym}] error: ${e && e.message || e}`, 'error')));
         await Promise.allSettled(tasks);
         appendAutoLog('[Periodic] Batch complete');
         setPeriodicStatus('', false);
@@ -4962,9 +4986,9 @@ const ensureLwMacd = () => {
             else if (typeof ans.signal === 'string') { const sig = ans.signal.toUpperCase(); if (sig.includes('BUY')) side = 'BUY'; else if (sig.includes('SELL')) side = 'SELL'; }
           }
         } catch {}
-        if (!side) { log('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
-        log(`Signal: ${side}`);
-        // Determine Basic orientation for logging (no behavior change)
+      if (!side) { log('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
+      log(`Signal: ${side}`);
+      // Determine Basic orientation for logging (no behavior change)
         try {
           const pb = new URLSearchParams();
           if (isFxPair(sym)) { const pq = splitPair(sym); pb.set('kind','forex_pair'); pb.set('base', pq.base); pb.set('quote', pq.quote); }
@@ -4985,6 +5009,11 @@ const ensureLwMacd = () => {
             }
           }
           log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicSide || 'NEUTRAL'} aligned=${basicSide ? (basicSide===side?'YES':'NO') : '—'}`);
+          if (basicSide && basicSide !== side) {
+            log('Skip: Tech and Basic not aligned — no trade.', 'warn');
+            try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || null, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'not_aligned' }) }); } catch {}
+            return;
+          }
         } catch {}
         // Draft plan via server using snapshot for this symbol
         let planRunId = null, plan = null;
@@ -5107,6 +5136,32 @@ const ensureLwMacd = () => {
           log(`SL preflight: side=${side} price=${pxStr} SL=${slStr} → ${invalid ? 'INVALID' : 'OK'}` , invalid ? 'error' : 'info');
           if (invalid) { log('Skip: invalid stops', 'error'); return; }
         }
+        // Safe max lots guard
+        try {
+          let safeMax = NaN;
+          const inline = document.getElementById('autoPeriodicSafeMaxInput');
+          if (inline && Number(inline.value) > 0) safeMax = Number(inline.value);
+          if (!Number.isFinite(safeMax) || !(safeMax > 0)) {
+            const k = encodeURIComponent(`safe_max_lots:${sym}:${tf}`);
+            const pref = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
+            const pj = await pref.json().catch(()=>({}));
+            const map = (pj && pj.prefs) || pj || {};
+            const v = Number(map[`safe_max_lots:${sym}:${tf}`]);
+            if (Number.isFinite(v) && v > 0) safeMax = v;
+          }
+          if (Number.isFinite(safeMax) && safeMax > 0) {
+            const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+            const pjs = await pr.json().catch(()=>({}));
+            const arr = Array.isArray(pjs) ? pjs : (Array.isArray(pjs.rows) ? pjs.rows : []);
+            const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
+            log(`Safe lots check: open=${openLots} safe_max=${safeMax}`);
+            if (openLots >= safeMax) {
+              log('Skip: open lots exceed or meet safe max — no trade.', 'warn');
+              try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' }) }); } catch {}
+              return;
+            }
+          }
+        } catch {}
         const body = new URLSearchParams({ symbol: sym, side: side.toLowerCase(), volume: vol });
         if (slEnabled && finalSL != null) body.set('sl', String(finalSL));
         if (p.take_profit != null) body.set('tp', String(p.take_profit));
