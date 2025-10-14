@@ -3129,14 +3129,28 @@ const ensureLwMacd = () => {
       };
       const renderHealthFresh = (info) => {
         if (!healthFreshEl) return;
-        const freshCount = Number((info && info.new_count) || 0);
+        const hasCount = info && info.new_count != null;
+        const freshCount = hasCount ? Number(info.new_count) : null;
         const lastUsed = Number((info && info.last_run_news_count) || 0);
-        // Always show how many new items since the last Basic run
-        const label = `Outdated +${freshCount}`;
-        const isFresh = (info && info.status === 'fresh') || freshCount === 0;
-        const bg = isFresh ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
-        const border = isFresh ? '#2ecc71' : '#e74c3c';
-        const color = isFresh ? '#1b5e20' : '#b71c1c';
+        const status = info && typeof info.status === 'string' ? info.status.toLowerCase() : 'unknown';
+        const isFresh = (status === 'fresh') || (hasCount && freshCount === 0);
+        const isStale = (status === 'stale') || (hasCount && freshCount > 0);
+        let label = '—';
+        let bg = 'rgba(158,158,158,0.12)';
+        let border = '#9e9e9e';
+        let color = '#424242';
+        if (isFresh && !isStale) {
+          label = 'Up to date';
+          bg = 'rgba(46,204,113,0.12)';
+          border = '#2ecc71';
+          color = '#1b5e20';
+        } else if (isStale) {
+          const n = hasCount ? Math.max(0, Number(freshCount)) : '?';
+          label = `Outdated +${n}`;
+          bg = 'rgba(231,76,60,0.12)';
+          border = '#e74c3c';
+          color = '#b71c1c';
+        }
         healthFreshEl.textContent = label;
         healthFreshEl.style.background = bg;
         healthFreshEl.style.borderColor = border;
@@ -3146,7 +3160,7 @@ const ensureLwMacd = () => {
         if (info && info.baseline_at) tip.push(`Last news used: ${new Date(info.baseline_at).toLocaleString()}`);
         if (info && info.latest_news_at) tip.push(`Latest news (available): ${new Date(info.latest_news_at).toLocaleString()}`);
         tip.push(`Used in last run: ${lastUsed}`);
-        tip.push(`New since: ${freshCount}`);
+        if (hasCount) tip.push(`New since: ${freshCount}`);
         healthFreshEl.title = tip.join(' \n');
       };
       async function refreshHealthFreshness() {
