@@ -629,6 +629,22 @@
         </div>
         <div class="modal-body" style="padding:12px;">
           <div id="autoMeta" style="font-size:13px; color:var(--muted); margin-bottom:8px;"></div>
+          <div class="row" style="gap:10px; align-items:center; margin:6px 0 10px 0;">
+            <label class="switch" title="Include Stop Loss when placing Auto trades" style="gap:6px;">
+              <input type="checkbox" id="autoSlToggle" class="toggle-input" />
+              <span class="toggle"></span>
+              <span>Set Stop Loss</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:12px; color:var(--muted);">Auto Vol</span>
+              <input id="autoVolumeInput" type="number" min="0.01" step="0.01" value="0.01" style="width:90px;" />
+            </label>
+            <label style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:12px; color:var(--muted);">Safe max lots</span>
+              <input id="autoSafeMaxInput" type="number" min="0.01" step="0.01" value="0.10" style="width:100px;" />
+            </label>
+            <span id="autoSafeHint" style="font-size:12px; color:var(--muted);"></span>
+          </div>
           <div style="margin:8px 0;">
             <div style="font-weight:600; color:var(--muted); margin-bottom:4px;">Recent</div>
             <div id="autoHistoryBox" style="border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:180px; overflow:auto;"></div>
@@ -3742,6 +3758,27 @@ const ensureLwMacd = () => {
       });
       if (btnAutoStart) btnAutoStart.addEventListener('click', autoAiTrade);
       if (btnAutoMore) btnAutoMore.addEventListener('click', () => { autoHistoryOffset += 5; loadAutoHistory(5, autoHistoryOffset); });
+      // Persist Auto controls
+      const autoSafeMaxInput = document.getElementById('autoSafeMaxInput');
+      const autoVolumeInput = document.getElementById('autoVolumeInput');
+      const autoSlToggle = document.getElementById('autoSlToggle');
+      function _saveAutoPrefs() {
+        const sym = currentSymbol(); const tf = currentTf();
+        if (autoSafeMaxInput) queuePrefUpdate(`safe_max_lots:${sym}:${tf}`, String(autoSafeMaxInput.value||''));
+        if (autoVolumeInput) queuePrefUpdate(`auto_volume:${sym}:${tf}`, String(autoVolumeInput.value||''));
+        if (autoSlToggle) queuePrefUpdate(`auto_sl_enabled:${sym}:${tf}`, autoSlToggle.checked ? '1' : '0');
+      }
+      if (autoSafeMaxInput) autoSafeMaxInput.addEventListener('change', ()=>{ _saveAutoPrefs(); try {
+        // Re-evaluate Start enablement vs current open lots
+        const meta = document.getElementById('autoMeta');
+        const txt = meta ? meta.textContent : '';
+        const match = /Open:\s([0-9]+\.[0-9]+) lots/.exec(txt||'');
+        const openLots = match ? Number(match[1]) : NaN;
+        const safeNum = Number((autoSafeMaxInput.value||'0'));
+        if (btnAutoStart) btnAutoStart.disabled = Number.isFinite(openLots) && Number.isFinite(safeNum) && safeNum>0 ? (openLots > safeNum) : false;
+      } catch{} });
+      if (autoVolumeInput) autoVolumeInput.addEventListener('change', _saveAutoPrefs);
+      if (autoSlToggle) autoSlToggle.addEventListener('change', _saveAutoPrefs);
       async function executeAiPlan() {
         if (!lastAiPlan) return;
         const side = (lastAiPlan.position || '').toLowerCase();
@@ -3843,8 +3880,16 @@ const ensureLwMacd = () => {
           updateExecuteBtn();
           appendAutoLog('Executing order…');
           const sideLower = (side||'').toLowerCase();
-          const body = new URLSearchParams({ symbol: sym, side: sideLower, volume: String(el('volume') ? el('volume').value : '0.10') });
-          if (p.stop_loss != null) body.set('sl', String(p.stop_loss));
+          // Use Auto volume if provided, else fall back to top Vol
+          let vol = '0.10';
+          const autoVolEl = document.getElementById('autoVolumeInput');
+          if (autoVolEl && Number(autoVolEl.value) > 0) vol = String(autoVolEl.value);
+          else if (el('volume')) vol = String(el('volume').value);
+          const body = new URLSearchParams({ symbol: sym, side: sideLower, volume: vol });
+          // Respect Set Stop Loss toggle
+          const slToggle = document.getElementById('autoSlToggle');
+          const slEnabled = !slToggle || slToggle.checked === true;
+          if (slEnabled && p.stop_loss != null) body.set('sl', String(p.stop_loss));
           if (p.take_profit != null) body.set('tp', String(p.take_profit));
           const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
@@ -6527,12 +6572,56 @@ const ensureLwMacd = () => {
             const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
             const last = Array.isArray(ans.log) && ans.log.length ? ans.log[ans.log.length-1].message : '';
             const orderStr = order ? ` • order ${esc(order)}` : '';
-            return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
+            return `<div class=\"row auto-item\" data-run-id=\"${r.id}\" style=\"cursor:pointer; justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:12px; color:var(--muted);\">${t}${orderStr}</span>\n              <span style=\"font-size:12px; color:var(--muted);\">${esc(last || '')}</span>\n            </div>`;
           }).join('');
           if (html) autoHistoryBox.insertAdjacentHTML('beforeend', html);
         } catch (e) {
           if (offset === 0) autoHistoryBox.innerHTML = '<em style="color:var(--muted)">Failed to load</em>';
         }
+      }
+
+      // Auto history click: render full details into the modal log box
+      const autoHistoryCache = new Map();
+      if (document.getElementById('autoHistoryBox')) {
+        document.getElementById('autoHistoryBox').addEventListener('click', (ev)=>{
+          const item = ev.target.closest('.auto-item');
+          if (!item) return;
+          const id = Number(item.getAttribute('data-run-id'));
+          if (!Number.isFinite(id)) return;
+          // Lookup run in DOM by re-fetching the latest page then find matching id
+          (async ()=>{
+            try {
+              const sym = currentSymbol();
+              const tf = currentTf();
+              const params = new URLSearchParams();
+              if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+              else { params.set('kind','stock'); params.set('symbol', sym); }
+              params.set('group','auto'); params.set('tf', tf); params.set('limit','20'); params.set('offset','0');
+              const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const runs = Array.isArray(js.runs) ? js.runs : [];
+              const run = runs.find(x => Number(x.id) === id);
+              const ans = (run && (run.answers || run.answers_json)) || {};
+              const meta = ans.meta || {};
+              const steps = Array.isArray(ans.log) ? ans.log : [];
+              const lines = [];
+              lines.push(`<div><strong>Run #${id}</strong></div>`);
+              const order = (meta.order_result && (meta.order_result.order || meta.order_result.deal)) ? (meta.order_result.order || meta.order_result.deal) : null;
+              lines.push(`<div style=\"margin-top:4px;\">Action: ${esc(meta.action || '—')} • Plan: ${esc(meta.plan_run_id || '—')} • Basic: ${esc(meta.basic_run_id || '—')} • Tech: ${esc(meta.tech_run_id || '—')} ${order? `• Order: ${esc(order)}` : ''}</div>`);
+              if (steps.length) {
+                lines.push('<div style=\"margin-top:6px;\"><strong>Log</strong></div>');
+                for (const s of steps) {
+                  const ts = s.ts ? new Date(s.ts).toLocaleString() : '';
+                  const lvl = s.level || 'info';
+                  const color = lvl === 'error' ? '#e74c3c' : (lvl === 'warn' ? '#ff9800' : 'var(--muted)');
+                  lines.push(`<div><span style=\"color:${color}\">[${esc(ts)}]</span> ${esc(s.message || '')}</div>`);
+                }
+              }
+              const box = getAutoLogBoxEl();
+              if (box) { box.innerHTML = lines.join(''); box.scrollTop = box.scrollHeight; }
+            } catch (e) { /* ignore */ }
+          })();
+        });
       }
 
       async function openAutoModal() {
