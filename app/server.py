@@ -5182,6 +5182,21 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     "enforced": enforced,
                 },
             }
+            # If client provided explicit run IDs, record them for traceability
+            try:
+                raw = json.loads(self.request.body or b"{}")
+            except Exception:
+                raw = {}
+            try:
+                if raw.get("basic_run_id") is not None:
+                    answers_json["meta"]["basic_run_id"] = int(raw.get("basic_run_id"))
+            except Exception:
+                pass
+            try:
+                if raw.get("tech_run_id") is not None:
+                    answers_json["meta"]["tech_run_id"] = int(raw.get("tech_run_id"))
+            except Exception:
+                pass
             ins = await insert_health_run(
                 self.pool,
                 kind=kind,
