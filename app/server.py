@@ -3575,10 +3575,24 @@ class HealthFreshnessHandler(tornado.web.RequestHandler):
         except Exception:
             logger.debug("[freshness.basic] trace logging failed", exc_info=True)
 
+        # Consider run timing vs latest available news: if last run happened
+        # after the latest news arrival, treat as fresh even if the run used
+        # a limited subset of items (prevents repeated re-runs on Danger).
+        try:
+            from datetime import datetime as _dt
+            latest_news_dt = _dt.fromisoformat(latest_news_iso) if latest_news_iso else None
+        except Exception:
+            latest_news_dt = None
+
         # Map unknown to stale so clients can act without special-casing
         status = "unknown"
         if last_run_at_dt is not None:
-            status = "fresh" if (new_count or 0) == 0 else "stale"
+            if (new_count or 0) == 0 or (latest_news_dt is not None and last_run_at_dt >= latest_news_dt):
+                status = "fresh"
+                if new_count is None:
+                    new_count = 0
+            else:
+                status = "stale"
         else:
             # No prior run → treat as stale (force an initial run)
             status = "stale"

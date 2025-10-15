@@ -4716,7 +4716,10 @@ const ensureLwMacd = () => {
           if (!(r0.ok && j0 && j0.ok)) return null;
           if (j0.status !== 'stale' || Number(j0.new_count||0) <= 0) return null;
           if (typeof logFn === 'function') logFn('Outdated persists after run — refreshing news and retrying Basic…');
-          try { await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
+          try {
+            const rn = await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' });
+            await rn.json().catch(()=>({}));
+          } catch {}
           const runId = await newBasicRunForSymbol(sym, tf);
           try {
             const r1 = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(strat)}`, { cache:'no-store' });
@@ -5644,7 +5647,12 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         } catch {}
         try { setPeriodicStatus(`[${sym}] Checking freshness…`, true); } catch {}
         // Pre-step: refresh news and fetch latest bars before freshness
-        try { log('Refreshing news…'); await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
+        try {
+          log('Refreshing news…');
+          const rn = await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' });
+          // Fully consume to ensure server-side upsert is complete before proceeding
+          await rn.json().catch(()=>({}));
+        } catch {}
         try { log('Fetching latest bars…'); await fetch(`/api/fetch?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&mode=inc&count=1000&persist=1`, { cache:'no-store' }); } catch {}
         try {
           const model = getTradeAiModel();
@@ -6286,10 +6294,10 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const tj2 = await tf2.json().catch(()=>({}));
             setAutoMirrorFreshness(hj2, tj2);
             // If Basic is still stale, refresh news once and retry Basic
-            if (hj2 && hj2.status === 'stale' && Number(hj2.new_count||0) > 0) {
+          if (hj2 && hj2.status === 'stale' && Number(hj2.new_count||0) > 0) {
               const retryId = await ensureFreshBasic(sym, tf, (m)=>appendAutoLog(`[${sym}] ${m}`));
               if (retryId) { basicId = basicId || retryId; appendAutoLog(`[${sym}] Basic run id=${retryId}`); }
-            }
+          }
           } catch {}
           if (basicId) appendAutoLog(`Basic run id=${basicId}`);
           if (techId) appendAutoLog(`Tech run id=${techId}`);
