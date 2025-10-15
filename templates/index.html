@@ -5769,6 +5769,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const rb = await fetch(`/api/health/runs?${pb.toString()}`, { cache:'no-store' });
           const jb = await rb.json().catch(()=>({}));
           const b = Array.isArray(jb.runs) && jb.runs.length ? jb.runs[0] : null;
+          if (!basicId && b && b.id) basicId = b.id;
           let basicSide = null;
           if (b) {
             const ansb = b.answers || b.answers_json || {};
@@ -5796,6 +5797,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           try { setPeriodicStatus(`[${sym}] Drafting plan…`, true); } catch {}
           const lev = getLeverageValue();
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
+          try { if (Number.isFinite(Number(basicId))) body.basic_run_id = Number(basicId); } catch {}
+          try { const tid = (techId && Number.isFinite(Number(techId))) ? Number(techId) : (latest && latest.id ? Number(latest.id) : null); if (Number.isFinite(tid)) body.tech_run_id = tid; } catch {}
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) { log(`Plan failed: ${(js && js.error) || r.statusText || 'unknown'}`, 'error'); return; }
@@ -6443,6 +6446,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const lev = getLeverageValue();
             const snapshot = await buildTechSnapshotString();
             const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
+            try { if (Number.isFinite(Number(basicId))) body.basic_run_id = Number(basicId); } catch {}
+            try {
+              const tid = (latest && latest.id) ? Number(latest.id) : (Number.isFinite(Number(techId)) ? Number(techId) : NaN);
+              if (Number.isFinite(tid)) body.tech_run_id = tid;
+            } catch {}
             const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await r.json().catch(()=>({}));
             return { ok: !!(js && js.ok), data: js };
@@ -6645,6 +6653,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         try {
           const snapshot = await buildTechSnapshotString();
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
+          try { if (Number.isFinite(Number(tradeState.basicRunId))) body.basic_run_id = Number(tradeState.basicRunId); } catch {}
+          try { if (Number.isFinite(Number(tradeState.techRunId))) body.tech_run_id = Number(tradeState.techRunId); } catch {}
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) {
