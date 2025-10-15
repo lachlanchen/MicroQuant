@@ -5289,6 +5289,8 @@ const ensureLwMacd = () => {
           if (!set) set = new Set([currentSymbol()]);
           for (const opt of sel.options) { opt.selected = set.has(opt.value); }
         } catch {}
+        // After selection is (re)applied, render the per-symbol pills
+        try { renderPeriodicSymbolsMeta(); } catch {}
       }
       loadAutoPeriodicSymbols();
       if (autoPeriodicSymbols) autoPeriodicSymbols.addEventListener('change', ()=>{
