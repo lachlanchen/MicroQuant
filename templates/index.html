@@ -4011,22 +4011,24 @@ const ensureLwMacd = () => {
       }
       if (btnHealthStart) btnHealthStart.addEventListener('click', () => {
         const strat = (healthState && healthState.strategy) || '';
-        if (strat === 'tech_snapshot_10q.json' || strat === 'tech_snapshot_10q_position.json') {
-          startTechAiRun();
-        } else {
-          startHealthRun();
-        }
+        const btn = btnHealthStart;
+        const prev = btn.textContent;
+        btn.disabled = true; btn.classList.add('pulsing'); btn.textContent = 'Running…';
+        const finish = () => { btn.disabled = false; btn.classList.remove('pulsing'); btn.textContent = prev; };
+        const p = (strat === 'tech_snapshot_10q.json' || strat === 'tech_snapshot_10q_position.json') ? startTechAiRun() : startHealthRun();
+        if (p && typeof p.then === 'function') p.finally(finish); else finish();
       });
       if (btnHealthMore) btnHealthMore.addEventListener('click', ()=> { healthState.offset = (healthState.offset||0) + 5; loadHealthHistory(); });
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
-      if (btnTechHealth) btnTechHealth.addEventListener('click', openTechHealth);
+      if (btnTechHealth) btnTechHealth.addEventListener('click', () => { const b=btnTechHealth; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…'; try { openTechHealth(); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 500); } });
       if (btnTechAiHealth) btnTechAiHealth.addEventListener('click', () => {
         // Open modal filtered to Tech strategy; wait for user to click Start
         const sym = symbolSelect.value.toUpperCase();
         const kind = isFxPair(sym) ? 'forex_pair' : 'stock';
         const techSel = document.getElementById('techAiStrategy');
         const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q.json';
-        openHealth(kind, techStrat);
+        const b = btnTechAiHealth; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…';
+        try { openHealth(kind, techStrat); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 500); }
       });
 
       // Inline AI trade plan preview (below Buy/Sell buttons)
@@ -4787,7 +4789,7 @@ const ensureLwMacd = () => {
           tradeHistoryBox.innerHTML = '<em style="color:var(--muted)">Failed to load</em>';
         }
       }
-      if (btnAiBuySell) btnAiBuySell.addEventListener('click', ()=> openTradePlan('BUY'));
+      if (btnAiBuySell) btnAiBuySell.addEventListener('click', ()=> { const b=btnAiBuySell; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…'; try { openTradePlan('BUY'); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 400); } });
       const btnNewBasicRun = document.getElementById('btnNewBasicRun');
       const btnNewTechRun = document.getElementById('btnNewTechRun');
       if (btnNewBasicRun) btnNewBasicRun.addEventListener('click', newBasicCheckForTrade);
@@ -4833,7 +4835,7 @@ const ensureLwMacd = () => {
           }
         } catch {}
       }
-      if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', openAutoModalSafe);
+      if (btnAutoAiTrade) btnAutoAiTrade.addEventListener('click', () => { const b=btnAutoAiTrade; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…'; try { openAutoModalSafe(); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 600); } });
       // Mirror Basic/Tech/Plan settings into Auto modal (display-only)
       async function updateAutoMirrors() {
         const sym = currentSymbol();
