@@ -6218,8 +6218,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const minsRaw = Number(autoPeriodicPeriod && autoPeriodicPeriod.value);
         const mins = (Number.isFinite(minsRaw) && minsRaw > 0) ? minsRaw : 60;
         const periodMs = mins * 60_000;
-        const delay = msToNextAlignedBoundary(mins);
-        debugLog(`[AutoPeriodic] arming: every ${mins}m, first run in ${Math.round(delay/1000)}s at top-of-${mins}m boundary.`);
+        // Start at integer period + 1 minute to allow the new bar to finalize
+        const OFFSET_MIN = 1; // configurable buffer
+        const offsetMs = OFFSET_MIN * 60_000;
+        const delay = msToNextAlignedBoundary(mins) + offsetMs;
+        debugLog(`[AutoPeriodic] arming: every ${mins}m, first run +${OFFSET_MIN}m after boundary in ${Math.round(delay/1000)}s.`);
         autoPeriodicNextAtMs = Date.now() + delay;
         startPeriodicUiCountdown();
         autoPeriodicTimeout = setTimeout(async () => {
