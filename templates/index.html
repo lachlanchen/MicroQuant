@@ -4948,13 +4948,13 @@ const ensureLwMacd = () => {
           } catch {}
         }
         const saveEnabled = (src) => { try {
-          const on = src && src.checked ? '1' : (toggleEl && toggleEl.checked ? '1' : (ptoggle && ptoggle.checked ? '1' : '0'));
-          // Mirror state across both controls
-          if (toggleEl && src !== toggleEl) toggleEl.checked = (on === '1');
-          if (ptoggle && src !== ptoggle) ptoggle.checked = (on === '1');
-          queuePrefUpdate(keyEnabled(), on);
+          // Persist exactly the source toggle's intent, then mirror to the other control.
+          const onBool = !!(src && src.checked);
+          if (toggleEl && src !== toggleEl) toggleEl.checked = onBool;
+          if (ptoggle && src !== ptoggle) ptoggle.checked = onBool;
+          queuePrefUpdate(keyEnabled(), onBool ? '1' : '0');
           flushPrefQueue();
-          appendAutoLog(`SL nudge ${on === '1' ? 'ON' : 'OFF'}`);
+          appendAutoLog(`SL nudge ${onBool ? 'ON' : 'OFF'}`);
         } catch {} };
         const saveDiv = (src) => { const v = Number((src && src.value) || (divEl && divEl.value) || (pdiv && pdiv.value) || '4'); if (Number.isFinite(v) && v>0) { try {
           if (divEl && src !== divEl) divEl.value = String(v);
