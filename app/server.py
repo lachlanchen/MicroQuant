@@ -2275,18 +2275,9 @@ class StrategyHandler(tornado.web.RequestHandler):
         closes = [r["close"] for r in rows if r.get("close") is not None]
         sig = crossover_strategy(closes, fast=fast, slow=slow)
 
-        # Optional trading
-        enabled = (os.getenv("TRADING_ENABLED", "0").lower() in ("1", "true", "yes"))
-        volume = float(os.getenv("TRADING_VOLUME", "0.01"))
+        # SMA strategy trading is gently disabled: return signal only.
+        enabled = False
         trade_result = None
-        if enabled and sig["signal"] in ("buy", "sell"):
-            # Very conservative: close existing positions first
-            try:
-                mt5_client.close_all_for(symbol)
-                trade_result = mt5_client.place_market(symbol, sig["signal"], volume)
-            except Exception as e:
-                logger.exception("trade failed: %s", e)
-                trade_result = {"ok": False, "error": str(e)}
 
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({
@@ -2324,6 +2315,24 @@ class TradeHandler(tornado.web.RequestHandler):
         slow = self.get_argument("slow", default=None)
         reason = self.get_argument("reason", default=None)
         source = self.get_argument("source", default=None)
+
+        # Block trades routed from the SMA helper to avoid accidental fixed-volume
+        # submissions while keeping the UI visible and functional.
+        try:
+            if (strategy or "").lower() == "sma_crossover":
+                logger.info("/api/trade blocked for SMA strategy")
+                self.set_status(403)
+                self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
+                self.finish(json.dumps({
+                    "ok": False,
+                    "error": "sma_trading_disabled",
+                    "strategy": strategy,
+                }))
+                return
+        except Exception:
+            # Continue if param missing
+            pass
         try:
             fast_i = int(fast) if fast not in (None, "") else None
         except Exception:
