@@ -5205,8 +5205,10 @@ const ensureLwMacd = () => {
       function getAutoPeriodicKey() { return `auto_trade_periodic:global`; }
       function getAutoPeriodicPeriodKey() { return `auto_trade_period:global`; }
       // Load periodic auto-trade prefs and arm timer (if enabled)
-      try { loadAutoPeriodicPrefs(); } catch {}
-      try { ensureAutoPeriodicTimer(); } catch {}
+      (async () => {
+        try { await loadAutoPeriodicPrefs(); } catch {}
+        try { ensureAutoPeriodicTimer(); } catch {}
+      })();
       
       // Periodic Auto AI Trade: preferences and scheduler
       // (replaced by hoisted function declarations above)
