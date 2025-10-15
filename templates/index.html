@@ -5434,9 +5434,10 @@ const ensureLwMacd = () => {
         try { if (periodicMetaInfo) periodicMetaInfo.textContent = 'Last updated: ' + new Date().toLocaleTimeString(); } catch {}
         periodicSymbolsMetaBusy = false;
       }
-      // Initial render and re-render on TF change
+      // Initial render and re-render on TF/Symbol change
       try { renderPeriodicSymbolsMeta(); } catch {}
       if (tfSelect) tfSelect.addEventListener('change', ()=>{ try { renderPeriodicSymbolsMeta(); } catch {} });
+      if (symbolSelect) symbolSelect.addEventListener('change', ()=>{ try { renderPeriodicSymbolsMeta(); } catch {} });
 
       // Periodic refresh (every 60s) of the per-symbol pills
       let periodicSymbolsMetaTimer = null;
