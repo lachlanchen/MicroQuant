@@ -8662,8 +8662,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         // initial strategy read when enabled
         runStrategyTop();
       } else {
-        // Hide SMA UI completely when disabled
-        try { const sb = document.getElementById('signalBar'); if (sb) sb.style.display = 'none'; } catch {}
+        // Keep top signal bar visible but disable SMA-specific buttons when disabled
         try { const panel = document.getElementById('smaPanel'); if (panel) panel.style.display = 'none'; } catch {}
         try { const b1 = document.getElementById('btnRunStratTop'); if (b1) b1.disabled = true; } catch {}
         try { const b2 = document.getElementById('btnTradeSignalTop'); if (b2) b2.disabled = true; } catch {}
