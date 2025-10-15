@@ -3474,6 +3474,8 @@ const ensureLwMacd = () => {
           try { setTimeout(() => { refreshTechFreshness().catch(()=>{}); }, 300); } catch {}
           // Also refresh Basic badge in case the user expects both to reflect latest context
           try { await refreshHealthFreshness(); } catch {}
+          // Keep Periodic pills in sync with the new tech run
+          try { await renderPeriodicSymbolsMeta(); } catch {}
         } catch (e) {
           outBox.innerHTML = `<em style=color:var(--sell)>Error: ${e && e.message || e}</em>`;
         }
@@ -5326,6 +5328,19 @@ const ensureLwMacd = () => {
       const periodicMetaBox = document.getElementById('autoPeriodicSymbolsMeta');
       const periodicMetaInfo = document.getElementById('autoPeriodicSymbolsMetaInfo');
       let periodicSymbolsMetaBusy = false;
+      // Targeted updater: refresh just one row's Basic/Tech freshness pills
+      async function updatePeriodicRowFreshness(sym, tf) {
+        try {
+          if (!periodicMetaBox) return;
+          const row = periodicMetaBox.querySelector(`div[data-sym="${CSS.escape(String(sym||'').toUpperCase())}"]`);
+          if (!row) return;
+          const bFreshEl = row.querySelector('[data-role="basic-fresh"]');
+          const tFreshEl = row.querySelector('[data-role="tech-fresh"]');
+          const f = await fetchFreshness(String(sym||'').toUpperCase(), String(tf||currentTf()).toUpperCase());
+          stylePill(bFreshEl, 'fresh', f.basic.status, f.basic.count);
+          stylePill(tFreshEl, 'fresh', f.tech.status, f.tech.count);
+        } catch {}
+      }
       function stylePill(el, kind, state, count) {
         if (!el) return;
         let bg = 'rgba(158,158,158,0.12)';
@@ -6081,6 +6096,38 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           box.textContent = `Open lots — cur ${sym}: ${s.cur.toFixed(2)} • XAU: ${s.xau.toFixed(2)} • XAG: ${s.xag.toFixed(2)} • FX: ${s.fxOther.toFixed(2)} • Stocks: ${s.stocks.toFixed(2)}`;
         } catch { /* ignore */ }
       }
+
+      // Log current account and symbol positions (ticket, side, volume, price_open, SL, TP, comment)
+      async function logAccountPositions(sym, logFn) {
+        const log = (m,l) => (typeof logFn === 'function' ? logFn(m,l) : appendAutoLog(m,l));
+        let acctLogin = null;
+        try {
+          const rc = await fetch('/api/account/current', { cache:'no-store' });
+          const jc = await rc.json().catch(()=>({}));
+          if (jc && (jc.login!=null)) acctLogin = jc.login;
+        } catch {}
+        let rows = [];
+        try {
+          const rp = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+          const jp = await rp.json().catch(()=>({}));
+          rows = Array.isArray(jp && jp.positions) ? jp.positions : (Array.isArray(jp && jp.rows) ? jp.rows : []);
+        } catch {}
+        const hdr = acctLogin ? `[Acct ${acctLogin}]` : '[Acct ?]';
+        if (!rows.length) { log(`${hdr} No open positions for ${sym}`); return; }
+        log(`${hdr} Positions for ${sym} (${rows.length})`);
+        for (const p of rows) {
+          try {
+            const ticket = p.ticket != null ? String(p.ticket) : '—';
+            const side = (Number(p.type) === 0) ? 'BUY' : 'SELL';
+            const vol = (p.volume != null) ? Number(p.volume).toFixed(2) : '—';
+            const price = (p.price_open != null) ? formatPriceForSymbol(sym, Number(p.price_open)) : '—';
+            const sl = (p.sl != null && Number(p.sl) > 0) ? formatPriceForSymbol(sym, Number(p.sl)) : '—';
+            const tp = (p.tp != null && Number(p.tp) > 0) ? formatPriceForSymbol(sym, Number(p.tp)) : '—';
+            const cmt = (p.comment != null && String(p.comment).length) ? String(p.comment) : '—';
+            log(`• #${ticket} ${side} vol=${vol} @ ${price} SL=${sl} TP=${tp} comment=${cmt}`);
+          } catch {}
+        }
+      }
       async function decorateAccountTooltips() {
         const sel = document.getElementById('autoPeriodicAccountSelect');
         if (!sel) return;
@@ -6359,6 +6406,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const tf2 = await fetch(`/api/tech/freshness?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`, { cache:'no-store' });
             const tj2 = await tf2.json().catch(()=>({}));
             setAutoMirrorFreshness(hj2, tj2);
+            // Update the periodic row pills immediately for this symbol
+            try { await updatePeriodicRowFreshness(sym, tf); } catch {}
             // If Basic is still stale, refresh news once and retry Basic
           if (hj2 && hj2.status === 'stale' && Number(hj2.new_count||0) > 0) {
               const retryId = await ensureFreshBasic(sym, tf, (m)=>appendAutoLog(`[${sym}] ${m}`));
