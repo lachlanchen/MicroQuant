@@ -2275,18 +2275,9 @@ class StrategyHandler(tornado.web.RequestHandler):
         closes = [r["close"] for r in rows if r.get("close") is not None]
         sig = crossover_strategy(closes, fast=fast, slow=slow)
 
-        # Optional trading
-        enabled = (os.getenv("TRADING_ENABLED", "0").lower() in ("1", "true", "yes"))
-        volume = float(os.getenv("TRADING_VOLUME", "0.01"))
+        # SMA strategy trading is disabled: only return the signal; do not place orders here
+        enabled = False
         trade_result = None
-        if enabled and sig["signal"] in ("buy", "sell"):
-            # Very conservative: close existing positions first
-            try:
-                mt5_client.close_all_for(symbol)
-                trade_result = mt5_client.place_market(symbol, sig["signal"], volume)
-            except Exception as e:
-                logger.exception("trade failed: %s", e)
-                trade_result = {"ok": False, "error": str(e)}
 
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({
