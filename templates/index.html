@@ -487,6 +487,8 @@
           <select id="autoPeriodicSymbols" class="blue-select" multiple size="6" style="min-width:220px; flex:1;"></select>
           <span style="font-size:12px; color:var(--muted);">(hold Ctrl/Cmd to multi-select)</span>
         </div>
+        <!-- Per-symbol freshness and last-decision pills for selected periodic symbols -->
+        <div id="autoPeriodicSymbolsMeta" style="margin:6px 0 0 110px; display:flex; flex-direction:column; gap:6px;"></div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <span style="min-width:110px; color:var(--muted);">Account</span>
           <select id="autoPeriodicAccountSelect" class="blue-select" multiple size="4" style="min-width:220px; flex:1;"></select>
@@ -5293,7 +5295,127 @@ const ensureLwMacd = () => {
           queuePrefUpdate(key, JSON.stringify(chosen));
           flushPrefQueue();
         } catch {}
+        try { renderPeriodicSymbolsMeta(); } catch {}
       });
+
+      // Render four independent pills per selected symbol:
+      // - Basic freshness (Up to date / Outdated +N)
+      // - Basic last overall decision (BUY/SELL/NEUTRAL)
+      // - Tech freshness (Up to date / Outdated +bars)
+      // - Tech last overall decision (BUY/SELL/NEUTRAL)
+      const periodicMetaBox = document.getElementById('autoPeriodicSymbolsMeta');
+      function stylePill(el, kind, state, count) {
+        if (!el) return;
+        let bg = 'rgba(158,158,158,0.12)';
+        let border = '#9e9e9e';
+        let color = '#424242';
+        let text = '—';
+        if (kind === 'fresh') {
+          const isFresh = state === 'fresh' || (typeof count === 'number' && count === 0);
+          const isStale = state === 'stale' || (typeof count === 'number' && count > 0);
+          if (isFresh && !isStale) {
+            text = 'Up to date';
+            bg = 'rgba(46,204,113,0.12)'; border = '#2ecc71'; color = '#1b5e20';
+          } else if (isStale) {
+            text = `Outdated +${Math.max(0, Number(count||0))}`;
+            bg = 'rgba(231,76,60,0.12)'; border = '#e74c3c'; color = '#b71c1c';
+          } else {
+            text = '—';
+          }
+        } else if (kind === 'sig') {
+          const s = String(state||'').toUpperCase();
+          text = s || '—';
+          if (s === 'BUY' || s === 'BULLISH') { bg = 'rgba(46,204,113,0.12)'; border = '#2ecc71'; color = '#1b5e20'; text = 'BUY'; }
+          else if (s === 'SELL' || s === 'BEARISH') { bg = 'rgba(231,76,60,0.12)'; border = '#e74c3c'; color = '#b71c1c'; text = 'SELL'; }
+          else { bg = 'rgba(158,158,158,0.12)'; border = '#9e9e9e'; color = '#424242'; text = 'NEUTRAL'; }
+        }
+        el.textContent = text;
+        el.style.background = bg; el.style.borderColor = border; el.style.color = color;
+      }
+      async function lastDecisionFor(sym, group, tf) {
+        try {
+          const p = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
+          else { p.set('kind','stock'); p.set('symbol', sym); }
+          p.set('group', group);
+          if (tf) p.set('tf', tf);
+          p.set('limit','1');
+          let r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          let j = await r.json().catch(()=>({}));
+          let run = Array.isArray(j.runs) && j.runs.length ? j.runs[0] : null;
+          if (!run && tf) {
+            // Fallback: drop tf filter
+            p.delete('tf');
+            r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+            j = await r.json().catch(()=>({}));
+            run = Array.isArray(j.runs) && j.runs.length ? j.runs[0] : null;
+          }
+          if (!run) return 'NEUTRAL';
+          const ans = run.answers || run.answers_json || {};
+          const mapped = (typeof unifySignalLabel === 'function') ? unifySignalLabel(ans.signal, ans.scores) : String(ans.signal||'NEUTRAL');
+          return (mapped || 'NEUTRAL').toUpperCase();
+        } catch { return 'NEUTRAL'; }
+      }
+      async function fetchFreshness(sym, tf) {
+        // Returns { basic: {status,count}, tech: {status,count} }
+        const out = { basic: { status: 'unknown', count: null }, tech: { status: 'unknown', count: null } };
+        try {
+          const strat = resolveBasicStrategyForSymbol(sym);
+          const r1 = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(strat)}`, { cache:'no-store' });
+          const j1 = await r1.json().catch(()=>({}));
+          if (r1.ok && j1 && j1.ok) { out.basic.status = j1.status || 'unknown'; out.basic.count = (j1.new_count != null ? Number(j1.new_count) : null); }
+        } catch {}
+        try {
+          const q = new URLSearchParams({ symbol: sym, tf });
+          const r2 = await fetch(`/api/tech/freshness?${q.toString()}`, { cache:'no-store' });
+          const j2 = await r2.json().catch(()=>({}));
+          if (r2.ok && j2 && j2.ok) { out.tech.status = j2.status || 'unknown'; out.tech.count = (j2.outdated_bars != null ? Number(j2.outdated_bars) : null); }
+        } catch {}
+        return out;
+      }
+      async function renderPeriodicSymbolsMeta() {
+        if (!periodicMetaBox) return;
+        const sel = document.getElementById('autoPeriodicSymbols');
+        if (!sel) return;
+        const tf = currentTf();
+        const chosen = Array.from(sel.selectedOptions || []).map(o => String(o.value||'').toUpperCase());
+        if (!chosen.length) { periodicMetaBox.innerHTML = ''; return; }
+        // Build skeleton rows first for quick feedback
+        const html = chosen.map(sym => `
+          <div class="row" data-sym="${esc(sym)}" style="gap:8px; align-items:center;">
+            <strong style="min-width:64px;">${esc(sym)}</strong>
+            <span class="pill" data-role="basic-fresh" style="font-size:12px;">…</span>
+            <span class="pill" data-role="basic-last" style="font-size:12px;">…</span>
+            <span class="pill" data-role="tech-fresh" style="font-size:12px;">…</span>
+            <span class="pill" data-role="tech-last" style="font-size:12px;">…</span>
+          </div>`).join('');
+        periodicMetaBox.innerHTML = html;
+        // Fill asynchronously per symbol
+        for (const sym of chosen) {
+          const row = periodicMetaBox.querySelector(`div[data-sym="${CSS.escape(sym)}"]`);
+          if (!row) continue;
+          const bFreshEl = row.querySelector('[data-role="basic-fresh"]');
+          const bLastEl = row.querySelector('[data-role="basic-last"]');
+          const tFreshEl = row.querySelector('[data-role="tech-fresh"]');
+          const tLastEl = row.querySelector('[data-role="tech-last"]');
+          try {
+            const f = await fetchFreshness(sym, tf);
+            stylePill(bFreshEl, 'fresh', f.basic.status, f.basic.count);
+            stylePill(tFreshEl, 'fresh', f.tech.status, f.tech.count);
+          } catch { stylePill(bFreshEl, 'fresh', 'unknown', null); stylePill(tFreshEl, 'fresh', 'unknown', null); }
+          try {
+            const bSig = await lastDecisionFor(sym, 'basic', tf);
+            stylePill(bLastEl, 'sig', bSig);
+          } catch { stylePill(bLastEl, 'sig', 'NEUTRAL'); }
+          try {
+            const tSig = await lastDecisionFor(sym, 'tech', tf);
+            stylePill(tLastEl, 'sig', tSig);
+          } catch { stylePill(tLastEl, 'sig', 'NEUTRAL'); }
+        }
+      }
+      // Initial render and re-render on TF change
+      try { renderPeriodicSymbolsMeta(); } catch {}
+      if (tfSelect) tfSelect.addEventListener('change', ()=>{ try { renderPeriodicSymbolsMeta(); } catch {} });
 
       // Periodic History UI
       const btnPeriodicHistoryOpen = document.getElementById('btnPeriodicHistoryOpen');
