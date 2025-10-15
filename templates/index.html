@@ -6056,18 +6056,34 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             }
           }
         } catch {}
-        const body = new URLSearchParams({ symbol: sym, side: side.toLowerCase(), volume: vol });
-        if (slEnabled && finalSL != null) body.set('sl', String(finalSL));
-        if (p.take_profit != null) body.set('tp', String(p.take_profit));
         const tpStrLog = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '';
         const slStrLog = (slEnabled && finalSL != null) ? formatPriceForSymbol(sym, finalSL) : 'off';
         const pxStr2 = Number.isFinite(px) ? formatPriceForSymbol(sym, px) : 'market';
         log(`Order params: acct=${acct||'current'} side=${side} vol=${vol} price=${pxStr2} ${slEnabled? `SL=${slStrLog}` : 'SL=off'} ${tpStrLog? `TP=${tpStrLog}`:''}`);
-        body.set('tf', tf);
-        const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
+        // Execute via plan executor
+        const execPayload = { symbol: sym, side: side.toLowerCase(), volume: vol, tf, sl_enabled: !!slEnabled };
+        if (slEnabled && finalSL != null) execPayload.sl = Number(finalSL);
+        if (p.take_profit != null) execPayload.tp = Number(p.take_profit);
+        const tr = await fetch('/api/trade/execute_plan', { method:'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(execPayload), cache: 'no-store' });
         const tj = await tr.json().catch(()=>({}));
-        const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
-        if (ok) log(`Order placed: id=${(tj && tj.result && (tj.result.order || tj.result.deal)) || '—'}`); else { const errMsg = (tj && (tj.error || (tj.result && (tj.result.comment || tj.result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`; const code = (tj && tj.result && (tj.result.retcode != null)) ? ` (retcode=${tj.result.retcode})` : ''; log(`Order failed: ${errMsg}${code}`, 'error'); }
+        try {
+          const closedN = Array.isArray(tj && tj.closed) ? tj.closed.length : 0;
+          const modN = Array.isArray(tj && tj.modified) ? tj.modified.length : 0;
+          const modOk = Array.isArray(tj && tj.modified) ? tj.modified.filter(x=>x && x.ok).length : 0;
+          log(`Closed opposite: ${closedN} • Modified SL/TP: ${modOk}/${modN}`);
+        } catch {}
+        const ok = tr.ok && tj && tj.ok === true && tj.order_result && tj.order_result.ok === true;
+        if (ok) {
+          const ordId = (tj.order_result && (tj.order_result.order || tj.order_result.deal)) || '—';
+          log(`Order placed: id=${ordId}`);
+        } else {
+          if (tj && tj.error === 'safe_max_exceeded_post_plan') {
+            log('Skip: safe max lots reached after plan — no trade.', 'warn');
+          }
+          const errMsg = (tj && (tj.error || (tj.order_result && (tj.order_result.comment || tj.order_result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
+          const code = (tj && tj.order_result && (tj.order_result.retcode != null)) ? ` (retcode=${tj.order_result.retcode})` : '';
+          log(`Order failed: ${errMsg}${code}`, 'error');
+        }
         try {
           const save = await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latestTechRun && latestTechRun.id) || techId || null, plan_run_id: planRunId || null, used_volume: vol, sl_enabled: slEnabled, order_result: tj || {}, steps: (tradeState.autoSteps || []), periodic: true }) });
           const saved = await save.json().catch(()=>({}));
@@ -6262,13 +6278,18 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (!window.confirm(msg)) return;
         try {
           status('Submitting trade from plan...');
-          const body = new URLSearchParams({ symbol, side, volume });
-          if (sl) body.set('sl', sl);
-          if (tp) body.set('tp', tp);
-          const r = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
+          const inlineSl = document.getElementById('autoPeriodicSlToggle');
+          const slToggle = document.getElementById('autoSlToggle');
+          const slEnabled = !!((inlineSl && inlineSl.checked === true) || (slToggle && slToggle.checked === true));
+          const payload = { symbol, side, volume, tf, sl_enabled: !!slEnabled };
+          if (sl) payload.sl = Number(sl);
+          if (tp) payload.tp = Number(tp);
+          const r = await fetch('/api/trade/execute_plan', { method:'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload), cache: 'no-store' });
           const js = await r.json().catch(()=>({}));
           if (js && js.ok) {
-            status(`Trade ok: ${JSON.stringify(js.result)}`);
+            const closedN = Array.isArray(js.closed) ? js.closed.length : 0;
+            const modN = Array.isArray(js.modified) ? js.modified.length : 0;
+            status(`Plan executed: closed ${closedN}, modified ${modN}`);
             await refreshChart();
             await refreshPositions();
           } else {
