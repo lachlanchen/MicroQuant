@@ -335,12 +335,14 @@ class MT5Client:
         for p in pos:
             try:
                 out.append({
+                    "symbol": symbol,
                     "ticket": int(getattr(p, "ticket", 0)),
                     "type": int(getattr(p, "type", 0)),
                     "volume": float(getattr(p, "volume", 0.0)),
                     "price_open": float(getattr(p, "price_open", 0.0)),
                     "sl": float(getattr(p, "sl", 0.0)),
                     "tp": float(getattr(p, "tp", 0.0)),
+                    "comment": str(getattr(p, "comment", "")) if hasattr(p, "comment") else "",
                     "profit": float(getattr(p, "profit", 0.0)),
                     "time": int(getattr(p, "time", 0)),
                 })
