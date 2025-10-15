@@ -5337,9 +5337,12 @@ const ensureLwMacd = () => {
           }
         } else if (kind === 'sig') {
           const s = String(state||'').toUpperCase();
-          text = s || '—';
-          if (s === 'BUY' || s === 'BULLISH') { bg = 'rgba(46,204,113,0.12)'; border = '#2ecc71'; color = '#1b5e20'; text = 'BUY'; }
-          else if (s === 'SELL' || s === 'BEARISH') { bg = 'rgba(231,76,60,0.12)'; border = '#e74c3c'; color = '#b71c1c'; text = 'SELL'; }
+          // Normalize any strength-bearing labels to a base orientation for display
+          // e.g., VERY_STRONG_BUY, STRONG_BUY → BUY; BULLISH → BUY; likewise for SELL/BEARISH
+          const hasBuy = s.includes('BUY') || s.includes('BULLISH');
+          const hasSell = s.includes('SELL') || s.includes('BEARISH');
+          if (hasBuy && !hasSell) { bg = 'rgba(46,204,113,0.12)'; border = '#2ecc71'; color = '#1b5e20'; text = 'BUY'; }
+          else if (hasSell && !hasBuy) { bg = 'rgba(231,76,60,0.12)'; border = '#e74c3c'; color = '#b71c1c'; text = 'SELL'; }
           else { bg = 'rgba(158,158,158,0.12)'; border = '#9e9e9e'; color = '#424242'; text = 'NEUTRAL'; }
         }
         el.textContent = text;
