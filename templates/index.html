@@ -5542,14 +5542,50 @@ const ensureLwMacd = () => {
       if (tfSelect) tfSelect.addEventListener('change', ()=>{ try { renderPeriodicSymbolsMeta(); } catch {} });
       if (symbolSelect) symbolSelect.addEventListener('change', ()=>{ try { renderPeriodicSymbolsMeta(); } catch {} });
 
-      // Periodic refresh (every 60s) of the per-symbol pills
+      // Periodic refresh (every 60s) of the per-symbol pills with light backfill
       let periodicSymbolsMetaTimer = null;
+      let periodicPillCycleBusy = false;
+      async function runPeriodicPillMaintenanceCycle() {
+        if (periodicPillCycleBusy) return; // avoid overlap
+        periodicPillCycleBusy = true;
+        try {
+          const tf = currentTf();
+          const sel = document.getElementById('autoPeriodicSymbols');
+          let syms = [];
+          try { syms = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>String(o.value||'').toUpperCase()); } catch {}
+          if (!Array.isArray(syms) || syms.length === 0) syms = [currentSymbol()];
+          // Prefer current symbol first for snappier feedback
+          const cur = currentSymbol();
+          const curIdx = syms.indexOf(cur);
+          if (curIdx > 0) { syms.splice(curIdx, 1); syms.unshift(cur); }
+          // Sequentially refresh each selected symbol to keep load modest
+          for (const sym of syms) {
+            try {
+              // Minimal logs to DevTools; avoid noisy UI
+              try { console.debug(`[AutoPills] Refresh ${sym} ${tf}: news+bars…`); } catch {}
+              // 1) Refresh news with upsert to DB
+              try { await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }).then(r=>r.json()).catch(()=>({})); } catch {}
+              // 2) Incremental bar backfill for current TF
+              try { await fetch(`/api/fetch?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&mode=inc&count=1000&persist=1`, { cache:'no-store' }).then(()=>{}).catch(()=>{}); } catch {}
+              // 3) Update this row's Basic/Tech freshness pills
+              try { await updatePeriodicRowFreshness(sym, tf); } catch {}
+            } catch {}
+          }
+          // Update the timestamp label
+          try { if (periodicMetaInfo) periodicMetaInfo.textContent = 'Last updated: ' + new Date().toLocaleTimeString(); } catch {}
+        } finally {
+          periodicPillCycleBusy = false;
+        }
+      }
       function ensurePeriodicSymbolsMetaTimer() {
         if (periodicSymbolsMetaTimer) return;
         periodicSymbolsMetaTimer = setInterval(() => {
-          try { renderPeriodicSymbolsMeta(); } catch {}
+          // Kick a maintenance cycle; layout re-render happens inside
+          runPeriodicPillMaintenanceCycle().catch(()=>{});
         }, 60_000);
       }
+      // Run once on load for quicker first sync
+      (async () => { try { await runPeriodicPillMaintenanceCycle(); } catch {} })();
       ensurePeriodicSymbolsMetaTimer();
 
       // Periodic History UI
