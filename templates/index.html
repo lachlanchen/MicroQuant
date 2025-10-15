@@ -5309,6 +5309,7 @@ const ensureLwMacd = () => {
       // - Tech freshness (Up to date / Outdated +bars)
       // - Tech last overall decision (BUY/SELL/NEUTRAL)
       const periodicMetaBox = document.getElementById('autoPeriodicSymbolsMeta');
+      let periodicSymbolsMetaBusy = false;
       function stylePill(el, kind, state, count) {
         if (!el) return;
         let bg = 'rgba(158,158,158,0.12)';
@@ -5379,12 +5380,14 @@ const ensureLwMacd = () => {
         return out;
       }
       async function renderPeriodicSymbolsMeta() {
+        if (periodicSymbolsMetaBusy) return;
+        periodicSymbolsMetaBusy = true;
         if (!periodicMetaBox) return;
         const sel = document.getElementById('autoPeriodicSymbols');
         if (!sel) return;
         const tf = currentTf();
         const chosen = Array.from(sel.selectedOptions || []).map(o => String(o.value||'').toUpperCase());
-        if (!chosen.length) { periodicMetaBox.innerHTML = ''; return; }
+        if (!chosen.length) { periodicMetaBox.innerHTML = ''; periodicSymbolsMetaBusy = false; return; }
         // Build skeleton rows first for quick feedback
         const html = chosen.map(sym => `
           <div class="row" data-sym="${esc(sym)}" style="gap:8px; align-items:center;">
@@ -5417,10 +5420,21 @@ const ensureLwMacd = () => {
             stylePill(tLastEl, 'sig', tSig);
           } catch { stylePill(tLastEl, 'sig', 'NEUTRAL'); }
         }
+        periodicSymbolsMetaBusy = false;
       }
       // Initial render and re-render on TF change
       try { renderPeriodicSymbolsMeta(); } catch {}
       if (tfSelect) tfSelect.addEventListener('change', ()=>{ try { renderPeriodicSymbolsMeta(); } catch {} });
+
+      // Periodic refresh (every 60s) of the per-symbol pills
+      let periodicSymbolsMetaTimer = null;
+      function ensurePeriodicSymbolsMetaTimer() {
+        if (periodicSymbolsMetaTimer) return;
+        periodicSymbolsMetaTimer = setInterval(() => {
+          try { renderPeriodicSymbolsMeta(); } catch {}
+        }, 60_000);
+      }
+      ensurePeriodicSymbolsMetaTimer();
 
       // Periodic History UI
       const btnPeriodicHistoryOpen = document.getElementById('btnPeriodicHistoryOpen');
@@ -5602,6 +5616,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         // Refresh freshness pills for the current symbol/timeframe (UI)
         try { await refreshTechFreshness(); } catch {}
         try { await refreshHealthFreshness(); } catch {}
+        try { await renderPeriodicSymbolsMeta(); } catch {}
       }
 
       async function autoAiTradeForSymbol(sym, tf) {
