@@ -377,6 +377,8 @@ class MT5Client:
             return {
                 "ok": int(getattr(result, "retcode", 0)) == getattr(mt5, "TRADE_RETCODE_DONE", 10009),
                 "retcode": int(getattr(result, "retcode", 0)),
+                "order": int(getattr(result, "order", 0)) if hasattr(result, "order") else None,
+                "deal": int(getattr(result, "deal", 0)) if hasattr(result, "deal") else None,
                 "comment": getattr(result, "comment", ""),
             }
         except Exception as exc:

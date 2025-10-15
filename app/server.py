@@ -2514,7 +2514,26 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                 # Only send modify if any change
                 if (new_sl != old_sl) or (new_tp != old_tp):
                     res = mt5_client.modify_position_sltp(symbol, ticket, new_sl, new_tp)
-                    modified.append({"ticket": ticket, **res})
+                    entry = {
+                        "symbol": symbol,
+                        "ticket": ticket,
+                        "side": side,
+                        "old_sl": old_sl,
+                        "old_tp": old_tp,
+                        "new_sl": new_sl,
+                        "new_tp": new_tp,
+                        **({"ok": res.get("ok")} if isinstance(res, dict) else {}),
+                        **({"retcode": res.get("retcode")} if isinstance(res, dict) else {}),
+                        **({"order": res.get("order")} if isinstance(res, dict) else {}),
+                        **({"deal": res.get("deal")} if isinstance(res, dict) else {}),
+                        **({"comment": res.get("comment")} if isinstance(res, dict) else {}),
+                    }
+                    modified.append(entry)
+                    try:
+                        logger.info("/api/trade/execute_plan modify ticket=%s side=%s old_sl=%s old_tp=%s new_sl=%s new_tp=%s ret=%s order=%s",
+                                    ticket, side, old_sl, old_tp, new_sl, new_tp, entry.get("retcode"), entry.get("order"))
+                    except Exception:
+                        pass
         except Exception as exc:
             modified.append({"ok": False, "error": f"modify_failed: {exc}"})
 
