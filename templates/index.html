@@ -5807,7 +5807,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         }
         if (needTech) {
           try {
-            const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+            const snapshot = await buildTechSnapshotString();
             const techSel = document.getElementById('techAiStrategy');
             const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q_position.json';
             const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
