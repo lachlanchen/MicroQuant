@@ -5722,45 +5722,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         // Minimal clone of autoAiTrade without UI dependence; logs prefixed by [SYM]
         const log = (m, lvl='info') => appendAutoLog(`[${sym}] ${m}`, lvl);
         log(`Auto AI Trade started (${tf})`);
-        // Preflight: Safe max lots (global cap short-circuits work to avoid churn)
-        try {
-          let safeMax = NaN; let useGlobal = false;
-          const inline = document.getElementById('autoPeriodicSafeMaxInput');
-          if (inline && Number(inline.value) > 0) { safeMax = Number(inline.value); useGlobal = true; }
-          if (!Number.isFinite(safeMax) || !(safeMax > 0)) {
-            const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
-            const pref = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
-            const pj = await pref.json().catch(()=>({}));
-            const map = (pj && pj.prefs) || pj || {};
-            const vg = Number(map['safe_max_lots:global']);
-            const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
-            if (Number.isFinite(vg) && vg > 0) { safeMax = vg; useGlobal = true; }
-            else if (Number.isFinite(vs) && vs > 0) { safeMax = vs; useGlobal = false; }
-          }
-          if (Number.isFinite(safeMax) && safeMax > 0) {
-            let arr = [];
-            if (useGlobal) {
-              const ra = await fetch('/api/positions/all', { cache:'no-store' });
-              const ja = await ra.json().catch(()=>({}));
-              arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
-            } else {
-              const rp = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-              const jp = await rp.json().catch(()=>({}));
-              arr = Array.isArray(jp && jp.positions) ? jp.positions : (Array.isArray(jp && jp.rows) ? jp.rows : []);
-            }
-            const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
-            log(`Safe lots check (preflight): open=${openLots} safe_max=${safeMax}${useGlobal?' [global]':''}`);
-            if (openLots >= safeMax) {
-              log('Skip: safe max lots reached — no trade (preflight).', 'warn');
-              try {
-                const save = await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, skipped: true, skip_reason: 'safe_max', periodic: true, steps: (tradeState.autoSteps || []), order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, safe_max: safeMax, global: !!useGlobal } }) });
-                const saved = await save.json().catch(()=>({}));
-                if (saved && saved.ok && saved.run_id) { autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
-              } catch {}
-              return;
-            }
-          }
-        } catch {}
+        // Removed beginning safe-max preflight — always run checks and planning
         try { setPeriodicStatus(`[${sym}] Checking freshness…`, true); } catch {}
         // Pre-step: refresh news and fetch latest bars before freshness
         try {
@@ -6682,15 +6644,21 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const tpStr = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '';
             appendAutoLog(`Order params: acct=${(acctUsed||'current')} side=${side} vol=${vol} price=${pxStr} ${slEnabled? `SL=${slStr}` : 'SL=off'} ${tpStr? `TP=${tpStr}`:''}`);
           }
-          const tr = await fetch('/api/trade', { method:'POST', headers: { 'Content-Type':'application/x-www-form-urlencoded' }, body, cache: 'no-store' });
+          const execBody = { symbol: sym, side: sideLower, volume: vol, tf, sl_enabled: !!slEnabled };
+          if (slEnabled && finalSL != null) execBody.sl = finalSL;
+          if (p.take_profit != null) execBody.tp = p.take_profit;
+          const tr = await fetch('/api/trade/execute_plan', { method:'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(execBody), cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
-          const ok = tr.ok && tj && (tj.ok === true || (tj.result && tj.result.ok === true));
-          const orderId = (tj && tj.result && (tj.result.order || tj.result.deal)) ? (tj.result.order || tj.result.deal) : null;
+          const ok = tr.ok && tj && (tj.ok === true) && (tj.order_result && tj.order_result.ok === true);
+          const orderId = tj && tj.order_result && (tj.order_result.order || tj.order_result.deal) ? (tj.order_result.order || tj.order_result.deal) : null;
           if (ok) {
             appendAutoLog(`Order placed: id=${orderId != null ? orderId : '—'}`);
           } else {
-            const errMsg = (tj && (tj.error || (tj.result && (tj.result.comment || tj.result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
-            const code = (tj && tj.result && (tj.result.retcode != null)) ? ` (retcode=${tj.result.retcode})` : '';
+            if (tj && tj.error === 'safe_max_exceeded_post_plan') {
+              appendAutoLog('Skip: safe max lots reached after plan — no trade.', 'warn');
+            }
+            const errMsg = (tj && (tj.error || (tj.order_result && (tj.order_result.comment || tj.order_result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
+            const code = (tj && tj.order_result && (tj.order_result.retcode != null)) ? ` (retcode=${tj.order_result.retcode})` : '';
             appendAutoLog(`Order failed: ${errMsg}${code}`, 'error');
           }
           try {

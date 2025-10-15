@@ -349,6 +349,39 @@ class MT5Client:
                 continue
         return out
 
+    def modify_position_sltp(self, symbol: str, ticket: int, sl: float | None, tp: float | None) -> dict:
+        """Modify SL/TP for a single open position by ticket.
+
+        Always sends both SL and TP values (falling back to existing values should be handled by caller).
+        """
+        self._ensure_initialized()
+        info = self.symbol_info(symbol)
+        if not info:
+            raise RuntimeError("Symbol not found")
+        # Ensure symbol is selected in terminal
+        mt5.symbol_select(symbol, True)
+        try:
+            req = {
+                "action": getattr(mt5, "TRADE_ACTION_SLTP", 3),
+                "symbol": symbol,
+                "position": int(ticket),
+            }
+            if sl is not None:
+                req["sl"] = float(sl)
+            if tp is not None:
+                req["tp"] = float(tp)
+            result = mt5.order_send(req)
+            if result is None:
+                code, msg = mt5.last_error()
+                return {"ok": False, "retcode": code, "error": f"order_send failed: {code} {msg}"}
+            return {
+                "ok": int(getattr(result, "retcode", 0)) == getattr(mt5, "TRADE_RETCODE_DONE", 10009),
+                "retcode": int(getattr(result, "retcode", 0)),
+                "comment": getattr(result, "comment", ""),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def list_positions_all(self) -> list[dict]:
         """Return simplified open positions across all symbols."""
         self._ensure_initialized()

@@ -2226,6 +2226,7 @@ async def make_app():
             (r"/api/data", DataHandler, dict(pool=pool)),
             (r"/api/strategy/run", StrategyHandler, dict(pool=pool)),
             (r"/api/trade", TradeHandler),
+            (r"/api/trade/execute_plan", ExecutePlanHandler),
             (r"/api/close", CloseHandler),
             (r"/api/positions", PositionsHandler),
             (r"/api/positions/all", PositionsAllHandler),
@@ -2444,6 +2445,167 @@ class TradeHandler(tornado.web.RequestHandler):
     async def post(self):
         # Allow POST to avoid any client/proxy caching issues with GET
         return await self.get()
+
+
+class ExecutePlanHandler(tornado.web.RequestHandler):
+    async def post(self):
+        try:
+            payload = json.loads(self.request.body or b"{}")
+        except Exception:
+            payload = {}
+        enabled = (os.getenv("TRADING_ENABLED", "0").lower() in ("1", "true", "yes"))
+        if not enabled:
+            self.set_status(403)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": "trading_disabled (set TRADING_ENABLED=1)"}))
+            return
+        symbol = str(payload.get("symbol") or default_symbol())
+        side = str(payload.get("side") or "buy").lower()
+        volume = float(payload.get("volume") or 0.01)
+        timeframe = str(payload.get("tf") or "") or None
+        # Plan SL/TP and toggle
+        plan_sl = payload.get("sl")
+        plan_tp = payload.get("tp")
+        sl_enabled = bool(payload.get("sl_enabled") or False)
+
+        # 1) Close opposite direction positions for this symbol
+        opp = "short" if side == "buy" else "long"
+        try:
+            closed = mt5_client.close_all_for(symbol, side=opp)
+        except Exception as exc:
+            closed = [{"ok": False, "error": str(exc)}]
+
+        # 2) Update SL/TP for existing positions in the same direction
+        modified: list[dict] = []
+        try:
+            pos = mt5_client.list_positions(symbol)
+            want_type = 0 if side == "buy" else 1
+            for p in pos:
+                if int(p.get("type", -1)) != want_type:
+                    continue
+                ticket = int(p.get("ticket") or 0)
+                if not ticket:
+                    continue
+                old_sl = float(p.get("sl") or 0.0) or None
+                old_tp = float(p.get("tp") or 0.0) or None
+                new_tp = None
+                if plan_tp is not None:
+                    try:
+                        plan_tp_f = float(plan_tp)
+                        if old_tp is None or old_tp == 0:
+                            new_tp = plan_tp_f
+                        else:
+                            new_tp = min(old_tp, plan_tp_f) if side == "buy" else max(old_tp, plan_tp_f)
+                    except Exception:
+                        new_tp = old_tp
+                else:
+                    new_tp = old_tp
+                new_sl = old_sl
+                if sl_enabled and (plan_sl is not None):
+                    try:
+                        plan_sl_f = float(plan_sl)
+                        if old_sl is None or old_sl == 0:
+                            new_sl = plan_sl_f
+                        else:
+                            new_sl = min(old_sl, plan_sl_f) if side == "buy" else max(old_sl, plan_sl_f)
+                    except Exception:
+                        new_sl = old_sl
+                # Only send modify if any change
+                if (new_sl != old_sl) or (new_tp != old_tp):
+                    res = mt5_client.modify_position_sltp(symbol, ticket, new_sl, new_tp)
+                    modified.append({"ticket": ticket, **res})
+        except Exception as exc:
+            modified.append({"ok": False, "error": f"modify_failed: {exc}"})
+
+        # 3) Enforce safe max lots right before placing order
+        try:
+            safe_max = None
+            use_global = False
+            if GLOBAL_POOL is not None:
+                tf_key = f"safe_max_lots:{symbol}:{timeframe}" if timeframe else None
+                keys = ["safe_max_lots:global"] + ([tf_key] if tf_key else [])
+                prefs = await get_prefs(GLOBAL_POOL, keys)
+                try:
+                    gval = prefs.get("safe_max_lots:global")
+                    if gval is not None and str(gval).strip() != "":
+                        gv = float(gval)  # type: ignore
+                        if gv > 0:
+                            safe_max = gv
+                            use_global = True
+                except Exception:
+                    pass
+                if safe_max is None and tf_key and prefs.get(tf_key) is not None:
+                    try:
+                        v = float(prefs[tf_key])  # type: ignore
+                        if v > 0:
+                            safe_max = v
+                            use_global = False
+                    except Exception:
+                        pass
+            if safe_max and safe_max > 0:
+                try:
+                    if use_global:
+                        positions = mt5_client.list_positions_all()
+                    else:
+                        positions = mt5_client.list_positions(symbol)
+                except Exception:
+                    positions = []
+                open_lots = 0.0
+                try:
+                    for p in positions:
+                        v = p.get("volume") if isinstance(p, dict) else None
+                        if v is not None:
+                            open_lots += float(v)
+                except Exception:
+                    pass
+                if (open_lots + float(volume)) > safe_max or open_lots >= safe_max:
+                    self.set_header("Content-Type", "application/json")
+                    self.set_header("Cache-Control", "no-store")
+                    self.finish(json.dumps({
+                        "ok": False,
+                        "error": "safe_max_exceeded_post_plan",
+                        "closed": closed,
+                        "modified": modified,
+                        "open_lots": open_lots,
+                        "req_volume": float(volume),
+                        "safe_max": safe_max,
+                        "global": use_global,
+                    }))
+                    return
+        except Exception:
+            pass
+
+        # Place order as requested, with SL if enabled; TP as provided
+        try:
+            sl_val = float(plan_sl) if (sl_enabled and plan_sl is not None) else None
+        except Exception:
+            sl_val = None
+        try:
+            tp_val = float(plan_tp) if (plan_tp is not None) else None
+        except Exception:
+            tp_val = None
+        try:
+            res = mt5_client.place_market(symbol, side, volume, sl=sl_val, tp=tp_val)
+        except Exception as e:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({
+                "ok": False,
+                "error": str(e),
+                "closed": closed,
+                "modified": modified,
+            }))
+            return
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({
+            "ok": bool(res.get("ok")) if isinstance(res, dict) else False,
+            "order_result": res,
+            "closed": closed,
+            "modified": modified,
+        }))
 
 
 class SignalTradesHandler(tornado.web.RequestHandler):
