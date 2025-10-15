@@ -5857,54 +5857,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             log(`Plan: position=${pSide} SL=${slStr} TP=${tpStr}`);
           } catch {}
         } catch (e) { log(`Plan error: ${e && e.message || e}`, 'error'); return; }
-        // Re-check safe max again before executing (post-plan guard)
-        try {
-          // Determine requested volume per symbol×TF (matches executePlanForSymbol)
-          let reqVol = 0.01;
-          try {
-            const key = encodeURIComponent(`auto_volume:${sym}:${tf}`);
-            const r = await fetch(`/api/preferences?keys=${key}`, { cache:'no-store' });
-            const js = await r.json().catch(()=>({}));
-            const map = (js && js.prefs) || js || {};
-            const v = Number(map[`auto_volume:${sym}:${tf}`]);
-            if (Number.isFinite(v) && v > 0) reqVol = v;
-          } catch {}
-          // Read caps (inline global cap has priority)
-          let safeMax = NaN; let useGlobal = false;
-          const inline = document.getElementById('autoPeriodicSafeMaxInput');
-          if (inline && Number(inline.value) > 0) { safeMax = Number(inline.value); useGlobal = true; }
-          if (!Number.isFinite(safeMax) || !(safeMax > 0)) {
-            const k = encodeURIComponent(`safe_max_lots:global,safe_max_lots:${sym}:${tf}`);
-            const pref = await fetch(`/api/preferences?keys=${k}`, { cache:'no-store' });
-            const pj = await pref.json().catch(()=>({}));
-            const map = (pj && pj.prefs) || pj || {};
-            const vg = Number(map['safe_max_lots:global']);
-            const vs = Number(map[`safe_max_lots:${sym}:${tf}`]);
-            if (Number.isFinite(vg) && vg > 0) { safeMax = vg; useGlobal = true; }
-            else if (Number.isFinite(vs) && vs > 0) { safeMax = vs; useGlobal = false; }
-          }
-          if (Number.isFinite(safeMax) && safeMax > 0) {
-            let arr = [];
-            if (useGlobal) {
-              const pra = await fetch('/api/positions/all', { cache:'no-store' });
-              const ja = await pra.json().catch(()=>({}));
-              arr = Array.isArray(ja && ja.positions) ? ja.positions : [];
-            } else {
-              const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
-              const pjs = await pr.json().catch(()=>({}));
-              arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
-            }
-            const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
-            appendAutoLog(`[${sym}] Post-plan safe check: open=${openLots} req=${reqVol} safe_max=${safeMax}${useGlobal?' [global]':''}`);
-            if ((openLots + reqVol) > safeMax || openLots >= safeMax) {
-              appendAutoLog(`[${sym}] Skip: safe max lots reached after plan — no trade.`, 'warn');
-              try {
-                await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: reqVol, sl_enabled: false, order_result: { ok:false, skipped:true, error:'safe_max_exceeded_post_plan', open_lots: openLots, req_volume: reqVol, safe_max: safeMax, global: !!useGlobal }, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' }) });
-              } catch {}
-              return;
-            }
-          }
-        } catch {}
+        // Removed post-plan client-side safe-max check here — executor and per-account
+        // executePlanForSymbol() perform the authoritative check after switching account.
 
         // Execute order for each selected account (sequentially), using the same plan
         let accounts = [];
@@ -5975,6 +5929,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (acct) {
           log(`Switch account → ${acct}`);
           try { const rlogin = await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }); const jlogin = await rlogin.json().catch(()=>({})); if (!rlogin.ok || !(jlogin && jlogin.ok)) log('Account login failed — proceeding with current session', 'warn'); } catch {}
+          try { await logAccountPositions(sym, log); } catch {}
         }
         // Volume
         let vol = '0.01';
@@ -6084,6 +6039,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const code = (tj && tj.order_result && (tj.order_result.retcode != null)) ? ` (retcode=${tj.order_result.retcode})` : '';
           log(`Order failed: ${errMsg}${code}`, 'error');
         }
+        try { await logAccountPositions(sym, log); } catch {}
         try {
           const save = await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latestTechRun && latestTechRun.id) || techId || null, plan_run_id: planRunId || null, used_volume: vol, sl_enabled: slEnabled, order_result: tj || {}, steps: (tradeState.autoSteps || []), periodic: true }) });
           const saved = await save.json().catch(()=>({}));
@@ -6292,6 +6248,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             status(`Plan executed: closed ${closedN}, modified ${modN}`);
             await refreshChart();
             await refreshPositions();
+            try { await logAccountPositions(symbol, null); } catch {}
           } else {
             status(`Trade error: ${(js && js.error) || r.statusText}`);
           }
