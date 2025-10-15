@@ -4933,6 +4933,20 @@ const ensureLwMacd = () => {
         if (!toggleEl && !divEl && !ptoggle && !pdiv) return;
         const keyEnabled = () => `auto_sl_nudge_enabled:${currentSymbol()}:${currentTf()}`;
         const keyDiv = () => `auto_sl_nudge_div:${currentSymbol()}:${currentTf()}`;
+        async function loadSlNudgePrefs() {
+          try {
+            const keys = encodeURIComponent(`${keyEnabled()},${keyDiv()}`);
+            const r = await fetch(`/api/preferences?keys=${keys}`, { cache:'no-store' });
+            const js = await r.json().catch(()=>({}));
+            const map = (js && js.prefs) || js || {};
+            const on = String(map[keyEnabled()] || '0') === '1';
+            const dv = Number(map[keyDiv()] || '4');
+            if (toggleEl) toggleEl.checked = on;
+            if (ptoggle) ptoggle.checked = on;
+            if (divEl && Number.isFinite(dv) && dv>0) { divEl.value = String(dv); if (divVal) divVal.textContent = String(dv); }
+            if (pdiv && Number.isFinite(dv) && dv>0) { pdiv.value = String(dv); if (pdivVal) pdivVal.textContent = String(dv); }
+          } catch {}
+        }
         const saveEnabled = (src) => { try {
           const on = src && src.checked ? '1' : (toggleEl && toggleEl.checked ? '1' : (ptoggle && ptoggle.checked ? '1' : '0'));
           // Mirror state across both controls
@@ -4955,21 +4969,10 @@ const ensureLwMacd = () => {
         if (divEl) { divEl.addEventListener('input', () => saveDiv(divEl)); divEl.addEventListener('change', () => saveDiv(divEl)); }
         if (ptoggle) { ptoggle.addEventListener('change', () => saveEnabled(ptoggle)); }
         if (pdiv) { pdiv.addEventListener('input', () => saveDiv(pdiv)); pdiv.addEventListener('change', () => saveDiv(pdiv)); }
-        // Load existing
-        (async () => {
-          try {
-            const keys = encodeURIComponent(`${keyEnabled()},${keyDiv()}`);
-            const r = await fetch(`/api/preferences?keys=${keys}`, { cache:'no-store' });
-            const js = await r.json().catch(()=>({}));
-            const map = (js && js.prefs) || js || {};
-            const on = String(map[keyEnabled()] || '0') === '1';
-            const dv = Number(map[keyDiv()] || '4');
-            if (toggleEl) toggleEl.checked = on;
-            if (ptoggle) ptoggle.checked = on;
-            if (divEl && Number.isFinite(dv) && dv>0) { divEl.value = String(dv); if (divVal) divVal.textContent = String(dv); }
-            if (pdiv && Number.isFinite(dv) && dv>0) { pdiv.value = String(dv); if (pdivVal) pdivVal.textContent = String(dv); }
-          } catch {}
-        })();
+        // Load on init and whenever symbol/timeframe changes
+        (async () => { try { await loadSlNudgePrefs(); } catch {} })();
+        if (symbolSelect) symbolSelect.addEventListener('change', () => { try { loadSlNudgePrefs(); } catch {} });
+        if (tfSelect) tfSelect.addEventListener('change', () => { try { loadSlNudgePrefs(); } catch {} });
       })();
       // Accounts UI
       const btnAddAccountOpen = document.getElementById('btnAddAccountOpen');
