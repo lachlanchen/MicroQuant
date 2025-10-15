@@ -4623,7 +4623,7 @@ const ensureLwMacd = () => {
           }
         } catch {}
       }
-      // Resolve Basic strategy for a symbol, preferring the UI selection when compatible
+      // Resolve Basic strategy for a symbol. Use the UI selection only when compatible with the symbol kind.
       function resolveBasicStrategyForSymbol(sym) {
         try {
           const s = String(sym || '').toUpperCase();
@@ -4631,11 +4631,18 @@ const ensureLwMacd = () => {
           const base = isFx ? s.slice(0,3) : '';
           const preferMetal = isFx && (base === 'XAU' || base === 'XAG');
           const uiSel = (typeof healthStrategySelect !== 'undefined' && healthStrategySelect) ? String(healthStrategySelect.value || '') : '';
-          if (uiSel) {
-            if (isFx) return uiSel;
-            if (!isFx && uiSel.includes('stocks_')) return uiSel;
+          if (isFx) {
+            // Metals: accept only metal_* templates from UI; otherwise force metals default
+            if (preferMetal) {
+              if (uiSel && uiSel.startsWith('metal_')) return uiSel;
+              return 'metal_pair_compact_10q_position.json';
+            }
+            // Non-metals FX: accept only forex_pair_* templates from UI; otherwise force FX default
+            if (uiSel && uiSel.startsWith('forex_pair_')) return uiSel;
+            return 'forex_pair_compact_10q_position.json';
           }
-          if (isFx) return preferMetal ? 'metal_pair_compact_10q_position.json' : 'forex_pair_compact_10q_position.json';
+          // Stocks: accept only stocks_* templates from UI; otherwise use stocks default
+          if (uiSel && uiSel.startsWith('stocks_')) return uiSel;
           return 'stocks_compact_10q_position.json';
         } catch { return 'forex_pair_compact_10q_position.json'; }
       }
