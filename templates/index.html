@@ -5785,7 +5785,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         } catch {}
         try { const q = new URLSearchParams({ symbol: sym, tf }); const r = await fetch(`/api/tech/freshness?${q.toString()}`, { cache:'no-store' }); tfj = await r.json().catch(()=>({})); if (r.ok && tfj && tfj.ok) log(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`); } catch {}
         // If stale or unknown/no-run, run checks (Tech requires snapshot)
-        const needBasic = !!(hj && ((hj.status === 'stale' && Number(hj.new_count||0) > 0) || hj.status === 'unknown' || !hj.last_run_at));
+        // Danger path: if there are new articles, force a Basic run regardless of status label
+        const needBasic = !!(hj && (Number(hj.new_count||0) > 0 || hj.status === 'unknown' || !hj.last_run_at));
         const needTech  = !!(tfj && ((tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0) || tfj.status === 'unknown' || !tfj.last_run_at));
         if (needBasic) log('Outdated: Basic — running new check…');
         if (needTech) log('Outdated: Tech — running new check…');
@@ -6361,11 +6362,10 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           // Decide whether to run new checks based on freshness
           let runBasic = false, runTech = false;
           try {
-            const bstatus = (hj && typeof hj.status === 'string') ? hj.status.toLowerCase() : 'unknown';
             const bnew = Number(hj && hj.new_count != null ? hj.new_count : NaN);
             const bNoRun = !(hj && hj.last_run_at);
-            // Treat unknown or no-run as stale → run, or stale+new>0
-            runBasic = (bstatus === 'unknown') || bNoRun || (bstatus === 'stale' && Number.isFinite(bnew) && bnew > 0);
+            // For batch Danger/Periodic, run Basic whenever there are new articles, or when no prior run
+            runBasic = (Number.isFinite(bnew) && bnew > 0) || bNoRun || ((hj && hj.status) === 'unknown');
           } catch {}
           try {
             const tstatus = (tfj && typeof tfj.status === 'string') ? tfj.status.toLowerCase() : 'unknown';
