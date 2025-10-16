@@ -2449,6 +2449,7 @@ class TradeHandler(tornado.web.RequestHandler):
                 except Exception:
                     positions = []
                 open_weighted = 0.0
+                weight_details = []
                 try:
                     for p in positions:
                         sym_p = str(p.get("symbol") if isinstance(p, dict) else symbol)
@@ -2456,7 +2457,9 @@ class TradeHandler(tornado.web.RequestHandler):
                         w = await _resolve_symbol_weight(sym_p)
                         if not use_global and sym_p.upper() != str(symbol).upper():
                             continue
-                        open_weighted += lots * (w if w > 0 else 1.0)
+                        contrib = lots * (w if w > 0 else 1.0)
+                        open_weighted += contrib
+                        weight_details.append({"symbol": sym_p, "lots": lots, "weight": w, "contrib": contrib})
                 except Exception:
                     pass
                 w_req = await _resolve_symbol_weight(symbol)
@@ -2477,6 +2480,7 @@ class TradeHandler(tornado.web.RequestHandler):
                             "req_volume_weighted": req_weighted,
                             "safe_max": safe_max,
                             "global": use_global,
+                            "weights": weight_details,
                         },
                     }))
                     return
@@ -2661,6 +2665,7 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                 except Exception:
                     positions = []
                 open_weighted = 0.0
+                weight_details = []
                 try:
                     for p in positions:
                         sym_p = str(p.get("symbol") if isinstance(p, dict) else symbol)
@@ -2668,7 +2673,9 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                         w = await _resolve_symbol_weight(sym_p)
                         if not use_global and sym_p.upper() != str(symbol).upper():
                             continue
-                        open_weighted += lots * (w if w > 0 else 1.0)
+                        contrib = lots * (w if w > 0 else 1.0)
+                        open_weighted += contrib
+                        weight_details.append({"symbol": sym_p, "lots": lots, "weight": w, "contrib": contrib})
                 except Exception:
                     pass
                 w_req = await _resolve_symbol_weight(symbol)
@@ -2685,6 +2692,7 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                         "req_volume_weighted": req_weighted,
                         "safe_max": safe_max,
                         "global": use_global,
+                        "weights": weight_details,
                     }))
                     return
         except Exception:
