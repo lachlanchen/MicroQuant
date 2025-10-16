@@ -5765,6 +5765,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         try { await refreshTechFreshness(); } catch {}
         try { await refreshHealthFreshness(); } catch {}
         try { await renderPeriodicSymbolsMeta(); } catch {}
+        // Also refresh the positions panel for the currently selected symbol/account
+        try { if (typeof refreshPositions === 'function') await refreshPositions(); } catch {}
       }
 
       async function autoAiTradeForSymbol(sym, tf) {
