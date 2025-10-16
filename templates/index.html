@@ -542,6 +542,7 @@
         <!-- Selected-accounts weighted lots helper -->
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button class="btn secondary" id="btnShowWeightedLotsSel" style="padding:6px 10px;">Show weighted lots (selected)</button>
+          <button class="btn secondary" id="btnShowWeightedLotsAll" style="padding:6px 10px;">Weighted log (all)</button>
           <span id="selectedWeightedLotsSummary" style="font-size:12px; color:var(--muted);"></span>
         </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
@@ -6919,6 +6920,120 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       }
       if (document.getElementById('btnShowWeightedLotsSel')) {
         document.getElementById('btnShowWeightedLotsSel').addEventListener('click', (ev)=>{ try { ev.preventDefault(); } catch{} showSelectedAccountsWeightedLots(); });
+      }
+
+      // Weighted Lots Details Modal (all accounts)
+      // Markup
+      (function ensureWeightsModal(){
+        if (document.getElementById('weightsModal')) return;
+        const wrap = document.createElement('div');
+        wrap.id = 'weightsModal';
+        wrap.className = 'modal-backdrop';
+        wrap.setAttribute('role','dialog');
+        wrap.setAttribute('aria-modal','true');
+        wrap.setAttribute('aria-hidden','true');
+        wrap.innerHTML = `
+          <div class="modal-box" style="width:min(840px,94vw); max-height:80vh; overflow:auto;">
+            <div class="modal-head" style="position:sticky; top:0; background:#fff; z-index:2; border-bottom:1px solid var(--line);">
+              <h3>Weighted Lots — All Accounts</h3>
+              <button id="btnWeightsClose" class="modal-close" aria-label="Close">×</button>
+            </div>
+            <div id="weightsBody" class="modal-body" style="padding:12px; font-size:13px; line-height:1.45;"></div>
+          </div>`;
+        document.body.appendChild(wrap);
+        const btnX = wrap.querySelector('#btnWeightsClose');
+        if (btnX) btnX.addEventListener('click', ()=>{ try { wrap.style.display='none'; wrap.setAttribute('aria-hidden','true'); } catch{} });
+      })();
+
+      function openWeightsModal() {
+        const m = document.getElementById('weightsModal');
+        if (!m) return; m.style.display='flex'; m.setAttribute('aria-hidden','false');
+      }
+
+      async function showWeightsAllModal() {
+        const body = document.getElementById('weightsBody');
+        if (body) body.innerHTML = '<em style="color:var(--muted)">Collecting positions and computing weights…</em>';
+        openWeightsModal();
+        try {
+          // Load all accounts
+          let accounts = [];
+          try {
+            const r = await fetch('/api/accounts', { cache:'no-store' });
+            const js = await r.json().catch(()=>({}));
+            accounts = Array.isArray(js && js.accounts) ? js.accounts : [];
+          } catch {}
+          const logins = accounts.map(a=>String(a.login||'')).filter(Boolean);
+          // Capture current session
+          let original = null;
+          try { const rc = await fetch('/api/account/current', { cache:'no-store' }); const jc = await rc.json().catch(()=>({})); if (jc && (jc.login!=null)) original = String(jc.login); } catch {}
+          // Gather positions per account
+          const agg = [];
+          for (const login of logins) {
+            try {
+              await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login }), cache:'no-store' });
+              const r = await fetch('/api/positions/all', { cache:'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const rows = Array.isArray(js && js.positions) ? js.positions : [];
+              for (const p of rows) agg.push({ account: login, symbol: String(p.symbol||'').toUpperCase(), volume: Number(p.volume||0)||0 });
+            } catch {}
+          }
+          // Restore session
+          try { if (original) await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: original }), cache:'no-store' }); } catch {}
+          // Prepare weights
+          const syms = Array.from(new Set(agg.map(r=>r.symbol))).filter(Boolean);
+          await loadKindWeights();
+          await loadSymbolWeightsFor(syms);
+          const weightInfo = (s) => {
+            const S = String(s||'').toUpperCase();
+            if (WEIGHT_CACHE.symbols.has(S)) return { w: WEIGHT_CACHE.symbols.get(S), src: `symbol_weight:${S}` };
+            const kind = symbolKind(S); const w = WEIGHT_CACHE.kinds[kind] || 1; return { w, src: `kind:${kind}` };
+          };
+          // Build detail lines
+          const lines = [];
+          lines.push(`<div style="margin-bottom:6px; color:var(--muted)">Accounts: ${logins.map(esc).join(', ') || '—'}</div>`);
+          // Table-like header
+          lines.push(`<div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap:6px; font-weight:600; border-bottom:1px solid var(--line); padding:4px 0;">
+              <div>Account</div><div>Symbol</div><div>Lots</div><div>Weight</div><div>Contribution</div>
+            </div>`);
+          let total = 0;
+          const parts = [];
+          for (const row of agg) {
+            const info = weightInfo(row.symbol);
+            const contrib = row.volume * (Number(info.w)||0);
+            total += contrib;
+            parts.push(`${row.volume.toFixed(2)}×${(Number(info.w)||0).toFixed(2)}(${esc(info.src)})`);
+            lines.push(`<div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap:6px; padding:2px 0;">
+                <div>${esc(row.account)}</div>
+                <div>${esc(row.symbol)}</div>
+                <div>${row.volume.toFixed(2)}</div>
+                <div>${(Number(info.w)||0).toFixed(2)} <span style="color:var(--muted)">(${esc(info.src)})</span></div>
+                <div>${contrib.toFixed(2)}</div>
+              </div>`);
+          }
+          // By-symbol summary
+          const bySym = new Map();
+          for (const r of agg) {
+            const info = weightInfo(r.symbol);
+            const entry = bySym.get(r.symbol) || { lots: 0, w: Number(info.w)||0, src: info.src };
+            entry.lots += (Number(r.volume)||0);
+            bySym.set(r.symbol, entry);
+          }
+          lines.push(`<div style="margin-top:10px; border-top:1px dashed var(--line); padding-top:8px;"><strong>By symbol</strong></div>`);
+          bySym.forEach((v, s)=>{
+            const c = v.lots * v.w;
+            lines.push(`<div>${esc(s)}: ${v.lots.toFixed(2)} × ${v.w.toFixed(2)} <span style="color:var(--muted)">(${esc(v.src)})</span> = <strong>${c.toFixed(2)}</strong></div>`);
+          });
+          // Equation and total
+          const eq = parts.length ? parts.join(' + ') : '0';
+          lines.push(`<div style="margin-top:10px;"><strong>Equation</strong>: ${eq} = <strong>${total.toFixed(2)}</strong></div>`);
+          lines.push(`<div style="margin-top:6px; font-size:14px;">Total weighted lots: <strong>${total.toFixed(2)}</strong></div>`);
+          if (body) { body.innerHTML = lines.join(''); body.scrollTop = 0; }
+        } catch (e) {
+          if (body) body.innerHTML = `<em style="color:#e74c3c">Failed to compute weighted lots: ${esc(String(e && e.message || e))}</em>`;
+        }
+      }
+      if (document.getElementById('btnShowWeightedLotsAll')) {
+        document.getElementById('btnShowWeightedLotsAll').addEventListener('click', (ev)=>{ try { ev.preventDefault(); } catch{} showWeightsAllModal(); });
       }
 
       // Log current account and symbol positions (ticket, side, volume, price_open, SL, TP, comment)
