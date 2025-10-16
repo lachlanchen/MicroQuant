@@ -65,6 +65,52 @@ except Exception:  # pragma: no cover - optional dependency
 EXECUTOR = ThreadPoolExecutor(max_workers=2)
 logger = logging.getLogger("mt5app")
 
+# --- Weights and symbol kind helpers (server-side mirror of client logic) ---
+def _symbol_kind(sym: str) -> str:
+    s = str(sym or "").upper()
+    # FX-style symbols are typically 6–7 uppercase letters; metals prefixed by XAU/XAG
+    if len(s) in (6, 7) and s.isalpha():
+        if s.startswith("XAU") or s.startswith("XAG"):
+            return "metal"
+        return "forex"
+    return "stock"
+
+async def _resolve_symbol_weight(symbol: str) -> float:
+    """Resolve per-symbol weight with fallback to kind default; default 1.0.
+
+    Reads preferences: symbol_weight:<SYMBOL>, kind_weight:forex, kind_weight:metal, kind_weight:stock
+    """
+    try:
+        s = str(symbol or "").upper()
+        if GLOBAL_POOL is None:
+            return 1.0
+        keys = [f"symbol_weight:{s}", "kind_weight:forex", "kind_weight:metal", "kind_weight:stock"]
+        prefs = await get_prefs(GLOBAL_POOL, keys)
+        # Per-symbol override
+        try:
+            v = float(prefs.get(f"symbol_weight:{s}") or "")
+            if v > 0:
+                return v
+        except Exception:
+            pass
+        # Fallback to kind default
+        kind = _symbol_kind(s)
+        try:
+            if kind == "forex":
+                v = float(prefs.get("kind_weight:forex") or "")
+                return v if v > 0 else 1.0
+            if kind == "metal":
+                v = float(prefs.get("kind_weight:metal") or "")
+                return v if v > 0 else 1.0
+            if kind == "stock":
+                v = float(prefs.get("kind_weight:stock") or "")
+                return v if v > 0 else 1.0
+        except Exception:
+            pass
+        return 1.0
+    except Exception:
+        return 1.0
+
 WS_CLIENTS: set = set()
 NEWS_BACKFILL_CB = None
 BALANCE_CB = None
@@ -2368,7 +2414,7 @@ class TradeHandler(tornado.web.RequestHandler):
         except Exception:
             slow_i = None
         logger.info("/api/trade symbol=%s side=%s volume=%s", symbol, side, volume)
-        # Safe max lots guard (enforcement)
+        # Safe max lots guard (enforcement) — weighted exposure
         try:
             safe_max = None
             use_global = False
@@ -2395,31 +2441,43 @@ class TradeHandler(tornado.web.RequestHandler):
                     except Exception:
                         pass
             if safe_max and safe_max > 0:
-                # Sum open lots globally when global cap; else only for this symbol
+                # Sum weighted exposure:
+                #  - global cap → sum over all symbols: lots_raw × weight(symbol)
+                #  - per-symbol cap → sum lots_raw for this symbol × its weight
                 try:
-                    if use_global:
-                        positions = mt5_client.list_positions_all()
-                    else:
-                        positions = mt5_client.list_positions(symbol)
+                    positions = mt5_client.list_positions_all() if use_global else mt5_client.list_positions(symbol)
                 except Exception:
                     positions = []
-                open_lots = 0.0
+                open_weighted = 0.0
                 try:
                     for p in positions:
-                        v = p.get("volume") if isinstance(p, dict) else None
-                        if v is not None:
-                            open_lots += float(v)
+                        sym_p = str(p.get("symbol") if isinstance(p, dict) else symbol)
+                        lots = float(p.get("volume") or 0.0) if isinstance(p, dict) else 0.0
+                        w = await _resolve_symbol_weight(sym_p)
+                        if not use_global and sym_p.upper() != str(symbol).upper():
+                            continue
+                        open_weighted += lots * (w if w > 0 else 1.0)
                 except Exception:
                     pass
-                # Enforce strict cap: block if already at/over, or if this request would exceed
-                if (open_lots + float(volume)) > safe_max or open_lots >= safe_max:
-                    logger.info("/api/trade skip: safe_max reached (global=%s open=%.3f safe=%.3f)", use_global, open_lots, safe_max)
+                w_req = await _resolve_symbol_weight(symbol)
+                req_weighted = float(volume) * (w_req if w_req > 0 else 1.0)
+                # Enforce strict cap (weighted): block if already at/over, or if this request would exceed
+                if (open_weighted + req_weighted) > safe_max or open_weighted >= safe_max:
+                    logger.info("/api/trade skip: safe_max reached (global=%s open_weighted=%.3f safe=%.3f)", use_global, open_weighted, safe_max)
                     self.set_header("Content-Type", "application/json")
                     self.set_header("Cache-Control", "no-store")
                     self.finish(json.dumps({
                         "ok": False,
                         "error": "safe_max_exceeded",
-                        "result": {"ok": False, "skipped": True, "retcode": "SKIP_SAFE_MAX", "open_lots": open_lots, "req_volume": float(volume), "safe_max": safe_max, "global": use_global},
+                        "result": {
+                            "ok": False,
+                            "skipped": True,
+                            "retcode": "SKIP_SAFE_MAX",
+                            "open_lots_weighted": open_weighted,
+                            "req_volume_weighted": req_weighted,
+                            "safe_max": safe_max,
+                            "global": use_global,
+                        },
                     }))
                     return
         except Exception:
@@ -2599,21 +2657,23 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                         pass
             if safe_max and safe_max > 0:
                 try:
-                    if use_global:
-                        positions = mt5_client.list_positions_all()
-                    else:
-                        positions = mt5_client.list_positions(symbol)
+                    positions = mt5_client.list_positions_all() if use_global else mt5_client.list_positions(symbol)
                 except Exception:
                     positions = []
-                open_lots = 0.0
+                open_weighted = 0.0
                 try:
                     for p in positions:
-                        v = p.get("volume") if isinstance(p, dict) else None
-                        if v is not None:
-                            open_lots += float(v)
+                        sym_p = str(p.get("symbol") if isinstance(p, dict) else symbol)
+                        lots = float(p.get("volume") or 0.0) if isinstance(p, dict) else 0.0
+                        w = await _resolve_symbol_weight(sym_p)
+                        if not use_global and sym_p.upper() != str(symbol).upper():
+                            continue
+                        open_weighted += lots * (w if w > 0 else 1.0)
                 except Exception:
                     pass
-                if (open_lots + float(volume)) > safe_max or open_lots >= safe_max:
+                w_req = await _resolve_symbol_weight(symbol)
+                req_weighted = float(volume) * (w_req if w_req > 0 else 1.0)
+                if (open_weighted + req_weighted) > safe_max or open_weighted >= safe_max:
                     self.set_header("Content-Type", "application/json")
                     self.set_header("Cache-Control", "no-store")
                     self.finish(json.dumps({
@@ -2621,8 +2681,8 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                         "error": "safe_max_exceeded_post_plan",
                         "closed": closed,
                         "modified": modified,
-                        "open_lots": open_lots,
-                        "req_volume": float(volume),
+                        "open_lots_weighted": open_weighted,
+                        "req_volume_weighted": req_weighted,
                         "safe_max": safe_max,
                         "global": use_global,
                     }))
