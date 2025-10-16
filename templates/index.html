@@ -5895,10 +5895,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const list = (accounts && accounts.length) ? accounts : [null];
               for (const acct of list) {
                 if (acct) { log(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
+                try { await logAccountPositionsAll(log); } catch {}
+                try { await logAccountPositions(sym, log); } catch {}
                 const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=both`, { method:'POST', cache:'no-store' });
                 const jc = await rc.json().catch(()=>({}));
                 const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
                 log(`Closed positions due to misalignment: ${c}`);
+                try { await logAccountPositionsAll(log); } catch {}
+                try { await logAccountPositions(sym, log); } catch {}
               }
             } catch {}
             return;
@@ -6179,6 +6183,28 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const cmt = (p.comment != null && String(p.comment).length) ? String(p.comment) : '—';
             log(`• #${ticket} ${side} vol=${vol} @ ${price} SL=${sl} TP=${tp} comment=${cmt}`);
           } catch {}
+        }
+      }
+      // Log all open positions for current MT5 session account (across symbols)
+      async function logAccountPositionsAll(logFn) {
+        const log = (m,l) => (typeof logFn === 'function' ? logFn(m,l) : appendAutoLog(m,l));
+        let acctLogin = null;
+        try { const rc = await fetch('/api/account/current', { cache:'no-store' }); const jc = await rc.json().catch(()=>({})); if (jc && (jc.login!=null)) acctLogin = jc.login; } catch {}
+        let rows = [];
+        try { const rp = await fetch('/api/positions/all', { cache:'no-store' }); const jp = await rp.json().catch(()=>({})); rows = Array.isArray(jp && jp.positions) ? jp.positions : (Array.isArray(jp && jp.rows) ? jp.rows : []); } catch {}
+        const hdr = acctLogin ? `[Acct ${acctLogin}]` : '[Acct ?]';
+        if (!rows.length) { log(`${hdr} No open positions (all symbols)`); return; }
+        log(`${hdr} Open positions (all symbols): ${rows.length}`);
+        for (const p of rows) {
+            try {
+              const sym = String(p.symbol||'');
+              const side = (Number(p.type) === 0) ? 'BUY' : 'SELL';
+              const vol = (p.volume != null) ? Number(p.volume).toFixed(2) : '—';
+              const price = (p.price_open != null) ? formatPriceForSymbol(sym, Number(p.price_open)) : '—';
+              const sl = (p.sl != null && Number(p.sl) > 0) ? formatPriceForSymbol(sym, Number(p.sl)) : '—';
+              const tp = (p.tp != null && Number(p.tp) > 0) ? formatPriceForSymbol(sym, Number(p.tp)) : '—';
+              log(`• ${sym} ${side} vol=${vol} @ ${price} SL=${sl} TP=${tp}`);
+            } catch {}
         }
       }
       async function decorateAccountTooltips() {
@@ -6513,10 +6539,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const list = (accounts && accounts.length) ? accounts : [null];
               for (const acct of list) {
                 if (acct) { appendAutoLog(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
+                try { await logAccountPositionsAll(); } catch {}
+                try { await logAccountPositions(sym); } catch {}
                 const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=both`, { method:'POST', cache:'no-store' });
                 const jc = await rc.json().catch(()=>({}));
                 const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
                 appendAutoLog(`Closed positions due to neutral Tech: ${c}`);
+                try { await logAccountPositionsAll(); } catch {}
+                try { await logAccountPositions(sym); } catch {}
               }
             } catch {}
             return;
