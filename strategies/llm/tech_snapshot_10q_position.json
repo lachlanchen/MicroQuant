@@ -8,15 +8,15 @@
   "description": "Interpretive technical analysis using recent snapshot values for trend, momentum, volatility, and volume. Each question returns a trade orientation JSON.",
   "questions": [
     { "id": "tq_01", "category": "trend", "text": "Draft a deep, multi-aspect technical research brief for this instrument using the provided snapshot: STL components (trend, seasonal, residual), STL speed and acceleration, RSI, MACD (line/signal/histogram), ADX with +DI/-DI, ATR, volume, and recent OHLC structure. Synthesize these signals to determine the dominant technical orientation. Include a detailed chain of thinking for this technical analysis (clearly enumerated reasoning steps), then conclude with a decisive trading stance (BUY or SELL) and derive a reasonable stop-loss and take-profit from objective market structure (e.g., recent swing highs/lows, ATR bands, key support/resistance). Return only JSON matching {position:'BUY'|'SELL', sl:number, tp:number, explanation:string}." },
-    { "id": "tq_02", "category": "trend", "text": "Examining STL residuals over the past N bars - do residuals support a BUY or SELL bias?" },
-    { "id": "tq_03", "category": "trend", "text": "Considering both STL speed and acceleration together - does momentum skew toward BUY or SELL?" },
-    { "id": "mom_04", "category": "momentum", "text": "Analyzing RSI, MACD, and their recent trajectory - do momentum indicators favor BUY or SELL?" },
-    { "id": "mom_05", "category": "momentum", "text": "Looking at MACD line, signal line, and histogram development - does the structure favor BUY or SELL?" },
-    { "id": "mom_06", "category": "momentum", "text": "Comparing RSI positioning and directional movement - does recent momentum favor BUY or SELL?" },
-    { "id": "ts_07", "category": "trend_strength", "text": "Evaluating ADX level and the spread between +DI/-DI - does trend strength favor BUY or SELL?" },
-    { "id": "ts_08", "category": "trend_strength", "text": "Considering ADX, DI lines, and recent price action together - is conviction stronger for BUY or SELL?" },
-    { "id": "vv_09", "category": "vol_vol", "text": "Analyzing volume pattern alongside price movement - does volume confirm BUY or SELL?" },
-    { "id": "vv_10", "category": "vol_vol", "text": "Looking at ATR changes and price volatility - do volatility patterns favor BUY or SELL?" }
+    { "id": "tq_02", "category": "trend", "text": "Examining STL residuals over the past N bars - do residuals support a BUY or SELL bias? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "tq_03", "category": "trend", "text": "Considering both STL speed and acceleration together - does momentum skew toward BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mom_04", "category": "momentum", "text": "Analyzing RSI, MACD, and their recent trajectory - do momentum indicators favor BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mom_05", "category": "momentum", "text": "Looking at MACD line, signal line, and histogram development - does the structure favor BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mom_06", "category": "momentum", "text": "Comparing RSI positioning and directional movement - does recent momentum favor BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ts_07", "category": "trend_strength", "text": "Evaluating ADX level and the spread between +DI/-DI - does trend strength favor BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ts_08", "category": "trend_strength", "text": "Considering ADX, DI lines, and recent price action together - is conviction stronger for BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "vv_09", "category": "vol_vol", "text": "Analyzing volume pattern alongside price movement - does volume confirm BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "vv_10", "category": "vol_vol", "text": "Looking at ATR changes and price volatility - do volatility patterns favor BUY or SELL? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." }
   ],
   "question_response_schema": {
     "type": "object",
