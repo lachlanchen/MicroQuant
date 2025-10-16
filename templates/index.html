@@ -3048,26 +3048,17 @@ const ensureLwMacd = () => {
           return [{ time: tStr, values: [bidS, askS, midS] }];
         })();
 
-        // Merge STL components into a single 3-column table for current TF
-        const mergeStlRows = (() => {
-          const n = Math.min(trendData.length, seasonalData.length, residData.length);
-          const rows = [];
-          for (let i = 0; i < n; i += 1) {
-            const time = trendData[i]?.time || seasonalData[i]?.time || residData[i]?.time || '';
-            const tVal = trendData[i]?.values?.[0] ?? '—';
-            const sVal = seasonalData[i]?.values?.[0] ?? '—';
-            const rVal = residData[i]?.values?.[0] ?? '—';
-            rows.push({ time, values: [tVal, sVal, rVal] });
-          }
-          return rows;
-        })();
+        // Use separate STL tables per component (Trend/Seasonal/Residual)
+        const mergeStlRows = [];
 
         const sections = [
           buildTechTable(`${tf} OHLC`, ['Open','High','Low','Close'], priceOhlcData),
           (tickRows.length ? buildTechTable('Latest Tick (post-bars)', ['Bid','Ask','Mid'], tickRows) : ''),
           buildTechTable('Bollinger (20,2)', ['Mid', 'Upper', 'Lower'], bollData),
           buildTechTable('Volume', ['Value'], volumeData),
-          (mergeStlRows.length ? buildTechTable('STL (Trend/Seasonal/Residual)', ['Trend','Seasonal','Residual'], mergeStlRows) : buildTechTable('STL Trend', ['Value'], trendData) + buildTechTable('STL Seasonal', ['Value'], seasonalData) + buildTechTable('STL Residual', ['Value'], residData)),
+          buildTechTable('STL Trend', ['Value'], trendData),
+          buildTechTable('STL Seasonal', ['Value'], seasonalData),
+          buildTechTable('STL Residual', ['Value'], residData),
           (() => {
             const n = Math.min(speedData.length, accelData.length);
             if (n > 0) {
@@ -3093,8 +3084,8 @@ const ensureLwMacd = () => {
         try {
           const prev = prevTimeframe(tf);
           const next = nextTimeframe(tf);
-          // Only show D1 cross‑TF STL section; hide M1 and prev/next TF rows
-          const order = ['D1'];
+          // Hide all cross‑TF STL rows
+          const order = [];
           const tfList = [];
           for (const t of order) {
             const tt = (t || '').toUpperCase();
@@ -3600,7 +3591,7 @@ const ensureLwMacd = () => {
         // Add cross-timeframe STL mini-rows: only D1 (last 10), excluding current TF
         const prev = prevTimeframe(tf);
         const next = nextTimeframe(tf);
-        const ordered = ['D1'];
+        const ordered = [];
         const tfList = [];
         for (const t of ordered) {
           const tt = (t || '').toUpperCase();
