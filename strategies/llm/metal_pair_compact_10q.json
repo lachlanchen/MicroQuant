@@ -15,19 +15,19 @@
     ]
   },
   "questions": [
-    { "id": "mp_01", "category": "monetary", "weight": 1, "text": "Considering Federal Reserve policy stance, balance sheet policy, and real rates - which is more favored currently: ${base_currency} or ${quote_currency}?" },
-    { "id": "mp_02", "category": "monetary", "weight": 1, "text": "Looking at interest-rate expectations and the opportunity cost of holding non‑yielding assets - which benefits more now: ${base_currency} or ${quote_currency}?" },
-    { "id": "mp_03", "category": "monetary", "weight": 1, "text": "Evaluating real interest rates (nominal minus inflation) and liquidity conditions - which has the advantage: ${base_currency} or ${quote_currency}?" },
+    { "id": "mp_01", "category": "monetary", "weight": 1, "text": "Considering Federal Reserve policy stance, balance sheet policy, and real rates - which is more favored currently: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mp_02", "category": "monetary", "weight": 1, "text": "Looking at interest-rate expectations and the opportunity cost of holding non‑yielding assets - which benefits more now: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mp_03", "category": "monetary", "weight": 1, "text": "Evaluating real interest rates (nominal minus inflation) and liquidity conditions - which has the advantage: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "ih_04", "category": "inflation_hedge", "weight": 1, "text": "From recent commentary on inflation expectations and currency debasement concerns - which is described as the better hedge now: ${base_currency} or ${quote_currency}?" },
-    { "id": "sh_05", "category": "safe_haven", "weight": 1, "text": "Given current geopolitical tensions and market volatility - which attracts stronger safe‑haven flows: ${base_currency} or ${quote_currency}?" },
-    { "id": "ps_06", "category": "physical_supply", "weight": 1, "text": "Considering physical demand (investment, jewelry, industrial) and supply constraints or production issues - which has more supportive demand/supply backdrop: ${base_currency} or ${quote_currency}?" },
+    { "id": "ih_04", "category": "inflation_hedge", "weight": 1, "text": "From recent commentary on inflation expectations and currency debasement concerns - which is described as the better hedge now: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "sh_05", "category": "safe_haven", "weight": 1, "text": "Given current geopolitical tensions and market volatility - which attracts stronger safe‑haven flows: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ps_06", "category": "physical_supply", "weight": 1, "text": "Considering physical demand (investment, jewelry, industrial) and supply constraints or production issues - which has more supportive demand/supply backdrop: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "cb_07", "category": "central_banks", "weight": 1, "text": "Reviewing central bank reserve activity and institutional buying - which is more supported: ${base_currency} or ${quote_currency}?" },
-    { "id": "mf_08", "category": "market_flows", "weight": 1, "text": "Evaluating ETF/investment product flows, futures positioning, and fund demand - which sees stronger investor inflows: ${base_currency} or ${quote_currency}?" },
+    { "id": "cb_07", "category": "central_banks", "weight": 1, "text": "Reviewing central bank reserve activity and institutional buying - which is more supported: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mf_08", "category": "market_flows", "weight": 1, "text": "Evaluating ETF/investment product flows, futures positioning, and fund demand - which sees stronger investor inflows: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "tech_09", "category": "technicals", "weight": 1, "text": "Based on recent technical commentary (breakouts, momentum) - which shows the stronger technical setup: ${base_currency} or ${quote_currency}?" },
-    { "id": "sent_10", "category": "sentiment", "weight": 1, "text": "Looking at analyst views and sentiment surveys - which has more bullish consensus right now: ${base_currency} or ${quote_currency}?" }
+    { "id": "tech_09", "category": "technicals", "weight": 1, "text": "Based on recent technical commentary (breakouts, momentum) - which shows the stronger technical setup: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "sent_10", "category": "sentiment", "weight": 1, "text": "Looking at analyst views and sentiment surveys - which has more bullish consensus right now: ${base_currency} or ${quote_currency}? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." }
   ],
   "answer_options": ["${base_currency}", "${quote_currency}"],
   "scoring": {
