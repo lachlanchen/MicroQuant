@@ -3810,14 +3810,14 @@ const ensureLwMacd = () => {
         }
       }
       function closeDeepModal() { if (deepModal) { deepModal.style.display='none'; deepModal.setAttribute('aria-hidden','true'); } }
-      const _openAndRunDeep = () => { try { openDeepModal(); } catch (e) { deepLog('openDeepModal threw: ' + (e && e.message || e), 'error'); } try { runDeepResearch(); } catch (e) { deepLog('runDeepResearch threw: ' + (e && e.message || e), 'error'); } };
-      if (btnDeepResearch) { deepLog('Binding direct click for #btnDeepResearch (present=' + !!btnDeepResearch + ', modal=' + !!deepModal + ')'); btnDeepResearch.addEventListener('click', (e) => { try { e.preventDefault(); } catch {} deepLog('Direct click on #btnDeepResearch'); _openAndRunDeep(); }); } else { deepLog('#btnDeepResearch not found at bind time', 'warn'); }
+      const _openDeepOnly = () => { try { openDeepModal(); } catch (e) { deepLog('openDeepModal threw: ' + (e && e.message || e), 'error'); } };
+      if (btnDeepResearch) { deepLog('Binding direct click for #btnDeepResearch (present=' + !!btnDeepResearch + ', modal=' + !!deepModal + ')'); btnDeepResearch.addEventListener('click', (e) => { try { e.preventDefault(); } catch {} deepLog('Direct click on #btnDeepResearch'); _openDeepOnly(); }); } else { deepLog('#btnDeepResearch not found at bind time', 'warn'); }
       // Defensive: delegate in case direct binding failed due to re-render
       document.addEventListener('click', (ev) => {
         const t = ev && ev.target;
         if (!t) return;
         const id = t.id || (t.getAttribute && t.getAttribute('id')) || '';
-        if (id === 'btnDeepResearch') { deepLog('Delegated click on #btnDeepResearch'); try { ev.preventDefault(); } catch {} _openAndRunDeep(); }
+        if (id === 'btnDeepResearch') { deepLog('Delegated click on #btnDeepResearch'); try { ev.preventDefault(); } catch {} _openDeepOnly(); }
       });
       if (btnDeepClose) btnDeepClose.addEventListener('click', closeDeepModal);
       if (btnDeepMore) btnDeepMore.addEventListener('click', () => { deepHistoryOffset += 10; loadDeepHistory({ append:true }).catch(()=>{}); });
