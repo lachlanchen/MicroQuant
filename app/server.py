@@ -2614,7 +2614,7 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
             tp_val = float(plan_tp) if (plan_tp is not None) else None
         except Exception:
             tp_val = None
-        # Preflight broker stop distance: if TP/SL violate stops_level, drop them for placement
+        # Preflight broker stop distance: if TP/SL violate stops_level, skip order entirely
         try:
             info = mt5_client.symbol_info(symbol)
             point = float(getattr(info, "point", 0.0) or 0.0) if info else 0.0
@@ -2636,17 +2636,31 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                     px = float(t.get("ask") if side == "buy" else t.get("bid"))
             except Exception:
                 px = None
+            invalid_tp = False
+            invalid_sl = False
             if px is not None and min_dist and min_dist > 0.0:
                 if tp_val is not None:
-                    dist = (tp_val - px) if side == "buy" else (px - tp_val)
-                    if dist < min_dist:
-                        logger.info("/api/trade/execute_plan drop TP for placement: dist=%.6f < min=%.6f price=%.6f tp=%.6f", dist, min_dist, px, tp_val)
-                        tp_val = None
+                    dist_tp = (tp_val - px) if side == "buy" else (px - tp_val)
+                    invalid_tp = (dist_tp < min_dist)
                 if sl_val is not None:
-                    dist = (px - sl_val) if side == "buy" else (sl_val - px)
-                    if dist < min_dist:
-                        logger.info("/api/trade/execute_plan drop SL for placement: dist=%.6f < min=%.6f price=%.6f sl=%.6f", dist, min_dist, px, sl_val)
-                        sl_val = None
+                    dist_sl = (px - sl_val) if side == "buy" else (sl_val - px)
+                    invalid_sl = (dist_sl < min_dist)
+            if invalid_tp or invalid_sl:
+                self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
+                self.finish(json.dumps({
+                    "ok": False,
+                    "error": "invalid_stops_preflight",
+                    "closed": closed,
+                    "modified": modified,
+                    "details": {
+                        "invalid_tp": bool(invalid_tp),
+                        "invalid_sl": bool(invalid_sl),
+                        "stops_level_points": stops_lvl,
+                        "point": point,
+                    }
+                }))
+                return
         except Exception:
             pass
         try:

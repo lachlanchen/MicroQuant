@@ -6104,12 +6104,15 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const ordId = (tj.order_result && (tj.order_result.order || tj.order_result.deal)) || '—';
           log(`Order placed: id=${ordId}`);
         } else {
-          if (tj && tj.error === 'safe_max_exceeded_post_plan') {
+          if (tj && tj.error === 'invalid_stops_preflight') {
+            log('Skip: invalid stops — no trade.', 'warn');
+          } else if (tj && tj.error === 'safe_max_exceeded_post_plan') {
             log('Skip: safe max lots reached after plan — no trade.', 'warn');
+          } else {
+            const errMsg = (tj && (tj.error || (tj.order_result && (tj.order_result.comment || tj.order_result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
+            const code = (tj && tj.order_result && (tj.order_result.retcode != null)) ? ` (retcode=${tj.order_result.retcode})` : '';
+            log(`Order failed: ${errMsg}${code}`, 'error');
           }
-          const errMsg = (tj && (tj.error || (tj.order_result && (tj.order_result.comment || tj.order_result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
-          const code = (tj && tj.order_result && (tj.order_result.retcode != null)) ? ` (retcode=${tj.order_result.retcode})` : '';
-          log(`Order failed: ${errMsg}${code}`, 'error');
         }
         try { await logAccountPositions(sym, log); } catch {}
         try {
@@ -6792,12 +6795,15 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (ok) {
             appendAutoLog(`Order placed: id=${orderId != null ? orderId : '—'}`);
           } else {
-            if (tj && tj.error === 'safe_max_exceeded_post_plan') {
+            if (tj && tj.error === 'invalid_stops_preflight') {
+              appendAutoLog('Skip: invalid stops — no trade.', 'warn');
+            } else if (tj && tj.error === 'safe_max_exceeded_post_plan') {
               appendAutoLog('Skip: safe max lots reached after plan — no trade.', 'warn');
+            } else {
+              const errMsg = (tj && (tj.error || (tj.order_result && (tj.order_result.comment || tj.order_result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
+              const code = (tj && tj.order_result && (tj.order_result.retcode != null)) ? ` (retcode=${tj.order_result.retcode})` : '';
+              appendAutoLog(`Order failed: ${errMsg}${code}`, 'error');
             }
-            const errMsg = (tj && (tj.error || (tj.order_result && (tj.order_result.comment || tj.order_result.error)) )) || `HTTP ${tr.status} ${tr.statusText}`;
-            const code = (tj && tj.order_result && (tj.order_result.retcode != null)) ? ` (retcode=${tj.order_result.retcode})` : '';
-            appendAutoLog(`Order failed: ${errMsg}${code}`, 'error');
           }
           try {
             const save = await fetch('/api/auto_trade/log', {
