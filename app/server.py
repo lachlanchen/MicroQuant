@@ -5418,9 +5418,17 @@ class TradePlanHandler(tornado.web.RequestHandler):
         tp = float(plan.get("take_profit") or 0)
         explanation = str(plan.get("explanation") or "")
 
-        # Reference price = latest close
+        # Reference price = latest close; also fetch latest tick for validation
         rows = await fetch_ohlc_bars(self.pool, symbol, timeframe, 1)
         ref_price = float(rows[-1]["close"]) if rows else 0.0
+        try:
+            _tick = mt5_client.get_tick(symbol)
+            bid = float(_tick.get("bid") or 0) if isinstance(_tick, dict) else 0.0
+            ask = float(_tick.get("ask") or 0) if isinstance(_tick, dict) else 0.0
+            last = float(_tick.get("last") or 0) if isinstance(_tick, dict) else 0.0
+            cur_price = last or (bid and ask and (bid + ask) / 2.0) or bid or ask or ref_price
+        except Exception:
+            cur_price = ref_price
         max_loss_pct = 0.20 / max(1.0, float(leverage or 10.0))
         enforced = False
         if ref_price > 0 and sl > 0 and max_loss_pct > 0:
@@ -5434,6 +5442,101 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 if sl > max_sl:
                     sl = max_sl
                     enforced = True
+
+        # Post-validate plan and optionally refetch with corrections if SL/TP invalid or too close
+        def _validate_plan(pos: str, stop: float, take: float, price: float) -> tuple[list[str], dict]:
+            errs: list[str] = []
+            info: dict[str, float | str] = {}
+            try:
+                posu = (pos or "").upper()
+                price = float(price or 0)
+                stop = float(stop or 0)
+                take = float(take or 0)
+                if price <= 0 or stop <= 0 or take <= 0:
+                    errs.append("Non-positive price/SL/TP.")
+                if posu == "BUY":
+                    if not (stop < price < take):
+                        errs.append("For BUY require stop_loss < price < take_profit.")
+                    risk = price - stop
+                    reward = take - price
+                elif posu == "SELL":
+                    if not (take < price < stop):
+                        errs.append("For SELL require take_profit < price < stop_loss.")
+                    risk = stop - price
+                    reward = price - take
+                else:
+                    errs.append("Position not BUY/SELL.")
+                    risk = 0.0
+                    reward = 0.0
+                rr = (reward / risk) if (risk and risk > 0) else 0.0
+                info.update({"risk": risk, "reward": reward, "rr": rr, "price": price})
+                # Too-close thresholds (fallback when ATR is not available)
+                # Require min absolute distance of 0.05% of price for both legs and RR >= 1.1
+                min_leg = price * 0.0005
+                if risk < min_leg:
+                    errs.append(f"Risk leg too small (< {min_leg:.6f}).")
+                if reward < min_leg:
+                    errs.append(f"Reward leg too small (< {min_leg:.6f}).")
+                if rr < 1.1:
+                    errs.append("Risk/Reward is too low (< 1.1).")
+            except Exception:
+                errs.append("Validation exception.")
+            return errs, info
+
+        errs, vinfo = _validate_plan(position, sl, tp, cur_price)
+
+        # One-shot correction: if invalid, re-ask with a corrective prompt including latest tick and errors
+        refetched = False
+        last_error_text = None
+        if errs:
+            try:
+                # Build corrective prompt by appending a validation feedback block
+                ts = datetime.now(timezone.utc).isoformat()
+                tick_line = f"Latest tick at {ts}: price={cur_price:.6f} (ref_close={ref_price:.6f})"
+                issues = "\n".join([f"- {e}" for e in errs])
+                prev_json = json.dumps({
+                    "position": position,
+                    "stop_loss": sl,
+                    "take_profit": tp,
+                    "explanation": explanation,
+                }, ensure_ascii=False)
+                corrective_tail = (
+                    "\n\nValidation feedback\n"
+                    f"{tick_line}\n"
+                    "Detected issues:\n"
+                    f"{issues}\n\n"
+                    "Revise the plan to satisfy the sanity rules and validation feedback. Return only JSON in the same schema."
+                    " Previous output for reference: " + prev_json + "\n"
+                )
+                corrected_prompt = prompt + corrective_tail
+                ref_out = await tornado.ioloop.IOLoop.current().run_in_executor(
+                    EXECUTOR,
+                    lambda: AI_CLIENT.send_request_with_json_schema(
+                        corrected_prompt,
+                        TRADE_PLAN_SCHEMA,
+                        system_content="You are a disciplined trading assistant. Fix the plan based on validation feedback and return only JSON.",
+                        schema_name="trade_plan_refetch",
+                        model=model,
+                        provider=provider,
+                    ),
+                )
+                if isinstance(ref_out, dict) and ref_out:
+                    position = str(ref_out.get("position") or position).upper()
+                    try:
+                        sl = float(ref_out.get("stop_loss") or sl)
+                        tp = float(ref_out.get("take_profit") or tp)
+                    except Exception:
+                        pass
+                    explanation = str(ref_out.get("explanation") or explanation)
+                    # Re-validate
+                    errs2, v2 = _validate_plan(position, sl, tp, cur_price)
+                    vinfo = v2
+                    errs = errs2
+                    refetched = True
+                    if errs2:
+                        last_error_text = "; ".join(errs2)
+            except Exception as _exc:
+                last_error_text = f"refetch failed: {_exc}"
 
         # Persist plan as a health_run record (strategy-tagged)
         try:
@@ -5455,8 +5558,16 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     "action": action,
                     "leverage": leverage,
                     "ref_price": ref_price,
+                    "tick_price": cur_price,
                     "max_loss_pct": max_loss_pct,
                     "enforced": enforced,
+                    "validated": True,
+                    "valid_errors": errs,
+                    "rr": vinfo.get("rr") if isinstance(vinfo, dict) else None,
+                    "risk": vinfo.get("risk") if isinstance(vinfo, dict) else None,
+                    "reward": vinfo.get("reward") if isinstance(vinfo, dict) else None,
+                    "refetched": refetched,
+                    "refetch_error": last_error_text,
                 },
             }
             # If client provided explicit run IDs, record them for traceability
