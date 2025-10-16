@@ -375,8 +375,8 @@
                 <span style="display:inline-block; width:120px; text-align:right;">Deep AI model</span>
                 <select id="deepAiModel" style="min-width:220px; padding:4px 6px;">
                   <option value="">(default)</option>
-                  <option value="deepseek-reasoner" selected>deepseek-reasoner</option>
-                  <option value="deepseek-chat">deepseek-chat</option>
+                  <option value="deepseek-chat" selected>deepseek-chat</option>
+                  <option value="deepseek-reasoner">deepseek-reasoner</option>
                   <option value="gpt-4o">gpt-4o</option>
                   <option value="gpt-4o-mini">gpt-4o-mini</option>
                 </select>
@@ -386,9 +386,12 @@
                 <input id="deepNewsCount" type="number" min="1" max="500" value="100" style="width:72px;" />
               </label>
               <button class="btn" id="btnDeepResearch" style="padding:6px 10px;">Basic Deep Research</button>
-              <button class="btn secondary" id="btnDeepFresh" style="padding:6px 10px;">Deep Freshness</button>
               <span id="deepFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <span id="deepPositionIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
+            </div>
+            <!-- Deep Freshness on its own row below the pills -->
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <button class="btn secondary" id="btnDeepFresh" style="padding:6px 10px;">Deep Freshness</button>
             </div>
             <!-- Fallback inline box for Deep Research if modal suppressed by CSS -->
             <div id="deepInlineBox" style="display:none; margin-top:8px; border:1px dashed #90caf9; background:rgba(227,242,253,0.6); color:#0d47a1; border-radius:8px; padding:8px;"></div>
