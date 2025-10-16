@@ -6295,20 +6295,29 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         autoPeriodicNextAtMs = Date.now() + delay;
         startPeriodicUiCountdown();
         autoPeriodicTimeout = setTimeout(async () => {
-          if (autoPeriodicRunning) return;
-          autoPeriodicRunning = true;
-          setPeriodicStatePill('Running…', 'running');
-          try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
-          // After the first aligned run, continue on fixed interval
-          autoPeriodicTimer = setInterval(async () => {
-            if (autoPeriodicRunning) return;
+          // Always arm the repeating interval for subsequent periods, even if busy now
+          if (!autoPeriodicTimer) {
+            autoPeriodicTimer = setInterval(async () => {
+              if (autoPeriodicRunning) return;
+              autoPeriodicRunning = true;
+              setPeriodicStatePill('Running…', 'running');
+              try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
+              // re-arm next label for the subsequent interval
+              autoPeriodicNextAtMs = Date.now() + periodMs;
+              startPeriodicUiCountdown();
+            }, periodMs);
+            // Prime the countdown immediately for the first interval cycle
+            autoPeriodicNextAtMs = Date.now() + periodMs;
+            startPeriodicUiCountdown();
+          }
+          // Perform the aligned kick-off run if not already running; otherwise skip once
+          if (!autoPeriodicRunning) {
             autoPeriodicRunning = true;
             setPeriodicStatePill('Running…', 'running');
             try { await runPeriodicAutoTrades(); } catch (e) { debugWarn('[AutoPeriodic] run failed', e); } finally { autoPeriodicRunning = false; }
-            // re-arm next label for the subsequent interval
-            autoPeriodicNextAtMs = Date.now() + periodMs;
-            startPeriodicUiCountdown();
-          }, periodMs);
+          } else {
+            debugLog('[AutoPeriodic] Skipped initial aligned run (busy); interval is armed.');
+          }
         }, delay);
       }
       // Persist Auto controls
