@@ -385,6 +385,9 @@
                 <input id="deepNewsCount" type="number" min="1" max="500" value="100" style="width:72px;" />
               </label>
               <button class="btn" id="btnDeepResearch" style="padding:6px 10px;">Basic Deep Research</button>
+              <button class="btn secondary" id="btnDeepFresh" style="padding:6px 10px;">Deep Freshness</button>
+              <span id="deepFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
+              <span id="deepPositionIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
@@ -3751,10 +3754,13 @@ const ensureLwMacd = () => {
 
       // Deep Research: UI wiring
       const btnDeepResearch = document.getElementById('btnDeepResearch');
+      const btnDeepFresh = document.getElementById('btnDeepFresh');
       const deepModal = document.getElementById('deepResearchModal');
       const btnDeepStart = document.getElementById('btnDeepStart');
       const btnDeepClose = document.getElementById('btnDeepClose');
       const btnDeepMore = document.getElementById('btnDeepMore');
+      const deepFreshEl = document.getElementById('deepFreshIndicator');
+      const deepPosEl = document.getElementById('deepPositionIndicator');
       let deepHistoryOffset = 0;
       function deepStrategyName() {
         const sel = document.getElementById('deepStrategy');
@@ -3768,7 +3774,7 @@ const ensureLwMacd = () => {
         loadDeepHistory({ append:false }).catch(()=>{});
       }
       function closeDeepModal() { if (deepModal) { deepModal.style.display='none'; deepModal.setAttribute('aria-hidden','true'); } }
-      if (btnDeepResearch) btnDeepResearch.addEventListener('click', openDeepModal);
+      if (btnDeepResearch) btnDeepResearch.addEventListener('click', () => { openDeepModal(); try { runDeepResearch(); } catch {} });
       if (btnDeepClose) btnDeepClose.addEventListener('click', closeDeepModal);
       if (btnDeepMore) btnDeepMore.addEventListener('click', () => { deepHistoryOffset += 10; loadDeepHistory({ append:true }).catch(()=>{}); });
 
@@ -3804,6 +3810,24 @@ const ensureLwMacd = () => {
             </div>
             <div style="white-space:pre-wrap;">${esc(dr || '')}</div>`;
           if (detail) detail.innerHTML = html;
+          // Update inline Deep indicators
+          try {
+            if (deepPosEl) {
+              deepPosEl.textContent = pos || '—';
+              const isBuy = pos === 'BUY';
+              deepPosEl.style.background = isBuy ? 'rgba(46,204,113,0.12)' : 'rgba(231,76,60,0.12)';
+              deepPosEl.style.borderColor = isBuy ? '#2ecc71' : '#e74c3c';
+              deepPosEl.style.color = isBuy ? '#1b5e20' : '#b71c1c';
+              deepPosEl.title = `Deep position (${sym} ${tf})`;
+            }
+            if (deepFreshEl) {
+              deepFreshEl.textContent = 'Up to date';
+              deepFreshEl.style.background = 'rgba(46,204,113,0.12)';
+              deepFreshEl.style.borderColor = '#2ecc71';
+              deepFreshEl.style.color = '#1b5e20';
+              deepFreshEl.title = 'Latest Deep Research exists for this symbol/timeframe.';
+            }
+          } catch {}
           // Refresh history
           deepHistoryOffset = 0;
           await loadDeepHistory({ append:false });
@@ -3812,6 +3836,83 @@ const ensureLwMacd = () => {
         }
       }
       if (btnDeepStart) btnDeepStart.addEventListener('click', runDeepResearch);
+
+      // Deep Freshness check helpers
+      const setDeepFreshRunning = () => {
+        if (!deepFreshEl) return;
+        deepFreshEl.textContent = 'Checking…';
+        deepFreshEl.style.background = 'rgba(158,158,158,0.12)';
+        deepFreshEl.style.borderColor = '#9e9e9e';
+        deepFreshEl.style.color = '#424242';
+        deepFreshEl.title = 'Checking Deep freshness…';
+      };
+      const renderDeepFresh = (info) => {
+        if (!deepFreshEl) return;
+        const hasCount = info && info.new_count != null;
+        const freshCount = hasCount ? Number(info.new_count) : null;
+        const status = info && typeof info.status === 'string' ? info.status.toLowerCase() : 'unknown';
+        const isFresh = (status === 'fresh') || (hasCount && freshCount === 0);
+        const isStale = (status === 'stale') || (hasCount && freshCount > 0);
+        let label = '—';
+        let bg = 'rgba(158,158,158,0.12)';
+        let border = '#9e9e9e';
+        let color = '#424242';
+        if (isFresh && !isStale) {
+          label = 'Up to date';
+          bg = 'rgba(46,204,113,0.12)';
+          border = '#2ecc71';
+          color = '#1b5e20';
+        } else if (isStale) {
+          const n = hasCount ? Math.max(0, Number(freshCount)) : 0;
+          label = n > 0 ? `Needs update (${n})` : 'Needs update';
+          bg = 'rgba(255,193,7,0.12)';
+          border = '#ffc107';
+          color = '#7f6000';
+        }
+        deepFreshEl.textContent = label;
+        deepFreshEl.style.background = bg;
+        deepFreshEl.style.borderColor = border;
+        deepFreshEl.style.color = color;
+        deepFreshEl.title = 'Deep freshness';
+      };
+      async function checkDeepFreshness() {
+        const sym = currentSymbol();
+        setDeepFreshRunning();
+        try {
+          const p = new URLSearchParams();
+          p.set('symbol', sym);
+          p.set('strategy', deepStrategyName());
+          const r = await fetch(`/api/health/freshness?${p.toString()}`, { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (!r.ok || !js || js.ok !== true) { renderDeepFresh({ status: 'unknown' }); return; }
+          renderDeepFresh(js);
+          // Also load latest Deep position to show inline decision
+          try {
+            const p2 = new URLSearchParams();
+            p2.set('symbol', sym);
+            p2.set('strategy', deepStrategyName());
+            p2.set('limit','1');
+            p2.set('offset','0');
+            const r2 = await fetch(`/api/health/runs?${p2.toString()}`, { cache: 'no-store' });
+            const j2 = await r2.json().catch(()=>({}));
+            const arr = Array.isArray(j2 && j2.runs) ? j2.runs : [];
+            if (arr.length && deepPosEl) {
+              const ans = arr[0].answers || {};
+              const first = Array.isArray(ans.questions) && ans.questions.length ? (ans.questions[0].answer || ans.questions[0].Answer || {}) : (ans.position || {});
+              const pos = (first && first.position ? String(first.position) : '').toUpperCase();
+              deepPosEl.textContent = pos || '—';
+              const isBuy = pos === 'BUY';
+              deepPosEl.style.background = isBuy ? 'rgba(46,204,113,0.12)' : (pos ? 'rgba(231,76,60,0.12)' : 'rgba(158,158,158,0.12)');
+              deepPosEl.style.borderColor = isBuy ? '#2ecc71' : (pos ? '#e74c3c' : '#9e9e9e');
+              deepPosEl.style.color = isBuy ? '#1b5e20' : (pos ? '#b71c1c' : '#424242');
+              deepPosEl.title = `Deep position (${sym} ${currentTf()})`;
+            }
+          } catch {}
+        } catch (e) {
+          renderDeepFresh({ status: 'unknown' });
+        }
+      }
+      if (btnDeepFresh) btnDeepFresh.addEventListener('click', () => { checkDeepFreshness(); });
 
       async function loadDeepHistory({ append=false }={}) {
         const list = document.getElementById('deepResearchList');
