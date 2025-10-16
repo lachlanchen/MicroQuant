@@ -545,6 +545,11 @@
           <button class="btn secondary" id="btnShowWeightedLotsAll" style="padding:6px 10px;">Weighted log (all)</button>
           <span id="selectedWeightedLotsSummary" style="font-size:12px; color:var(--muted);"></span>
         </div>
+        <!-- Trading session indicator (pauses periodic when closed) -->
+        <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+          <button id="btnTradingStatus" class="btn" style="padding:6px 10px; background:#9e9e9e; color:#fff; border:none;">Trading: —</button>
+          <span id="tradingStatusNote" style="font-size:12px; color:var(--muted);"></span>
+        </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <label style="display:flex; align-items:center; gap:6px;">
             <span style="min-width:110px; color:var(--muted);">Auto volume</span>
@@ -7159,6 +7164,20 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       function ensureAutoPeriodicTimer() {
         clearAutoPeriodicTimer();
         if (!autoPeriodicToggle || !autoPeriodicToggle.checked) return;
+        // Respect market hours — pause when closed
+        try {
+          const sym = currentSymbol();
+          const ts = tradingSessionStatus(sym);
+          updateTradingStatusUI(ts);
+          if (!ts.open) {
+            setPeriodicStatePill('Paused — market closed', 'off');
+            const wait = Math.max(60_000, Number(ts.msUntilOpen||0));
+            autoPeriodicNextAtMs = Date.now() + wait;
+            startPeriodicUiCountdown();
+            autoPeriodicTimeout = setTimeout(() => { try { ensureAutoPeriodicTimer(); } catch {} }, wait + 1000);
+            return;
+          }
+        } catch {}
         const minsRaw = Number(autoPeriodicPeriod && autoPeriodicPeriod.value);
         const mins = (Number.isFinite(minsRaw) && minsRaw > 0) ? minsRaw : 60;
         const periodMs = mins * 60_000;
@@ -7195,6 +7214,76 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           }
         }, delay);
       }
+      // Trading session detection (UTC-based heuristic)
+      let tradingStatusTimer = null;
+      function tradingSessionStatus(sym) {
+        const kind = symbolKind(sym);
+        const now = new Date();
+        const dow = now.getUTCDay(); // 0=Sun..6=Sat
+        const h = now.getUTCHours();
+        const m = now.getUTCMinutes();
+        const toMinutes = (hh, mm) => hh*60 + mm;
+        const nowMin = toMinutes(h, m);
+        let open = true;
+        let opensAt = null; // Date
+        if (kind === 'stock') {
+          // US regular session 13:30–20:00 UTC Mon–Fri
+          const openMin = toMinutes(13,30), closeMin = toMinutes(20,0);
+          open = (dow>=1 && dow<=5) && (nowMin >= openMin && nowMin < closeMin);
+          if (!open) {
+            // Compute next weekday at 13:30 UTC
+            let addDays = 0;
+            let targetDow = dow;
+            if (dow === 0) { addDays = 1; targetDow = 1; }
+            else if (dow >= 1 && dow <= 4) { addDays = (nowMin < openMin) ? 0 : 1; }
+            else if (dow === 5) { addDays = (nowMin < openMin) ? 0 : 3; }
+            else if (dow === 6) { addDays = 2; }
+            const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+addDays, 13, 30, 0, 0));
+            opensAt = next;
+          }
+        } else {
+          // Forex/Metals: 24x5 — closed on Sat/Sun by heuristic
+          open = (dow>=1 && dow<=5);
+          if (!open) {
+            // Next Monday 00:00 UTC
+            const daysToMon = (8 - dow) % 7 || 1; // Sun->1, Sat->2
+            const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+daysToMon, 0, 0, 0, 0));
+            opensAt = next;
+          }
+        }
+        const msUntilOpen = (!open && opensAt) ? Math.max(0, opensAt.getTime() - now.getTime()) : 0;
+        return { open, opensAt, msUntilOpen, kind };
+      }
+      function updateTradingStatusUI(cache) {
+        const btn = document.getElementById('btnTradingStatus');
+        const note = document.getElementById('tradingStatusNote');
+        const sym = currentSymbol();
+        let ts = cache || tradingSessionStatus(sym);
+        if (!btn) return;
+        if (tradingStatusTimer) { clearInterval(tradingStatusTimer); tradingStatusTimer = null; }
+        if (ts.open) {
+          btn.textContent = 'Trading: Open';
+          btn.style.background = '#2ecc71'; btn.style.color = '#fff';
+          if (note) note.textContent = '';
+        } else {
+          btn.textContent = 'Trading: Closed';
+          btn.style.background = '#e74c3c'; btn.style.color = '#fff';
+          const updateNote = () => {
+            ts = tradingSessionStatus(sym);
+            if (note) {
+              const ms = Number(ts.msUntilOpen||0);
+              const mm = Math.floor(ms/60000); const ss = Math.floor((ms%60000)/1000);
+              const when = ts.opensAt ? ts.opensAt.toUTCString() : '';
+              note.textContent = `Opens in ${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')} • ${when}`;
+            }
+          };
+          updateNote();
+          tradingStatusTimer = setInterval(updateNote, 1000);
+        }
+      }
+      // Keep trading status current
+      (async ()=>{ try { updateTradingStatusUI(); } catch {} })();
+      const symSel2 = document.getElementById('symbol'); if (symSel2) symSel2.addEventListener('change', ()=>{ try { updateTradingStatusUI(); ensureAutoPeriodicTimer(); } catch {} });
       // Persist Auto controls
       const autoSafeMaxInput = document.getElementById('autoSafeMaxInput');
       const autoVolumeInput = document.getElementById('autoVolumeInput');
