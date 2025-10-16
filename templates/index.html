@@ -91,6 +91,7 @@
     .pulse { animation: pulse 480ms ease-out 1; }
     /* Simple modal for full news text */
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 9999; }
+    .modal-backdrop[aria-hidden="false"] { display: flex !important; }
     .modal-box { background:#fff; max-width: 920px; width: min(92vw, 920px); max-height: 82vh; overflow:auto; border-radius:10px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
     .modal-head { display:flex; justify-content: space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); }
     .modal-head h3 { margin:0; font-size:16px; }
@@ -389,6 +390,8 @@
               <span id="deepFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <span id="deepPositionIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
             </div>
+            <!-- Fallback inline box for Deep Research if modal suppressed by CSS -->
+            <div id="deepInlineBox" style="display:none; margin-top:8px; border:1px dashed #90caf9; background:rgba(227,242,253,0.6); color:#0d47a1; border-radius:8px; padding:8px;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">Template</span>
@@ -3785,6 +3788,15 @@ const ensureLwMacd = () => {
           try {
             const cs = window.getComputedStyle(deepModal);
             deepLog('Computed after open: display=' + cs.display + ' visibility=' + cs.visibility + ' opacity=' + cs.opacity);
+            const inlineBox = document.getElementById('deepInlineBox');
+            if (inlineBox && (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0)) {
+              deepLog('Modal appears hidden by CSS, showing inline fallback');
+              inlineBox.style.display = 'block';
+              inlineBox.innerHTML = '<em>Showing Deep Research here because the modal is hidden by CSS. It will close automatically when the modal displays correctly.</em>';
+            } else {
+              const inlineBox2 = document.getElementById('deepInlineBox');
+              if (inlineBox2) inlineBox2.style.display = 'none';
+            }
           } catch {}
           if (typeof deepModal.focus === 'function') { try { deepModal.focus(); } catch {} }
         } catch (e) {
@@ -3846,6 +3858,12 @@ const ensureLwMacd = () => {
             </div>
             <div style="white-space:pre-wrap;">${esc(dr || '')}</div>`;
           if (detail) detail.innerHTML = html;
+          try {
+            const inlineBox = document.getElementById('deepInlineBox');
+            if (inlineBox && inlineBox.style.display !== 'none') {
+              inlineBox.innerHTML = html;
+            }
+          } catch {}
           deepLog('Rendered deep result; pos=' + pos + ' sl=' + sl + ' tp=' + tp);
           // Update inline Deep indicators
           try {
