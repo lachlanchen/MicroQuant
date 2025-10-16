@@ -3093,8 +3093,8 @@ const ensureLwMacd = () => {
         try {
           const prev = prevTimeframe(tf);
           const next = nextTimeframe(tf);
-          // Only show M1 and D1 cross‑TF STL sections; hide prev/next TF rows
-          const order = ['M1', 'D1'];
+          // Only show D1 cross‑TF STL section; hide M1 and prev/next TF rows
+          const order = ['D1'];
           const tfList = [];
           for (const t of order) {
             const tt = (t || '').toUpperCase();
@@ -3597,10 +3597,10 @@ const ensureLwMacd = () => {
         } catch {}
         let base = '';
         try { base = buildTechSnapshotStringSync(); } catch { base = ''; }
-        // Add cross-timeframe STL mini-rows: only M1 and D1 (last 10), excluding current TF
+        // Add cross-timeframe STL mini-rows: only D1 (last 10), excluding current TF
         const prev = prevTimeframe(tf);
         const next = nextTimeframe(tf);
-        const ordered = ['M1', 'D1'];
+        const ordered = ['D1'];
         const tfList = [];
         for (const t of ordered) {
           const tt = (t || '').toUpperCase();
