@@ -6689,9 +6689,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const v = Number(map[`auto_volume:${sym}:${tf}`]);
           if (Number.isFinite(v) && v > 0) vol = String(v);
         } catch {}
-        try { vol = await adjustVolumeByWeight(sym, vol); } catch {}
-        // Apply symbol weighting: effective lots = base / weight
-        try { vol = await adjustVolumeByWeight(sym, vol); } catch {}
+        // Apply symbol weighting once: effective lots = base / weight
+        try {
+          const baseVol = String(vol);
+          const w = await resolveSymbolWeight(sym);
+          const eff = (Number(baseVol||'0')||0) / (w>0? w : 1);
+          vol = String(eff);
+          log(`[Volume] Adjust by weight: base=${baseVol} ÷ w=${(w||1).toFixed ? w.toFixed(3) : w} → eff=${vol}`);
+        } catch {}
         // Price
         let mkt = null; try { const rt = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }); const jt = await rt.json().catch(()=>({})); if (jt && (jt.bid!=null || jt.ask!=null || jt.last!=null)) mkt = jt; } catch {}
         const px = mkt ? (side==='BUY' ? (mkt.ask ?? mkt.last ?? mkt.bid) : (mkt.bid ?? mkt.last ?? mkt.ask)) : null;
@@ -7700,8 +7705,14 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (periodicVolEl && Number(periodicVolEl.value) > 0) vol = String(periodicVolEl.value);
           else if (autoVolEl && Number(autoVolEl.value) > 0) vol = String(autoVolEl.value);
           else if (el('volume')) vol = String(el('volume').value);
-          // Apply symbol weighting to volume
-          try { vol = await adjustVolumeByWeight(sym, vol); } catch {}
+          // Apply symbol weighting once: effective lots = base / weight
+          try {
+            const baseVol = String(vol);
+            const w = await resolveSymbolWeight(sym);
+            const eff = (Number(baseVol||'0')||0) / (w>0? w : 1);
+            vol = String(eff);
+            appendAutoLog(`[Volume] Adjust by weight: base=${baseVol} ÷ w=${(w||1).toFixed ? w.toFixed(3) : w} → eff=${vol}`);
+          } catch {}
           const body = new URLSearchParams({ symbol: sym, side: sideLower, volume: vol });
           // Respect Set Stop Loss toggle
           const inlineSl = document.getElementById('autoPeriodicSlToggle');
