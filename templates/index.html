@@ -575,6 +575,7 @@
         </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button class="btn secondary" id="btnAddAccountOpen" style="padding:6px 10px;">Manage Accounts</button>
+          <button class="btn secondary" id="btnManageSymbolsOpen" style="padding:6px 10px;">Manage Symbols</button>
         </div>
             <!-- Leverage + position size hint -->
             <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
@@ -984,6 +985,42 @@
       </div>
     </div>
 
+    <!-- Manage Symbols & Weights Modal -->
+    <div id="manageSymbolsModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true" style="display:none;">
+      <div class="modal-box" style="width:min(760px,94vw); max-height:80vh; overflow:auto;">
+        <div class="modal-head" style="position:sticky; top:0; z-index:2; background:#fff; border-bottom:1px solid var(--line);">
+          <h3>Manage Symbols & Weights</h3>
+          <button id="btnManageSymbolsClose" class="modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body" style="padding:12px; display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+            <strong style="color:var(--muted)">Default kind weights</strong>
+            <label style="display:flex; gap:6px; align-items:center;">
+              <span style="min-width:80px; text-align:right;">Forex</span>
+              <input id="kindWeightForex" type="number" min="0.001" step="0.001" value="0.1" style="width:100px;" />
+            </label>
+            <label style="display:flex; gap:6px; align-items:center;">
+              <span style="min-width:80px; text-align:right;">Metals</span>
+              <input id="kindWeightMetal" type="number" min="0.001" step="0.001" value="1" style="width:100px;" />
+            </label>
+            <label style="display:flex; gap:6px; align-items:center;">
+              <span style="min-width:80px; text-align:right;">Stocks</span>
+              <input id="kindWeightStock" type="number" min="0.001" step="0.001" value="1" style="width:100px;" />
+            </label>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <strong style="color:var(--muted)">Per-symbol weights</strong>
+            <input id="newSymbolInput" type="text" placeholder="Add symbol (e.g., EURUSD)" style="width:180px;" />
+            <button class="btn secondary" id="btnAddSymbolRow" style="padding:6px 10px;">Add</button>
+          </div>
+          <div id="symbolWeightsBox" style="border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:340px; overflow:auto;"></div>
+          <div class="row" style="gap:8px;">
+            <button class="btn" id="btnSaveSymbols" style="padding:6px 10px;">Save</button>
+            <button class="btn secondary" id="btnCancelSymbols" style="padding:6px 10px;">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <!-- Affiliate floating widgets -->
     <div id="rfBottomBanner" class="rf-floating rf-bottom rf-hidden" style="width:728px; height:90px;"
       data-rf-type="img"
@@ -1040,6 +1077,58 @@
         el('status').textContent = msg || '';
         if (msg && DEBUG_LOGS) console.log('[App]', msg);
       };
+      // Weights cache for symbols/kinds
+      const WEIGHT_CACHE = { kinds: { forex: 0.1, metal: 1, stock: 1 }, symbols: new Map(), loaded: false };
+      function symbolKind(sym) {
+        const s = String(sym||'').toUpperCase();
+        if (/^[A-Z]{6,7}$/.test(s)) {
+          if (s.startsWith('XAU') || s.startsWith('XAG')) return 'metal';
+          return 'forex';
+        }
+        return 'stock';
+      }
+      async function loadKindWeights() {
+        try {
+          const r = await fetch(`/api/preferences?keys=${encodeURIComponent('kind_weight:forex,kind_weight:metal,kind_weight:stock')}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const map = (js && js.prefs) || js || {};
+          const fx = Number(map['kind_weight:forex']); if (Number.isFinite(fx) && fx>0) WEIGHT_CACHE.kinds.forex = fx;
+          const me = Number(map['kind_weight:metal']); if (Number.isFinite(me) && me>0) WEIGHT_CACHE.kinds.metal = me;
+          const st = Number(map['kind_weight:stock']); if (Number.isFinite(st) && st>0) WEIGHT_CACHE.kinds.stock = st;
+        } catch {}
+      }
+      async function loadSymbolWeightsFor(symbols) {
+        try {
+          const list = Array.from(new Set((symbols||[]).map(s=>String(s||'').toUpperCase()).filter(Boolean)));
+          if (!list.length) return;
+          const keys = list.map(s=>`symbol_weight:${s}`).join(',');
+          const r = await fetch(`/api/preferences?keys=${encodeURIComponent(keys)}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const map = (js && js.prefs) || js || {};
+          list.forEach(s => {
+            const v = Number(map[`symbol_weight:${s}`]);
+            if (Number.isFinite(v) && v>0) WEIGHT_CACHE.symbols.set(s, v);
+          });
+        } catch {}
+      }
+      async function resolveSymbolWeight(sym) {
+        const s = String(sym||'').toUpperCase();
+        if (WEIGHT_CACHE.symbols.has(s)) return WEIGHT_CACHE.symbols.get(s);
+        // Load on demand
+        await loadKindWeights();
+        await loadSymbolWeightsFor([s]);
+        if (WEIGHT_CACHE.symbols.has(s)) return WEIGHT_CACHE.symbols.get(s);
+        return WEIGHT_CACHE.kinds[symbolKind(s)] || 1;
+      }
+      async function adjustVolumeByWeight(sym, vol) {
+        try {
+          const w = await resolveSymbolWeight(sym);
+          const base = Number(vol||0);
+          if (!Number.isFinite(base) || base<=0) return vol;
+          const eff = (w>0? base / w : base);
+          return String(eff);
+        } catch { return vol; }
+      }
       // Update top signal UI (dot color and Trade button)
       let lastSignal = 'hold';
 
@@ -6588,6 +6677,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const v = Number(map[`auto_volume:${sym}:${tf}`]);
           if (Number.isFinite(v) && v > 0) vol = String(v);
         } catch {}
+        try { vol = await adjustVolumeByWeight(sym, vol); } catch {}
+        // Apply symbol weighting: effective lots = base / weight
+        try { vol = await adjustVolumeByWeight(sym, vol); } catch {}
         // Price
         let mkt = null; try { const rt = await fetch(`/api/tick?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' }); const jt = await rt.json().catch(()=>({})); if (jt && (jt.bid!=null || jt.ask!=null || jt.last!=null)) mkt = jt; } catch {}
         const px = mkt ? (side==='BUY' ? (mkt.ask ?? mkt.last ?? mkt.bid) : (mkt.bid ?? mkt.last ?? mkt.ask)) : null;
@@ -6724,14 +6816,27 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const arr = Array.isArray(js && js.positions) ? js.positions : [];
         _lastAllPositions = arr; _lastAllPosAt = now; return arr;
       }
-      function summarizeLots(arr, sym) {
+      async function summarizeLotsWeighted(arr, sym) {
         const sum = (pred) => arr.filter(pred).reduce((a,x)=>a+(Number(x && x.volume)||0),0);
         const cur = sum(x => String(x.symbol||'').toUpperCase() === String(sym||'').toUpperCase());
         const xau = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAU'));
         const xag = sum(x => String(x.symbol||'').toUpperCase().startsWith('XAG'));
         const fxOther = sum(x => { const s=String(x.symbol||'').toUpperCase(); return /^[A-Z]{6,7}$/.test(s) && !s.startsWith('XAU') && !s.startsWith('XAG'); });
         const stocks = sum(x => { const s=String(x.symbol||'').toUpperCase(); return !/^[A-Z]{6,7}$/.test(s); });
-        return { cur, xau, xag, fxOther, stocks };
+        // Weighted total across all positions
+        try {
+          const syms = Array.from(new Set(arr.map(p => String(p.symbol||'').toUpperCase()).filter(Boolean)));
+          await loadKindWeights();
+          await loadSymbolWeightsFor(syms);
+          let wtotal = 0;
+          for (const p of arr) {
+            const s = String(p.symbol||'').toUpperCase();
+            const lots = Number(p.volume||0) || 0;
+            const w = WEIGHT_CACHE.symbols.get(s) || WEIGHT_CACHE.kinds[symbolKind(s)] || 1;
+            wtotal += lots * w;
+          }
+          return { cur, xau, xag, fxOther, stocks, wtotal };
+        } catch { return { cur, xau, xag, fxOther, stocks, wtotal: NaN }; }
       }
       async function updateOpenLotsSummary() {
         const box = document.getElementById('openLotsSummary');
@@ -6739,8 +6844,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         try {
           const arr = await getAllPositionsCached();
           const sym = currentSymbol();
-          const s = summarizeLots(arr, sym);
-          box.textContent = `Open lots — cur ${sym}: ${s.cur.toFixed(2)} • XAU: ${s.xau.toFixed(2)} • XAG: ${s.xag.toFixed(2)} • FX: ${s.fxOther.toFixed(2)} • Stocks: ${s.stocks.toFixed(2)}`;
+          const s = await summarizeLotsWeighted(arr, sym);
+          const wline = Number.isFinite(s.wtotal) ? ` • Weighted: ${s.wtotal.toFixed(2)}` : '';
+          box.textContent = `Open lots — cur ${sym}: ${s.cur.toFixed(2)} • XAU: ${s.xau.toFixed(2)} • XAG: ${s.xag.toFixed(2)} • FX: ${s.fxOther.toFixed(2)} • Stocks: ${s.stocks.toFixed(2)}${wline}`;
         } catch { /* ignore */ }
       }
 
@@ -10424,7 +10530,21 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             safe = map[`safe_max_lots:${sym}:${tf}`] || '';
           } catch {}
           const safeHtml = safe ? `<span style=\"color:#e74c3c;\">Safe max: ${esc(safe)} lots</span>` : '';
-          if (autoMeta) autoMeta.innerHTML = `${esc(sym)} • TF ${esc(tf)} • Open: ${openLots.toFixed(2)} lots ${safeHtml ? '• ' + safeHtml : ''}`;
+          // Compute weighted open lots for display
+          let weighted = '';
+          try {
+            await loadKindWeights();
+            const arrAll = await getAllPositionsCached();
+            let total = 0;
+            for (const p of arrAll) {
+              const s2 = String(p.symbol||'').toUpperCase();
+              const lots2 = Number(p.volume||0) || 0;
+              const w2 = WEIGHT_CACHE.symbols.get(s2) || WEIGHT_CACHE.kinds[symbolKind(s2)] || 1;
+              total += lots2 * w2;
+            }
+            weighted = ` • Weighted ${total.toFixed(2)}`;
+          } catch {}
+          if (autoMeta) autoMeta.innerHTML = `${esc(sym)} • TF ${esc(tf)} • Open: ${openLots.toFixed(2)} lots${weighted} ${safeHtml ? '• ' + safeHtml : ''}`;
           // Mirror safe into input; disable Start if breached and show hint
           const safeInput = document.getElementById('autoSafeMaxInput');
           if (safeInput) safeInput.value = String(Number(safe || 0.10) || 0.10);
@@ -10513,3 +10633,103 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
     </script>
   </body>
   </html>
+      // Manage Symbols & Weights UI
+      const btnManageSymbolsOpen = document.getElementById('btnManageSymbolsOpen');
+      const manageSymbolsModal = document.getElementById('manageSymbolsModal');
+      const btnManageSymbolsClose = document.getElementById('btnManageSymbolsClose');
+      const btnSaveSymbols = document.getElementById('btnSaveSymbols');
+      const btnCancelSymbols = document.getElementById('btnCancelSymbols');
+      const btnAddSymbolRow = document.getElementById('btnAddSymbolRow');
+      const newSymbolInput = document.getElementById('newSymbolInput');
+      const symbolWeightsBox = document.getElementById('symbolWeightsBox');
+      const kindWeightForex = document.getElementById('kindWeightForex');
+      const kindWeightMetal = document.getElementById('kindWeightMetal');
+      const kindWeightStock = document.getElementById('kindWeightStock');
+      function openManageSymbols() {
+        if (!manageSymbolsModal) return;
+        manageSymbolsModal.style.display = 'flex';
+        manageSymbolsModal.setAttribute('aria-hidden','false');
+        loadManageSymbols();
+      }
+      function closeManageSymbols() { if (manageSymbolsModal) { manageSymbolsModal.style.display='none'; manageSymbolsModal.setAttribute('aria-hidden','true'); } }
+      async function loadManageSymbols() {
+        try {
+          // Load kind weights
+          await loadKindWeights();
+          kindWeightForex.value = String(WEIGHT_CACHE.kinds.forex);
+          kindWeightMetal.value = String(WEIGHT_CACHE.kinds.metal);
+          kindWeightStock.value = String(WEIGHT_CACHE.kinds.stock);
+        } catch {}
+        // Build list from current Symbol select + custom_symbols pref
+        try {
+          const existing = Array.from((document.getElementById('symbol')||{}).options||[]).map(o=>String(o.value||'').toUpperCase());
+          let customs = [];
+          try { const r = await fetch('/api/preferences?keys=custom_symbols', { cache:'no-store' }); const js = await r.json().catch(()=>({})); const v = js && js.prefs && js.prefs.custom_symbols; if (typeof v==='string' && v) customs = v.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean); } catch {}
+          const all = Array.from(new Set([...existing, ...customs]));
+          await loadSymbolWeightsFor(all);
+          const rows = all.map(s=>{
+            const w = WEIGHT_CACHE.symbols.get(s) || WEIGHT_CACHE.kinds[symbolKind(s)] || 1;
+            return `<div class="row" data-sym="${esc(s)}" style="gap:8px; align-items:center;">
+              <span style="min-width:120px;">${esc(s)}</span>
+              <input type="number" class="sym-w" value="${esc(String(w))}" min="0.001" step="0.001" style="width:120px;" />
+              <button class="btn secondary btnRemoveSym" style="padding:4px 8px;">Remove</button>
+            </div>`;
+          }).join('');
+          symbolWeightsBox.innerHTML = rows || '<em style="color:var(--muted)">No symbols</em>';
+          // Wire remove buttons
+          symbolWeightsBox.querySelectorAll('.btnRemoveSym').forEach(btn=>{
+            btn.addEventListener('click', (ev)=>{
+              const row = ev.target.closest('[data-sym]'); if (!row) return;
+              row.remove();
+            });
+          });
+        } catch {}
+      }
+      function normalizeSymbol(s) { return String(s||'').trim().toUpperCase(); }
+      if (btnAddSymbolRow) btnAddSymbolRow.addEventListener('click', ()=>{
+        const raw = newSymbolInput && newSymbolInput.value || '';
+        const s = normalizeSymbol(raw); if (!s) return;
+        if (symbolWeightsBox && !symbolWeightsBox.querySelector(`[data-sym="${CSS.escape(s)}"]`)) {
+          const def = WEIGHT_CACHE.kinds[symbolKind(s)] || 1;
+          symbolWeightsBox.insertAdjacentHTML('beforeend', `<div class="row" data-sym="${esc(s)}" style="gap:8px; align-items:center;">
+              <span style="min-width:120px;">${esc(s)}</span>
+              <input type="number" class="sym-w" value="${esc(String(def))}" min="0.001" step="0.001" style="width:120px;" />
+              <button class="btn secondary btnRemoveSym" style="padding:4px 8px;">Remove</button>
+            </div>`);
+          const last = symbolWeightsBox.lastElementChild; if (last) last.querySelector('.btnRemoveSym').addEventListener('click', (ev)=>{ ev.target.closest('[data-sym]')?.remove(); });
+        }
+        if (newSymbolInput) newSymbolInput.value='';
+      });
+      async function saveManageSymbols() {
+        try {
+          // Collect kind weights
+          const updates = {};
+          const fx = Number(kindWeightForex && kindWeightForex.value); if (Number.isFinite(fx) && fx>0) updates['kind_weight:forex'] = String(fx);
+          const me = Number(kindWeightMetal && kindWeightMetal.value); if (Number.isFinite(me) && me>0) updates['kind_weight:metal'] = String(me);
+          const st = Number(kindWeightStock && kindWeightStock.value); if (Number.isFinite(st) && st>0) updates['kind_weight:stock'] = String(st);
+          // Collect per-symbol weights and custom list
+          const rows = Array.from(symbolWeightsBox.querySelectorAll('[data-sym]'));
+          const syms = rows.map(r=>String(r.getAttribute('data-sym')||'').toUpperCase()).filter(Boolean);
+          rows.forEach(r => {
+            const s = String(r.getAttribute('data-sym')||'').toUpperCase();
+            const inp = r.querySelector('input.sym-w');
+            const val = Number(inp && inp.value);
+            if (Number.isFinite(val) && val>0) updates[`symbol_weight:${s}`] = String(val);
+          });
+          updates['custom_symbols'] = syms.join(',');
+          const r = await fetch('/api/preferences', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(updates), cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (r.ok && js && js.ok) {
+            // Refresh local caches
+            WEIGHT_CACHE.symbols.clear(); await loadKindWeights(); await loadSymbolWeightsFor(syms);
+            closeManageSymbols();
+            status('Symbols & weights saved');
+          } else {
+            status(`Save failed: ${(js && js.error) || r.statusText}`);
+          }
+        } catch (e) { status(`Save failed: ${e && e.message || e}`); }
+      }
+      if (btnManageSymbolsOpen) btnManageSymbolsOpen.addEventListener('click', openManageSymbols);
+      if (btnManageSymbolsClose) btnManageSymbolsClose.addEventListener('click', closeManageSymbols);
+      if (btnCancelSymbols) btnCancelSymbols.addEventListener('click', closeManageSymbols);
+      if (btnSaveSymbols) btnSaveSymbols.addEventListener('click', saveManageSymbols);

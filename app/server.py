@@ -1822,6 +1822,22 @@ class MainHandler(tornado.web.RequestHandler):
                 extras = {}
                 logger.debug("no prefs yet for last_symbol/last_tf")
 
+        # Load custom symbols list (comma-separated) to extend supported set
+        try:
+            if pool is not None:
+                custom = await get_pref(pool, "custom_symbols")
+                if isinstance(custom, str) and custom.strip():
+                    extra_syms = []
+                    for item in custom.split(','):
+                        s = item.strip().upper()
+                        if s and s not in SUPPORTED_SYMBOLS and s not in extra_syms:
+                            extra_syms.append(s)
+                    if extra_syms:
+                        # Extend the in-memory list for this process so validation and rendering match
+                        SUPPORTED_SYMBOLS.extend(extra_syms)
+        except Exception:
+            logger.debug("failed to merge custom_symbols preference")
+
         # Determine initial symbol/timeframe
         if pin_defaults:
             sym = "XAUUSD"
@@ -3610,6 +3626,13 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     key.startswith("risk_percent:") or
                     key.startswith("stop_distance:") or
                     key.startswith("stop_unit:")
+                ):
+                    allowed = True
+                # Allow symbol/kind weighting + custom symbol list
+                elif isinstance(key, str) and (
+                    key.startswith("symbol_weight:") or
+                    key.startswith("kind_weight:") or
+                    key == "custom_symbols"
                 ):
                     allowed = True
                 if allowed:
