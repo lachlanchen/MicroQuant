@@ -7752,17 +7752,21 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           scheduleChartRefresh(`${data.symbol}/${data.timeframe}`);
           // Update Tech+AI freshness (bars outdated)
           refreshTechFreshness();
+          // Update Deep freshness/position too
+          try { checkDeepFreshness(); } catch {}
           // Re-run top strategy so the Signal pill reflects the new bars
           try { runStrategyTop(); } catch (e) { /* ignore */ }
         } else if (data.scope === 'symbol_all_tf' && sameSymbol) {
           status(`Background fetch done (${data.symbol} ${data.timeframe})`);
           scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope symbol_all_tf]`);
           refreshTechFreshness();
+          try { checkDeepFreshness(); } catch {}
           if (data.timeframe === currentTf()) { try { runStrategyTop(); } catch (e) {} }
         } else if (data.scope === 'all_symbols' && data.symbol === symbol) {
           status(`Bulk fetch updated ${data.symbol} ${data.timeframe}`);
           scheduleChartRefresh(`${data.symbol}/${data.timeframe} [scope all_symbols]`);
           refreshTechFreshness();
+          try { checkDeepFreshness(); } catch {}
           if (data.timeframe === currentTf()) { try { runStrategyTop(); } catch (e) {} }
         }
       }
@@ -7793,6 +7797,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const prefix = count != null ? `${count} new item${count === 1 ? '' : 's'}` : 'Background update';
         setNewsStatus(`${prefix} (${symbol}, ${scope})`, 'warn');
         scheduleNewsRefresh(data.reason || 'ws_news');
+        // Deep freshness depends on news recency — refresh it
+        try { checkDeepFreshness(); } catch {}
       }
 
       function handleStlEvent(data) {
@@ -8567,6 +8573,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       (async () => { try { await loadAutoBasicPref(); await loadAutoTechPref(); } catch {} })();
       (async () => { try { await refreshTechFreshness(); } catch {} })();
       (async () => { try { await loadLatestAiPlanPreview(); } catch {} })();
+      (async () => { try { await checkDeepFreshness(); } catch {} })();
 
       
   async function refreshChart() {
@@ -8799,6 +8806,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           await loadAutoTechPref();
           await loadAutoPeriodicPrefs();
           await loadLatestAiPlanPreview();
+          await checkDeepFreshness();
           if (autoTimer) startAuto({ announce: false });
           ensureAutoPeriodicTimer();
           // Inline AI trade plan preview disabled on symbol change (run from modal Start)
@@ -8831,6 +8839,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           await loadAutoTechPref();
           await loadAutoPeriodicPrefs();
           await loadLatestAiPlanPreview();
+          await checkDeepFreshness();
           if (autoTimer) startAuto({ announce: false });
           ensureAutoPeriodicTimer();
           // Inline AI trade plan preview disabled on timeframe change (run from modal Start)
