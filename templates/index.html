@@ -10648,7 +10648,120 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (headerVol) headerVol.addEventListener('change', _syncVolFromHeader);
         if (modalVol) modalVol.addEventListener('change', _syncVolFromModal);
       })();
-    </script>
+
+      // Manage Symbols & Weights UI
+      const btnManageSymbolsOpen = document.getElementById('btnManageSymbolsOpen');
+      const manageSymbolsModal = document.getElementById('manageSymbolsModal');
+      const btnManageSymbolsClose = document.getElementById('btnManageSymbolsClose');
+      const btnSaveSymbols = document.getElementById('btnSaveSymbols');
+      const btnCancelSymbols = document.getElementById('btnCancelSymbols');
+      const btnAddSymbolRow = document.getElementById('btnAddSymbolRow');
+      const newSymbolInput = document.getElementById('newSymbolInput');
+      const symbolWeightsBox = document.getElementById('symbolWeightsBox');
+      const kindWeightForex = document.getElementById('kindWeightForex');
+      const kindWeightMetal = document.getElementById('kindWeightMetal');
+      const kindWeightStock = document.getElementById('kindWeightStock');
+      function openManageSymbols() {
+        if (!manageSymbolsModal) return;
+        try {
+          if (manageSymbolsModal.parentElement !== document.body) {
+            document.body.appendChild(manageSymbolsModal);
+          }
+        } catch {}
+        manageSymbolsModal.style.display = 'flex';
+        manageSymbolsModal.style.zIndex = '9999';
+        manageSymbolsModal.setAttribute('aria-hidden','false');
+        loadManageSymbols();
+      }
+      function closeManageSymbols() { if (manageSymbolsModal) { manageSymbolsModal.style.display='none'; manageSymbolsModal.setAttribute('aria-hidden','true'); } }
+      async function loadManageSymbols() {
+        try {
+          // Load kind weights
+          await loadKindWeights();
+          kindWeightForex.value = String(WEIGHT_CACHE.kinds.forex);
+          kindWeightMetal.value = String(WEIGHT_CACHE.kinds.metal);
+          kindWeightStock.value = String(WEIGHT_CACHE.kinds.stock);
+        } catch {}
+        // Build list from current Symbol select + custom_symbols pref
+        try {
+          const existing = Array.from((document.getElementById('symbol')||{}).options||[]).map(o=>String(o.value||'').toUpperCase());
+          let customs = [];
+          try { const r = await fetch('/api/preferences?keys=custom_symbols', { cache:'no-store' }); const js = await r.json().catch(()=>({})); const v = js && js.prefs && js.prefs.custom_symbols; if (typeof v==='string' && v) customs = v.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean); } catch {}
+          const all = Array.from(new Set([...existing, ...customs]));
+          await loadSymbolWeightsFor(all);
+          const rows = all.map(s=>{
+            const w = WEIGHT_CACHE.symbols.get(s) || WEIGHT_CACHE.kinds[symbolKind(s)] || 1;
+            return `<div class=\"row\" data-sym=\"${esc(s)}\" style=\"gap:8px; align-items:center;\">\n              <span style=\"min-width:120px;\">${esc(s)}</span>\n              <input type=\"number\" class=\"sym-w\" value=\"${esc(String(w))}\" min=\"0.001\" step=\"0.001\" style=\"width:120px;\" />\n              <button class=\"btn secondary btnRemoveSym\" style=\"padding:4px 8px;\">Remove</button>\n            </div>`;
+          }).join('');
+          symbolWeightsBox.innerHTML = rows || '<em style=\"color:var(--muted)\">No symbols</em>';
+          // Wire remove buttons
+          symbolWeightsBox.querySelectorAll('.btnRemoveSym').forEach(btn=>{
+            btn.addEventListener('click', (ev)=>{
+              const row = ev.target.closest('[data-sym]'); if (!row) return;
+              row.remove();
+            });
+          });
+        } catch {}
+      }
+      function normalizeSymbol(s) { return String(s||'').trim().toUpperCase(); }
+      if (btnAddSymbolRow) btnAddSymbolRow.addEventListener('click', ()=>{
+        const raw = newSymbolInput && newSymbolInput.value || '';
+        const s = normalizeSymbol(raw); if (!s) return;
+        if (symbolWeightsBox && !symbolWeightsBox.querySelector(`[data-sym=\"${CSS.escape(s)}\"]`)) {
+          const def = WEIGHT_CACHE.kinds[symbolKind(s)] || 1;
+          symbolWeightsBox.insertAdjacentHTML('beforeend', `<div class=\"row\" data-sym=\"${esc(s)}\" style=\"gap:8px; align-items:center;\">\n              <span style=\"min-width:120px;\">${esc(s)}</span>\n              <input type=\"number\" class=\"sym-w\" value=\"${esc(String(def))}\" min=\"0.001\" step=\"0.001\" style=\"width:120px;\" />\n              <button class=\"btn secondary btnRemoveSym\" style=\"padding:4px 8px;\">Remove</button>\n            </div>`);
+          const last = symbolWeightsBox.lastElementChild; if (last) last.querySelector('.btnRemoveSym').addEventListener('click', (ev)=>{ ev.target.closest('[data-sym]')?.remove(); });
+        }
+        if (newSymbolInput) newSymbolInput.value='';
+      });
+      async function saveManageSymbols() {
+        try {
+          // Collect kind weights
+          const updates = {};
+          const fx = Number(kindWeightForex && kindWeightForex.value); if (Number.isFinite(fx) && fx>0) updates['kind_weight:forex'] = String(fx);
+          const me = Number(kindWeightMetal && kindWeightMetal.value); if (Number.isFinite(me) && me>0) updates['kind_weight:metal'] = String(me);
+          const st = Number(kindWeightStock && kindWeightStock.value); if (Number.isFinite(st) && st>0) updates['kind_weight:stock'] = String(st);
+          // Collect per-symbol weights and custom list
+          const rows = Array.from(symbolWeightsBox.querySelectorAll('[data-sym]'));
+          const syms = rows.map(r=>String(r.getAttribute('data-sym')||'').toUpperCase()).filter(Boolean);
+          rows.forEach(r => {
+            const s = String(r.getAttribute('data-sym')||'').toUpperCase();
+            const inp = r.querySelector('input.sym-w');
+            const val = Number(inp && inp.value);
+            if (Number.isFinite(val) && val>0) updates[`symbol_weight:${s}`] = String(val);
+          });
+          updates['custom_symbols'] = syms.join(',');
+          const r = await fetch('/api/preferences', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(updates), cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (r.ok && js && js.ok) {
+            // Refresh local caches
+            WEIGHT_CACHE.symbols.clear(); await loadKindWeights(); await loadSymbolWeightsFor(syms);
+            // Update symbol dropdown immediately (UI only)
+            try {
+              const sel = document.getElementById('symbol');
+              if (sel) {
+                const existing = new Set(Array.from(sel.options).map(o=>String(o.value||'').toUpperCase()));
+                for (const s of syms) {
+                  if (!existing.has(s)) {
+                    const opt = document.createElement('option'); opt.value = s; opt.textContent = s; sel.appendChild(opt);
+                    existing.add(s);
+                  }
+                }
+              }
+            } catch {}
+            closeManageSymbols();
+            status('Symbols & weights saved');
+          } else {
+            status(`Save failed: ${(js && js.error) || r.statusText}`);
+          }
+        } catch (e) { status(`Save failed: ${e && e.message || e}`); }
+      }
+      if (btnManageSymbolsOpen) btnManageSymbolsOpen.addEventListener('click', (e)=>{ try { e.preventDefault(); } catch{} openManageSymbols(); });
+      document.addEventListener('click', (ev)=>{ const t = ev.target; if (!t) return; if (t.id === 'btnManageSymbolsOpen') { try { ev.preventDefault(); } catch{} openManageSymbols(); } });
+      if (btnManageSymbolsClose) btnManageSymbolsClose.addEventListener('click', closeManageSymbols);
+      if (btnCancelSymbols) btnCancelSymbols.addEventListener('click', closeManageSymbols);
+      if (btnSaveSymbols) btnSaveSymbols.addEventListener('click', saveManageSymbols);
+
   </body>
   </html>
       // Manage Symbols & Weights UI
