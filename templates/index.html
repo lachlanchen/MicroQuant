@@ -539,6 +539,11 @@
           <span style="min-width:110px; color:var(--muted);">Account</span>
           <select id="autoPeriodicAccountSelect" class="blue-select" multiple size="4" style="min-width:220px; flex:1;"></select>
         </div>
+        <!-- Selected-accounts weighted lots helper -->
+        <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+          <button class="btn secondary" id="btnShowWeightedLotsSel" style="padding:6px 10px;">Show weighted lots (selected)</button>
+          <span id="selectedWeightedLotsSummary" style="font-size:12px; color:var(--muted);"></span>
+        </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <label style="display:flex; align-items:center; gap:6px;">
             <span style="min-width:110px; color:var(--muted);">Auto volume</span>
@@ -6857,6 +6862,63 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const wline = Number.isFinite(s.wtotal) ? ` • Weighted: ${s.wtotal.toFixed(2)}` : '';
           box.textContent = `Open lots — cur ${sym}: ${s.cur.toFixed(2)} • XAU: ${s.xau.toFixed(2)} • XAG: ${s.xag.toFixed(2)} • FX: ${s.fxOther.toFixed(2)} • Stocks: ${s.stocks.toFixed(2)}${wline}`;
         } catch { /* ignore */ }
+      }
+
+      // Compute weighted open lots across selected accounts (or all known accounts if none selected)
+      async function showSelectedAccountsWeightedLots() {
+        const btn = document.getElementById('btnShowWeightedLotsSel');
+        const out = document.getElementById('selectedWeightedLotsSummary');
+        if (out) out.textContent = 'Calculating…';
+        try {
+          // Resolve target accounts
+          const sel = document.getElementById('autoPeriodicAccountSelect');
+          let targets = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>String(o.value||'').trim()).filter(Boolean);
+          if (!targets.length) {
+            try {
+              const r = await fetch('/api/accounts', { cache:'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const arr = Array.isArray(js && js.accounts) ? js.accounts : [];
+              targets = arr.map(a=>String(a.login||'')).filter(Boolean);
+            } catch {}
+          }
+          // Capture current session account
+          let original = null;
+          try { const rc = await fetch('/api/account/current', { cache:'no-store' }); const jc = await rc.json().catch(()=>({})); if (jc && jc.login!=null) original = String(jc.login); } catch {}
+          // Aggregate positions across targets by logging in sequentially
+          let agg = [];
+          if (targets.length) {
+            for (const login of targets) {
+              try {
+                await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login }), cache:'no-store' });
+                const r = await fetch('/api/positions/all', { cache:'no-store' });
+                const js = await r.json().catch(()=>({}));
+                const rows = Array.isArray(js && js.positions) ? js.positions : [];
+                if (rows && rows.length) agg = agg.concat(rows);
+              } catch {}
+            }
+          } else {
+            // Fallback: current account only
+            try {
+              const r = await fetch('/api/positions/all', { cache:'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const rows = Array.isArray(js && js.positions) ? js.positions : [];
+              if (rows && rows.length) agg = rows;
+            } catch {}
+          }
+          // Restore original account session
+          try { if (original) await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: original }), cache:'no-store' }); } catch {}
+          // Compute weighted summary
+          const sym = currentSymbol();
+          const s = await summarizeLotsWeighted(agg, sym);
+          const total = Number.isFinite(s.wtotal) ? s.wtotal.toFixed(2) : '—';
+          if (out) out.textContent = `Selected accounts — Weighted open lots: ${total}`;
+          try { if (DEBUG_LOGS) console.log('[Weights] selected accounts weighted total', s); } catch {}
+        } catch (e) {
+          if (out) out.textContent = 'Failed to compute weighted lots';
+        }
+      }
+      if (document.getElementById('btnShowWeightedLotsSel')) {
+        document.getElementById('btnShowWeightedLotsSel').addEventListener('click', (ev)=>{ try { ev.preventDefault(); } catch{} showSelectedAccountsWeightedLots(); });
       }
 
       // Log current account and symbol positions (ticket, side, volume, price_open, SL, TP, comment)
