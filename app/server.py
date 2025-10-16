@@ -93,12 +93,12 @@ async def _resolve_symbol_weight(symbol: str) -> float:
                 return v
         except Exception:
             pass
-        # Fallback to kind default
+        # Fallback to kind default (mirror client defaults: forex=0.1, metal=1, stock=1)
         kind = _symbol_kind(s)
         try:
             if kind == "forex":
                 v = float(prefs.get("kind_weight:forex") or "")
-                return v if v > 0 else 1.0
+                return v if v > 0 else 0.1
             if kind == "metal":
                 v = float(prefs.get("kind_weight:metal") or "")
                 return v if v > 0 else 1.0
