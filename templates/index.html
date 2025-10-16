@@ -5730,6 +5730,14 @@ const ensureLwMacd = () => {
           if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
           else { p.set('kind','stock'); p.set('symbol', sym); }
           p.set('group', group);
+          // Ensure independence: filter to the intended strategy for each group
+          if (group === 'basic') {
+            p.set('strategy', resolveBasicStrategyForSymbol(sym));
+          } else if (group === 'tech') {
+            const tsel = document.getElementById('techAiStrategy');
+            const tstrat = (tsel && tsel.value) ? String(tsel.value) : 'tech_snapshot_10q_position.json';
+            p.set('strategy', tstrat);
+          }
           if (tf) p.set('tf', tf);
           p.set('limit','1');
           let r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
@@ -5770,7 +5778,15 @@ const ensureLwMacd = () => {
           const p = new URLSearchParams();
           if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
           else { p.set('kind','stock'); p.set('symbol', sym); }
-          p.set('group', group); if (tf) p.set('tf', tf); p.set('limit','1');
+          p.set('group', group);
+          if (group === 'basic') { p.set('strategy', resolveBasicStrategyForSymbol(sym)); }
+          if (group === 'tech') {
+            const tsel = document.getElementById('techAiStrategy');
+            const tstrat = (tsel && tsel.value) ? String(tsel.value) : 'tech_snapshot_10q_position.json';
+            p.set('strategy', tstrat);
+          }
+          if (tf) p.set('tf', tf);
+          p.set('limit','1');
           const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
           const j = await r.json().catch(()=>({}));
           const run = Array.isArray(j.runs) && j.runs.length ? j.runs[0] : null;
@@ -5854,7 +5870,24 @@ const ensureLwMacd = () => {
               const basicLatest = await fetchLatestRun(sym, tf, 'basic');
               const techLatest = await fetchLatestRun(sym, tf, 'tech');
               const idMatches = !!(basicLatest && techLatest && Number(basicLatest.id) === Number(meta.basic_run_id) && Number(techLatest.id) === Number(meta.tech_run_id));
-              if (idMatches) { stylePlanPill(planEl, position || ''); }
+              if (idMatches) { stylePlanPill(planEl, position || ''); continue; }
+              // If IDs don’t match, fall back to current alignment to avoid confusing "Misaligned" when both sides agree
+              let basicSide = '';
+              let techSide = '';
+              try {
+                const ab = basicLatest && (basicLatest.answers || basicLatest.answers_json || {});
+                const sb = ab && (ab.signal || (ab.scores && ab.scores.NET));
+                if (typeof sb === 'string') basicSide = String(sb).toUpperCase();
+                else if (ab && ab.scores && typeof ab.scores.NET === 'number') basicSide = (ab.scores.NET > 0 ? 'BUY' : (ab.scores.NET < 0 ? 'SELL' : 'NEUTRAL'));
+              } catch {}
+              try {
+                const at = techLatest && (techLatest.answers || techLatest.answers_json || {});
+                const st = at && (at.signal || (at.scores && at.scores.NET));
+                if (typeof st === 'string') techSide = String(st).toUpperCase();
+                else if (at && at.scores && typeof at.scores.NET === 'number') techSide = (at.scores.NET > 0 ? 'BUY' : (at.scores.NET < 0 ? 'SELL' : 'NEUTRAL'));
+              } catch {}
+              const alignedNow = (basicSide.includes('BUY') && techSide.includes('BUY')) || (basicSide.includes('SELL') && techSide.includes('SELL'));
+              if (alignedNow) { stylePlanPill(planEl, position || basicSide); }
               else { stylePlanPill(planEl, null, 'misaligned'); }
               continue;
             }
