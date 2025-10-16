@@ -362,6 +362,30 @@
         <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
           <div style="display:flex; flex-direction:column; gap:10px;">
             <strong style="color:var(--accent)">Analysis</strong>
+            <!-- Deep Research controls (own template + model at top) -->
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Deep template</span>
+                <select id="deepStrategy" style="min-width:220px; padding:4px 6px;">
+                  <option value="deep_research.json" selected>Deep Research (1Q)</option>
+                </select>
+              </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Deep AI model</span>
+                <select id="deepAiModel" style="min-width:220px; padding:4px 6px;">
+                  <option value="">(default)</option>
+                  <option value="deepseek-reasoner" selected>deepseek-reasoner</option>
+                  <option value="deepseek-chat">deepseek-chat</option>
+                  <option value="gpt-4o">gpt-4o</option>
+                  <option value="gpt-4o-mini">gpt-4o-mini</option>
+                </select>
+              </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Recent news</span>
+                <input id="deepNewsCount" type="number" min="1" max="500" value="100" style="width:72px;" />
+              </label>
+              <button class="btn" id="btnDeepResearch" style="padding:6px 10px;">Basic Deep Research</button>
+            </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">Template</span>
@@ -384,12 +408,6 @@
                   <option value="deepseek-reasoner">deepseek-reasoner</option>
                 </select>
               </label>
-              <!-- Deep Research quick controls -->
-              <label style="display:flex; align-items:center; gap:6px;">
-                <span style="display:inline-block; width:120px; text-align:right;">Recent news</span>
-                <input id="deepNewsCount" type="number" min="1" max="500" value="100" style="width:72px;" />
-              </label>
-              <button class="btn" id="btnDeepResearch" style="padding:6px 10px;">Basic Deep Research</button>
               <button class="btn" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
               <span id="healthFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <span id="healthSignalIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
@@ -399,12 +417,16 @@
                 <span>Auto Check</span>
               </label>
             </div>
+            <!-- Tech Snapshot button on its own row -->
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Snapshot</button>
+            </div>
+            <!-- Bars separated for clarity -->
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">Bars</span>
                 <input id="techHealthBars" type="number" min="1" max="500" style="width:72px;" />
               </label>
-              <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Snapshot</button>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
@@ -3734,7 +3756,10 @@ const ensureLwMacd = () => {
       const btnDeepClose = document.getElementById('btnDeepClose');
       const btnDeepMore = document.getElementById('btnDeepMore');
       let deepHistoryOffset = 0;
-      function deepStrategyName() { return 'deep_research.json'; }
+      function deepStrategyName() {
+        const sel = document.getElementById('deepStrategy');
+        return (sel && sel.value) ? sel.value : 'deep_research.json';
+      }
       function openDeepModal() {
         if (!deepModal) return;
         deepModal.style.display = 'flex';
@@ -3751,7 +3776,7 @@ const ensureLwMacd = () => {
         const sym = currentSymbol();
         const tf = currentTf();
         const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
-        const model = document.getElementById('basicAiModel')?.value || '';
+        const model = document.getElementById('deepAiModel')?.value || '';
         const payload = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategyName() };
         if (model) payload.model = model;
         const detail = document.getElementById('deepResearchDetail');
