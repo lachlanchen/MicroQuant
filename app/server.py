@@ -452,6 +452,7 @@ def _build_tech_prompt(question_text: str, symbol: str, timeframe: str | None, s
     allowed = ", ".join(options)
     guidance = (
         "You are good at identifying trend and a high-quality rebound with all your knowledge. "
+        "You are good at set reasonable target profit and stop loss. "
         "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean, shfit from the trend). "
     )
     return (
@@ -467,6 +468,7 @@ def _build_tech_position_prompt(question_text: str, symbol: str, timeframe: str 
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     guidance = (
         "You are good at identifying trend and a high-quality rebound with all your knowledge. "
+        "You are good at set reasonable target profit and stop loss. "
         "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean, shfit from the trend). "
     )
     return (
@@ -525,7 +527,7 @@ def _build_pair_position_prompt(
     if latest_tick_line:
         tick_tail = f"{latest_tick_line}\n"
     return (
-        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. Return only valid JSON that matches the schema.\n\n"
+        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
@@ -660,7 +662,7 @@ def _build_stock_prompt_position_question(
     if latest_tick_line:
         tick_tail = f"{latest_tick_line}\n"
     return (
-        "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
+        "You are a precise equity analyst. You are good at set reasonable target profit and stop loss. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
@@ -672,7 +674,7 @@ def _build_pair_prompt_one_combined(question_text: str, pair_symbol: str, items:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     return (
-        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
+        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
         "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
@@ -691,7 +693,7 @@ def _build_pair_prompt_choice_combined(
     allowed = ", ".join(options)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     return (
-        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
+        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
         f"Choose exactly one from: {allowed}. Be decisive and cite the strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
@@ -4660,7 +4662,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         question_schema,
-                        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                         schema_name="fx_question_position",
                         model=model_override,
                         provider=provider_override,
@@ -4679,7 +4681,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         _make_choice_schema(resolved_options),
-                        system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                        system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                         schema_name="fx_choice_answer",
                         model=model_override,
                         provider=provider_override,
@@ -4693,7 +4695,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 out = AI_CLIENT.send_request_with_json_schema(
                     prompt,
                     HEALTH_BOOL_SCHEMA,
-                    system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                    system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                     schema_name="fx_bool_answer",
                     model=model_override,
                     provider=provider_override,
@@ -4814,7 +4816,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     position_obj = AI_CLIENT.send_request_with_json_schema(
                         pos_prompt,
                         pos_schema,
-                        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                         schema_name="fx_position",
                         model=model_override,
                         provider=provider_override,
@@ -4929,7 +4931,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 HEALTH_BOOL_SCHEMA,
-                system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                 schema_name="bool_answer",
                 model=model_override,
                 provider=provider_override,
@@ -4945,7 +4947,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 _make_choice_schema(choice_options),
-                system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                 schema_name="stock_choice_answer",
                 model=model_override,
                 provider=provider_override,
@@ -4974,7 +4976,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 question_schema_stock,
-                system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                 schema_name="stock_question_position",
                 model=model_override,
                 provider=provider_override,
@@ -5100,7 +5102,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 position_obj = AI_CLIENT.send_request_with_json_schema(
                     pos_prompt,
                     pos_schema,
-                    system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                    system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                     schema_name="stock_position",
                     model=model_override,
                     provider=provider_override,
@@ -5394,7 +5396,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 lambda: AI_CLIENT.send_request_with_json_schema(
                     prompt,
                     TRADE_PLAN_SCHEMA,
-                    system_content="You are a disciplined trading assistant. Reply only with JSON matching the schema.",
+                    system_content="You are a disciplined trading assistant. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON matching the schema.",
                     schema_name="trade_plan",
                     model=model,
                     provider=provider,
