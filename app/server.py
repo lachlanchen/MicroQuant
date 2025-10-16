@@ -2477,6 +2477,9 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
             closed = [{"ok": False, "error": str(exc)}]
 
         # 2) Update SL/TP for existing positions in the same direction
+        #    Rule: move both SL and TP to the mean (midpoint) of existing and plan values.
+        #    - SL updates only when sl_enabled and plan SL provided (client applies any nudge before sending).
+        #    - TP updates when plan TP provided.
         modified: list[dict] = []
         try:
             pos = mt5_client.list_positions(symbol)
@@ -2489,18 +2492,19 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                     continue
                 old_sl = float(p.get("sl") or 0.0) or None
                 old_tp = float(p.get("tp") or 0.0) or None
-                new_tp = None
+                # Take Profit: use midpoint between existing and plan TP when plan provided
                 if plan_tp is not None:
                     try:
                         plan_tp_f = float(plan_tp)
                         if old_tp is None or old_tp == 0:
                             new_tp = plan_tp_f
                         else:
-                            new_tp = min(old_tp, plan_tp_f) if side == "buy" else max(old_tp, plan_tp_f)
+                            new_tp = (old_tp + plan_tp_f) / 2.0
                     except Exception:
                         new_tp = old_tp
                 else:
                     new_tp = old_tp
+                # Stop Loss: only when enabled and plan SL provided; use midpoint (plan already nudged client-side)
                 new_sl = old_sl
                 if sl_enabled and (plan_sl is not None):
                     try:
@@ -2508,7 +2512,7 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                         if old_sl is None or old_sl == 0:
                             new_sl = plan_sl_f
                         else:
-                            new_sl = min(old_sl, plan_sl_f) if side == "buy" else max(old_sl, plan_sl_f)
+                            new_sl = (old_sl + plan_sl_f) / 2.0
                     except Exception:
                         new_sl = old_sl
                 # Only send modify if any change
