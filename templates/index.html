@@ -489,6 +489,12 @@
               <button class="btn secondary" id="btnInlinePlanMore" style="padding:6px 10px;">More</button>
             </div>
             <div id="aiPlanHistoryBox" style="display:none; margin-top:8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:160px; overflow:auto; font-size:12px; color:var(--muted);"></div>
+            <!-- Inline Deep Research selector (latest 5 with lazy load) -->
+            <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+              <span style="min-width:110px; color:var(--muted);">Deep Research</span>
+              <select id="inlineDeepSelect" style="min-width:220px; flex:1;"></select>
+              <button class="btn secondary" id="btnInlineDeepMore" style="padding:6px 10px;">More</button>
+            </div>
         <!-- Inline account selection for AI Buy/Sell (moved out of modal) -->
         <div class="row" style="gap:10px; align-items:center; margin-top:8px;">
           <span style="min-width:110px; color:var(--muted);">Account</span>
@@ -769,6 +775,11 @@
           <select id="selectTechRun" style="flex:1; min-width:220px;"></select>
           <button class="btn secondary" id="btnNewTechRun" style="padding:6px 10px;">New Check</button>
         </div>
+        <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
+          <span style="min-width:110px; color:var(--muted);">Deep</span>
+          <select id="selectDeepRun" style="flex:1; min-width:220px;"></select>
+          <button class="btn secondary" id="btnNewDeepRun" style="padding:6px 10px;">New Research</button>
+        </div>
         <!-- Plan selection hidden (no longer needed in UI) -->
         <div class="row" style="gap:8px; align-items:center; margin-top:6px; display:none;">
           <span style="min-width:110px; color:var(--muted);">Plan</span>
@@ -889,6 +900,14 @@
           <div class="row" style="gap:6px; align-items:center; margin-top:2px;">
             <span style="font-size:12px; color:var(--muted); min-width:80px;">Plan JSON</span>
             <select id="autoPlanSchemaMirror" style="min-width:260px; padding:4px 6px;" disabled></select>
+          </div>
+        <div id="autoMirrorDeepRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
+        <div style="display:flex; flex-direction:column; min-width:80px;">
+        <span style="font-size:12px; color:var(--muted);">Deep</span>
+        <span id="autoMirrorDeepStale" class="stale-badge" style="display:none;">Outdated</span>
+        <span id="autoMirrorDeepFresh" class="fresh-badge" style="display:none;">Up to date</span>
+        </div>
+            <select id="autoMirrorDeep" style="min-width:260px; padding:4px 6px;" disabled></select>
           </div>
           <!-- Account selection moved just below controls -->
           <div class="row" style="gap:6px; align-items:center; margin-top:2px;">
@@ -4957,6 +4976,37 @@ const ensureLwMacd = () => {
           /* ignore */
         }
       }
+
+      // Inline Deep Research dropdown (latest 5, lazy load)
+      let inlineDeepOffset = 0;
+      const inlineDeepSelect = document.getElementById('inlineDeepSelect');
+      const btnInlineDeepMore = document.getElementById('btnInlineDeepMore');
+      async function loadInlineDeepDropdown({ append=false, selectRunId=null }={}) {
+        if (!inlineDeepSelect) return;
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const params = new URLSearchParams();
+        if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
+        else { params.set('kind','stock'); params.set('symbol', sym); }
+        params.set('strategy','deep_research.json'); params.set('tf', tf); params.set('limit','5'); params.set('offset', String(inlineDeepOffset));
+        try {
+          const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = Array.isArray(js.runs) ? js.runs : [];
+          if (!append) inlineDeepSelect.innerHTML = '';
+          if (!runs.length && !append) { inlineDeepSelect.innerHTML = '<option value="">(no deep research)</option>'; return; }
+          const opts = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
+          inlineDeepSelect.insertAdjacentHTML('beforeend', opts);
+          if (!append) {
+            const defVal = selectRunId ? String(selectRunId) : (runs.length ? String(runs[0].id) : '');
+            if (defVal) inlineDeepSelect.value = defVal;
+          } else if (selectRunId) {
+            inlineDeepSelect.value = String(selectRunId);
+          }
+        } catch {}
+      }
+      if (inlineDeepSelect) { inlineDeepOffset = 0; loadInlineDeepDropdown({ append:false }).catch(()=>{}); }
+      if (btnInlineDeepMore) btnInlineDeepMore.addEventListener('click', async ()=> { inlineDeepOffset += 5; await loadInlineDeepDropdown({ append:true }); });
       async function renderSelectedPlan(runId) {
         const sym = currentSymbol();
         const tf = currentTf();
@@ -4989,6 +5039,7 @@ const ensureLwMacd = () => {
         const tf = currentTf();
         const basicSel = el('selectBasicRun');
         const techSel = el('selectTechRun');
+        const deepSel = el('selectDeepRun');
         // Basic
         try {
           const p = new URLSearchParams();
@@ -5044,6 +5095,21 @@ const ensureLwMacd = () => {
             techSel.innerHTML = runs2.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
             tradeState.techRunId = runs2.length ? runs2[0].id : null;
             techSel.onchange = () => { const v = Number(techSel.value); tradeState.techRunId = Number.isFinite(v)? v : null; };
+          }
+        } catch {}
+        // Deep Research
+        try {
+          const p = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
+          else { p.set('kind','stock'); p.set('symbol', sym); }
+          p.set('limit','5'); p.set('strategy','deep_research.json'); p.set('tf', tf);
+          let r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          let js = await r.json().catch(()=>({}));
+          let runs = Array.isArray(js.runs) ? js.runs : [];
+          if (deepSel) {
+            deepSel.innerHTML = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('');
+            tradeState.deepRunId = runs.length ? runs[0].id : null;
+            deepSel.onchange = () => { const v = Number(deepSel.value); tradeState.deepRunId = Number.isFinite(v)? v : null; };
           }
         } catch {}
       }
@@ -5112,6 +5178,26 @@ const ensureLwMacd = () => {
             await loadTradeSourceDropdowns();
             const techSel = el('selectTechRun');
             if (techSel) { techSel.value = String(js.run_id); techSel.dispatchEvent(new Event('change')); }
+            return js.run_id;
+          }
+        } catch {}
+        return null;
+      }
+      async function newDeepCheckForTrade() {
+        const sym = currentSymbol();
+        const tf = currentTf();
+        try {
+          const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
+          const model = document.getElementById('deepAiModel')?.value || '';
+          const body = { symbol: sym, timeframe: tf, news_count: n, strategy: (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json') };
+          if (model) body.model = model;
+          const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+          const js = await res.json().catch(()=>({}));
+          if (js && js.ok && js.run_id) {
+            await loadTradeSourceDropdowns();
+            const deepSel = el('selectDeepRun');
+            if (deepSel) { deepSel.value = String(js.run_id); deepSel.dispatchEvent(new Event('change')); }
+            try { await checkDeepFreshness(); } catch {}
             return js.run_id;
           }
         } catch {}
@@ -5214,8 +5300,10 @@ const ensureLwMacd = () => {
       if (btnAiBuySell) btnAiBuySell.addEventListener('click', ()=> { const b=btnAiBuySell; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…'; try { openTradePlan('BUY'); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 400); } });
       const btnNewBasicRun = document.getElementById('btnNewBasicRun');
       const btnNewTechRun = document.getElementById('btnNewTechRun');
+      const btnNewDeepRun = document.getElementById('btnNewDeepRun');
       if (btnNewBasicRun) btnNewBasicRun.addEventListener('click', newBasicCheckForTrade);
       if (btnNewTechRun) btnNewTechRun.addEventListener('click', newTechCheckForTrade);
+      if (btnNewDeepRun) btnNewDeepRun.addEventListener('click', newDeepCheckForTrade);
       if (planSelect) planSelect.addEventListener('change', () => { const v = Number(planSelect.value); if (Number.isFinite(v)) renderSelectedPlan(v); });
       if (btnPlanMore) btnPlanMore.addEventListener('click', () => { planSelectOffset += 5; loadPlanDropdown({ append: true }); });
       if (btnTradeStartBuy) btnTradeStartBuy.addEventListener('click', ()=> runAiTradePlan('BUY'));
@@ -5264,6 +5352,7 @@ const ensureLwMacd = () => {
         const tf = currentTf();
         const basicSel = document.getElementById('autoMirrorBasic');
         const techSel = document.getElementById('autoMirrorTech');
+        const deepSel = document.getElementById('autoMirrorDeep');
         const planSchemaSel = document.getElementById('autoPlanSchemaMirror');
         // Plan schema mirror from main plan selector
         try {
@@ -5299,6 +5388,20 @@ const ensureLwMacd = () => {
           if (techSel) {
             techSel.innerHTML = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('') || '<option value="">(none)</option>';
             if (runs.length) techSel.value = String(runs[0].id);
+          }
+        } catch {}
+        // Deep runs (latest 5)
+        try {
+          const p = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
+          else { p.set('kind','stock'); p.set('symbol', sym); }
+          p.set('strategy','deep_research.json'); p.set('tf', tf); p.set('limit','5'); p.set('offset','0');
+          const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = Array.isArray(js.runs) ? js.runs : [];
+          if (deepSel) {
+            deepSel.innerHTML = runs.map(run => `<option value="${String(run.id)}">${esc(runIdLabel(run))}</option>`).join('') || '<option value="">(none)</option>';
+            if (runs.length) deepSel.value = String(runs[0].id);
           }
         } catch {}
       }
@@ -5338,6 +5441,23 @@ const ensureLwMacd = () => {
           if (tFresh) tFresh.style.display = (techIsFresh  && !techIsStale)  ? 'inline-block' : 'none';
         } catch {}
       }
+      // Deep freshness indicators in Auto modal
+      async function updateAutoDeepFreshness() {
+        try {
+          const sym = currentSymbol();
+          const p = new URLSearchParams({ symbol: sym, strategy: 'deep_research.json' });
+          const r = await fetch(`/api/health/freshness?${p.toString()}`, { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const stale = !!(js && ((js.status === 'stale') || (js.new_count != null && Number(js.new_count) > 0)));
+          const fresh = !!(js && ((js.status === 'fresh') || (js.new_count != null && Number(js.new_count) === 0)));
+          const sEl = document.getElementById('autoMirrorDeepStale');
+          const fEl = document.getElementById('autoMirrorDeepFresh');
+          if (sEl) sEl.style.display = stale ? 'inline-block' : 'none';
+          if (fEl) fEl.style.display = (fresh && !stale) ? 'inline-block' : 'none';
+        } catch {}
+      }
+      // Keep Deep mirror synced when opening modal
+      (function(){ try { updateAutoDeepFreshness(); } catch {} })();
       // Keep plan schema mirror synced if user changes it in the plan modal
       (function(){ const mainPlanSchema = document.getElementById('tradePlanSchema'); if (mainPlanSchema) mainPlanSchema.addEventListener('change', ()=>{ try { updateAutoMirrors(); } catch {} }); })();
       if (btnAutoClose) btnAutoClose.addEventListener('click', () => {
@@ -6909,10 +7029,21 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               appendAutoLog(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`);
             }
           } catch {}
+          // Deep Research freshness
+          let dfj = null;
+          try {
+            const df = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent('deep_research.json')}`, { cache:'no-store' });
+            dfj = await df.json().catch(()=>({}));
+            if (df.ok && dfj && dfj.ok) {
+              const n = (dfj.new_count != null) ? Number(dfj.new_count) : NaN;
+              const label = (dfj.status === 'fresh' || (Number.isFinite(n) && n === 0)) ? 'fresh' : 'stale';
+              appendAutoLog(`Deep freshness: status=${label}${Number.isFinite(n)? ` new=${n}`:''}`);
+            }
+          } catch {}
           // Color mirrors based on freshness
           try { setAutoMirrorFreshness(hj, tfj); } catch {}
           // Decide whether to run new checks based on freshness
-          let runBasic = false, runTech = false;
+          let runBasic = false, runTech = false, runDeep = false;
           try {
             const bnew = Number(hj && hj.new_count != null ? hj.new_count : NaN);
             const bNoRun = !(hj && hj.last_run_at);
@@ -6926,11 +7057,29 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             // Treat unknown or no-run as stale → run, or stale+out>0
             runTech = (tstatus === 'unknown') || tNoRun || (tstatus === 'stale' && Number.isFinite(out) && out > 0);
           } catch {}
+          try {
+            const dstatus = (dfj && typeof dfj.status === 'string') ? dfj.status.toLowerCase() : 'unknown';
+            const dnew = Number(dfj && dfj.new_count != null ? dfj.new_count : NaN);
+            const dNoRun = !(dfj && dfj.last_run_at);
+            runDeep = (dstatus === 'unknown') || dNoRun || (Number.isFinite(dnew) && dnew > 0);
+          } catch {}
           if (runBasic) appendAutoLog((hj && hj.status === 'unknown') ? 'No recent Basic check — running new check…' : 'Outdated: Basic — running new check…'); else appendAutoLog('Basic is fresh — using latest run.');
           if (runTech) appendAutoLog((tfj && tfj.status === 'unknown') ? 'No recent Tech+AI — running new check…' : 'Outdated: Tech — running new check…'); else appendAutoLog('Tech is fresh — using latest run.');
-          let basicId = null, techId = null;
+          if (runDeep) appendAutoLog((dfj && dfj.status === 'unknown') ? 'No recent Deep Research — running new research…' : 'Outdated: Deep — running new research…'); else appendAutoLog('Deep is fresh — using latest research.');
+          let basicId = null, techId = null, deepId = null;
           if (runBasic) basicId = await newBasicCheckForTrade();
           if (runTech) techId = await newTechCheckForTrade();
+          if (runDeep) {
+            try {
+              const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
+              const model = document.getElementById('deepAiModel')?.value || '';
+              const payload = { symbol: sym, timeframe: tf, news_count: n, strategy: (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json') };
+              if (model) payload.model = model;
+              const r = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), cache:'no-store' });
+              const js = await r.json().catch(()=>({}));
+              if (r.ok && js && js.ok && Number.isFinite(Number(js.run_id))) { deepId = Number(js.run_id); appendAutoLog(`Deep run id=${deepId}`); }
+            } catch {}
+          }
           // If not run, pick latest for mirrors/alignment
           if (!basicId) {
             try {
@@ -6954,6 +7103,17 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               techId = (j0 && j0.runs && j0.runs[0] && j0.runs[0].id) || null;
             } catch {}
           }
+          if (!deepId) {
+            try {
+              const p = new URLSearchParams();
+              if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
+              else { p.set('kind','stock'); p.set('symbol', sym); }
+              p.set('strategy','deep_research.json'); p.set('tf', tf); p.set('limit','1');
+              const r0 = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+              const j0 = await r0.json().catch(()=>({}));
+              deepId = (j0 && j0.runs && j0.runs[0] && j0.runs[0].id) || null;
+            } catch {}
+          }
           // Update mirrors after checks and refresh colors
           try { await updateAutoMirrors(); } catch {}
           try {
@@ -6974,6 +7134,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           } catch {}
           if (basicId) appendAutoLog(`Basic run id=${basicId}`);
           if (techId) appendAutoLog(`Tech run id=${techId}`);
+          if (deepId) appendAutoLog(`Deep run id=${deepId}`);
           const params = new URLSearchParams();
           if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
           else { params.set('kind','stock'); params.set('symbol', sym); }
@@ -7114,6 +7275,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const tid = (latest && latest.id) ? Number(latest.id) : (Number.isFinite(Number(techId)) ? Number(techId) : NaN);
               if (Number.isFinite(tid)) body.tech_run_id = tid;
             } catch {}
+            try { if (Number.isFinite(Number(deepId))) body.deep_run_id = Number(deepId); } catch {}
             const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await r.json().catch(()=>({}));
             return { ok: !!(js && js.ok), data: js };
@@ -7333,6 +7495,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           try { if (Number.isFinite(Number(tradeState.basicRunId))) body.basic_run_id = Number(tradeState.basicRunId); } catch {}
           try { if (Number.isFinite(Number(tradeState.techRunId))) body.tech_run_id = Number(tradeState.techRunId); } catch {}
+          try { if (Number.isFinite(Number(tradeState.deepRunId))) body.deep_run_id = Number(tradeState.deepRunId); } catch {}
+          try { const deepSel = document.getElementById('inlineDeepSelect'); const deepId = Number(deepSel && deepSel.value); if (Number.isFinite(deepId)) body.deep_run_id = deepId; } catch {}
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) {
@@ -10322,6 +10486,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const tfres = await fetch(`/api/tech/freshness?${tfq.toString()}`, { cache:'no-store' });
           const tj = await tfres.json().catch(()=>({}));
           setAutoMirrorFreshness(hj, tj);
+          try { await updateAutoDeepFreshness(); } catch {}
         } catch {}
         // history and clear log
         if (getAutoLogBoxEl()) getAutoLogBoxEl().innerHTML = '';

@@ -5198,6 +5198,10 @@ class TradePlanHandler(tornado.web.RequestHandler):
             tech_run_id = int(payload.get("tech_run_id")) if payload.get("tech_run_id") is not None else None
         except Exception:
             tech_run_id = None
+        try:
+            deep_run_id = int(payload.get("deep_run_id")) if payload.get("deep_run_id") is not None else None
+        except Exception:
+            deep_run_id = None
         if action not in {"BUY", "SELL"}:
             self.set_status(400)
             self.finish(json.dumps({"ok": False, "error": "action must be BUY or SELL"}))
@@ -5233,6 +5237,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
 
         basic_run = None
         tech_run = None
+        deep_run = None
         if basic_run_id is not None:
             try:
                 basic_run = await get_health_run_by_id(self.pool, basic_run_id)
@@ -5243,10 +5248,17 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 tech_run = await get_health_run_by_id(self.pool, tech_run_id)
             except Exception:
                 tech_run = None
+        if deep_run_id is not None:
+            try:
+                deep_run = await get_health_run_by_id(self.pool, deep_run_id)
+            except Exception:
+                deep_run = None
         if basic_run is None:
             basic_run = await _latest_run(basic_strategy)
         if tech_run is None:
             tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
+        if deep_run is None:
+            deep_run = await _latest_run("deep_research.json")
 
         # Ensure prerequisite reports exist: if missing, trigger them via the same API
         # so they are persisted to history just like a frontend click.
@@ -5343,6 +5355,15 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     sl_str = _fmt_num(sl_val)
                     tp_str = _fmt_num(tp_val)
                     q_expl = str(aval.get("explanation") or base_expl)
+                    # If this is a Deep Research run, include the research text above the position line
+                    try:
+                        strat_name = str(strategy or "")
+                        if strat_name == "deep_research.json":
+                            dr_text = str(aval.get("deep_research") or "").strip()
+                            if dr_text:
+                                lines.append(f"{i}.\n{dr_text}")
+                    except Exception:
+                        pass
                     block_lines: list[str] = [f"{i}.", pos]
                     sltp: list[str] = []
                     if sl_str is not None:
@@ -5359,8 +5380,48 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     lines.append(f"{i}.\n{aval_str}\n{base_expl}")
             return "\n".join(parts + lines)
 
+        # Deep block prioritizes the long-form research text when available
+        def _format_deep_block(run: dict | None) -> str:
+            if not run:
+                return "(no recent run)"
+            try:
+                ans = run.get("answers_json") or {}
+                qlist = ans.get("questions") or []
+                if not qlist:
+                    return _format_run_block(run)
+                first = qlist[0]
+                aval = first.get("answer") if isinstance(first, dict) else None
+                if not isinstance(aval, dict):
+                    return _format_run_block(run)
+                out_lines: list[str] = []
+                dr = str(aval.get("deep_research") or "").strip()
+                if dr:
+                    out_lines.append(dr)
+                pos = str(aval.get("position") or "").upper()
+                legs: list[str] = []
+                if pos:
+                    legs.append(pos)
+                try:
+                    if aval.get("sl") is not None:
+                        sval = f"{float(aval.get('sl')):.2f}" if isinstance(aval.get("sl"), (int, float)) else str(aval.get("sl"))
+                        legs.append(f"SL {sval}")
+                except Exception:
+                    pass
+                try:
+                    if aval.get("tp") is not None:
+                        tval = f"{float(aval.get('tp')):.2f}" if isinstance(aval.get("tp"), (int, float)) else str(aval.get("tp"))
+                        legs.append(f"TP {tval}")
+                except Exception:
+                    pass
+                if legs:
+                    out_lines.append(" • ".join(legs))
+                return "\n".join(out_lines)
+            except Exception:
+                return _format_run_block(run)
+
         basic_block = _format_run_block(basic_run)
         tech_block = _format_run_block(tech_run)
+        deep_block = _format_deep_block(deep_run)
 
         # Build final prompt
         prompts = self._load_trade_prompts()
@@ -5374,6 +5435,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
             template
             .replace("{{SYMBOL}}", symbol)
             .replace("{{TF}}", timeframe)
+            .replace("{{DEEP_BLOCK}}", deep_block)
             .replace("{{BASIC_HEALTH_BLOCK}}", basic_block)
             .replace("{{TECH_AI_BLOCK}}", tech_block)
             .replace("{{TECH_SNAPSHOT_BLOCK}}", snapshot_text)
@@ -5586,6 +5648,11 @@ class TradePlanHandler(tornado.web.RequestHandler):
             try:
                 if raw.get("tech_run_id") is not None:
                     answers_json["meta"]["tech_run_id"] = int(raw.get("tech_run_id"))
+            except Exception:
+                pass
+            try:
+                if raw.get("deep_run_id") is not None:
+                    answers_json["meta"]["deep_run_id"] = int(raw.get("deep_run_id"))
             except Exception:
                 pass
             ins = await insert_health_run(
