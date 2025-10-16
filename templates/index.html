@@ -1452,6 +1452,25 @@
         } catch {}
       })();
 
+      // Deep Research template + news count preferences
+      (function initDeepPrefs(){
+        try {
+          const stratSel = el('deepStrategy');
+          const newsInput = el('deepNewsCount');
+          if (stratSel) stratSel.addEventListener('change', () => { try { queuePrefUpdate('deep_strategy', stratSel.value || ''); } catch {} });
+          if (newsInput) newsInput.addEventListener('change', () => { try { queuePrefUpdate('deep_news_count', newsInput.value || ''); } catch {} });
+          (async () => {
+            try {
+              const r = await fetch(`${PREF_ENDPOINT}?keys=deep_strategy,deep_news_count`, { cache: 'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const p = (js && js.prefs) || {};
+              if (stratSel && typeof p.deep_strategy === 'string' && p.deep_strategy) stratSel.value = p.deep_strategy;
+              if (newsInput && typeof p.deep_news_count === 'string' && p.deep_news_count) newsInput.value = p.deep_news_count;
+            } catch {}
+          })();
+        } catch {}
+      })();
+
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
         const date = new Date(iso);

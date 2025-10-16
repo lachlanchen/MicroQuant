@@ -1085,6 +1085,9 @@ PREF_KEYS = [
     "trade_ai_model",
     "basic_ai_model",
     "tech_ai_model",
+    "deep_ai_model",
+    "deep_strategy",
+    "deep_news_count",
     "balance_poll_min",
     "closed_orders_poll_min",
 ]
