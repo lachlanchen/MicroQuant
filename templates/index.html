@@ -384,6 +384,12 @@
                   <option value="deepseek-reasoner">deepseek-reasoner</option>
                 </select>
               </label>
+              <!-- Deep Research quick controls -->
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Recent news</span>
+                <input id="deepNewsCount" type="number" min="1" max="500" value="100" style="width:72px;" />
+              </label>
+              <button class="btn" id="btnDeepResearch" style="padding:6px 10px;">Basic Deep Research</button>
               <button class="btn" id="btnHealthCheck" style="padding:6px 10px;">Basic Health Check</button>
               <span id="healthFreshIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
               <span id="healthSignalIndicator" class="pill" style="display:inline-block; font-size:12px;">—</span>
@@ -660,7 +666,7 @@
         </div>
       </div>
     </div>
-    <!-- Health Check Modal -->
+  <!-- Health Check Modal -->
     <div id="healthModal" style="position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); z-index:1000;">
       <div style="background:#fff; border-radius:8px; border:1px solid var(--line); padding:12px; width:min(760px, 94vw); max-height:86vh; overflow:auto;">
         <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; z-index:5; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line);">
@@ -674,8 +680,29 @@
           <div class="row" style="gap:8px; margin-top:6px;">
             <button class="btn secondary" id="btnHealthMore" style="padding:6px 10px;">More</button>
             <button class="btn" id="btnHealthStart" style="padding:6px 10px;">Start</button>
-          </div>
+  </div>
+  </div>
+
+  <!-- Deep Research Modal -->
+  <div id="deepResearchModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true" style="display:none;">
+    <div class="modal" style="max-width:820px; width:92vw;">
+      <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:var(--bg); z-index:2; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line);">
+        <strong style="color:var(--accent)">Deep Research</strong>
+        <div class="row" style="gap:8px; align-items:center;">
+          <button class="btn secondary" id="btnDeepStart" style="padding:6px 10px;">Start</button>
+          <button class="btn secondary" id="btnDeepClose" style="padding:6px 10px;">Close</button>
         </div>
+      </div>
+      <div id="deepResearchInfo" style="color:var(--muted); font-size:13px; margin-bottom:6px;"></div>
+      <div class="row" style="gap:8px; align-items:flex-start;">
+        <div id="deepResearchList" style="flex:1; min-width:280px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; max-height:340px; overflow:auto;"></div>
+        <div id="deepResearchDetail" style="flex:2; min-height:160px; border:1px solid var(--line); border-radius:8px; background:var(--panel); padding:8px; overflow:auto;"></div>
+      </div>
+      <div class="row" style="justify-content:flex-end; margin-top:8px;">
+        <button class="btn secondary" id="btnDeepMore" style="padding:6px 10px;">More</button>
+      </div>
+    </div>
+  </div>
         <div id="healthResultsBox" style="margin-top:10px;"></div>
       </div>
     </div>
@@ -3699,6 +3726,149 @@ const ensureLwMacd = () => {
         } catch {}
       }
       if (btnHealthCheck) btnHealthCheck.addEventListener('click', openHealthAuto);
+
+      // Deep Research: UI wiring
+      const btnDeepResearch = document.getElementById('btnDeepResearch');
+      const deepModal = document.getElementById('deepResearchModal');
+      const btnDeepStart = document.getElementById('btnDeepStart');
+      const btnDeepClose = document.getElementById('btnDeepClose');
+      const btnDeepMore = document.getElementById('btnDeepMore');
+      let deepHistoryOffset = 0;
+      function deepStrategyName() { return 'deep_research.json'; }
+      function openDeepModal() {
+        if (!deepModal) return;
+        deepModal.style.display = 'flex';
+        deepModal.setAttribute('aria-hidden','false');
+        deepHistoryOffset = 0;
+        loadDeepHistory({ append:false }).catch(()=>{});
+      }
+      function closeDeepModal() { if (deepModal) { deepModal.style.display='none'; deepModal.setAttribute('aria-hidden','true'); } }
+      if (btnDeepResearch) btnDeepResearch.addEventListener('click', openDeepModal);
+      if (btnDeepClose) btnDeepClose.addEventListener('click', closeDeepModal);
+      if (btnDeepMore) btnDeepMore.addEventListener('click', () => { deepHistoryOffset += 10; loadDeepHistory({ append:true }).catch(()=>{}); });
+
+      async function runDeepResearch() {
+        const sym = currentSymbol();
+        const tf = currentTf();
+        const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
+        const model = document.getElementById('basicAiModel')?.value || '';
+        const payload = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategyName() };
+        if (model) payload.model = model;
+        const detail = document.getElementById('deepResearchDetail');
+        if (detail) detail.innerHTML = '<em style="color:var(--muted)">Running deep research…</em>';
+        try {
+          const r = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          if (!r.ok || !js || js.ok !== true) { if (detail) detail.innerHTML = `<em style=color:var(--sell)>Failed: ${esc((js&&js.error)||r.statusText||'unknown')}</em>`; return; }
+          // Show result
+          const ans = (Array.isArray(js.answers) && js.answers[0] && (js.answers[0].answer || js.answers[0].Answer)) || js.position || {};
+          const dr = ans.deep_research || ans.explanation || '';
+          const pos = (ans.position || '').toString().toUpperCase();
+          const sl = (ans.sl != null) ? ans.sl : (ans.stop_loss != null ? ans.stop_loss : '');
+          const tp = (ans.tp != null) ? ans.tp : (ans.take_profit != null ? ans.take_profit : '');
+          const created = js.created_at ? new Date(js.created_at).toLocaleString() : '';
+          const html = `
+            <div class="row" style="justify-content:space-between; align-items:center;">
+              <strong>${esc(sym)} ${esc(tf)}</strong>
+              <span style="font-size:12px; color:var(--muted)">${esc(created)}</span>
+            </div>
+            <div style="margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;">
+              <span class="pill" style="background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};">${esc(pos||'—')}</span>
+              <span class="pill">SL: ${esc(sl)}</span>
+              <span class="pill">TP: ${esc(tp)}</span>
+            </div>
+            <div style="white-space:pre-wrap;">${esc(dr || '')}</div>`;
+          if (detail) detail.innerHTML = html;
+          // Refresh history
+          deepHistoryOffset = 0;
+          await loadDeepHistory({ append:false });
+        } catch (e) {
+          if (detail) detail.innerHTML = `<em style=color:var(--sell)>Error: ${esc(e && e.message || e)}</em>`;
+        }
+      }
+      if (btnDeepStart) btnDeepStart.addEventListener('click', runDeepResearch);
+
+      async function loadDeepHistory({ append=false }={}) {
+        const list = document.getElementById('deepResearchList');
+        const info = document.getElementById('deepResearchInfo');
+        const sym = currentSymbol();
+        const tf = currentTf();
+        if (!append) { if (list) list.innerHTML = '<em style="color:var(--muted)">Loading…</em>'; }
+        try {
+          const p = new URLSearchParams();
+          // Auto kind via symbol
+          p.set('symbol', sym);
+          p.set('limit','10');
+          p.set('offset', String(deepHistoryOffset||0));
+          p.set('strategy', deepStrategyName());
+          p.set('tf', tf);
+          const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const runs = Array.isArray(js.runs) ? js.runs : [];
+          // Sort newest first (API may already do this)
+          runs.sort((a,b)=> new Date(b.created_at||0).getTime() - new Date(a.created_at||0).getTime());
+          if (info) info.textContent = `TF ${tf} • ${sym}`;
+          const rowHtml = runs.map(run => {
+            const t = run.created_at ? new Date(run.created_at).toLocaleString() : '';
+            const ans = run.answers || run.answers_json || {};
+            const meta = ans.meta || {};
+            const first = Array.isArray(ans.questions) && ans.questions.length ? (ans.questions[0].answer || ans.questions[0].Answer || {}) : (ans.position || {});
+            const pos = (first.position || '').toString().toUpperCase();
+            const sl = (first.sl != null) ? first.sl : '';
+            const tp = (first.tp != null) ? first.tp : '';
+            return `<div class="row deep-item" data-id="${esc(String(run.id))}" style="gap:8px; align-items:center; cursor:pointer; padding:6px; border-radius:6px;">
+              <span style="min-width:88px; color:var(--muted); font-size:12px;">${esc(t)}</span>
+              <strong style="min-width:64px;">${esc(pos||'—')}</strong>
+              <span class="pill">SL ${esc(sl)}</span>
+              <span class="pill">TP ${esc(tp)}</span>
+            </div>`;
+          }).join('');
+          if (list) list.innerHTML = append ? (list.innerHTML + rowHtml) : (rowHtml || '<em style="color:var(--muted)">No deep research yet</em>');
+          // Click to show detail
+          if (list) {
+            list.querySelectorAll('.deep-item').forEach(el => {
+              el.addEventListener('click', async () => {
+                const rid = el.getAttribute('data-id');
+                if (!rid) return;
+                const detail = document.getElementById('deepResearchDetail');
+                const p2 = new URLSearchParams();
+                p2.set('symbol', sym);
+                p2.set('limit','1');
+                p2.set('offset','0');
+                p2.set('strategy', deepStrategyName());
+                // Fetch a small window and find the id locally
+                const r2 = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
+                const j2 = await r2.json().catch(()=>({}));
+                let row = null;
+                const arr = Array.isArray(j2.runs) ? j2.runs : [];
+                for (const it of arr) { if (String(it.id) === String(rid)) { row = it; break; } }
+                if (!row) { if (detail) detail.innerHTML = '<em style=color:var(--muted)>Not found in recent results</em>'; return; }
+                const ans = row.answers || row.answers_json || {};
+                const first = Array.isArray(ans.questions) && ans.questions.length ? (ans.questions[0].answer || ans.questions[0].Answer || {}) : (ans.position || {});
+                const dr = first.deep_research || first.explanation || '';
+                const pos = (first.position || '').toString().toUpperCase();
+                const sl = (first.sl != null) ? first.sl : '';
+                const tp = (first.tp != null) ? first.tp : '';
+                const created = row.created_at ? new Date(row.created_at).toLocaleString() : '';
+                const html = `
+                  <div class="row" style="justify-content:space-between; align-items:center;">
+                    <strong>${esc(sym)} ${esc(tf)}</strong>
+                    <span style="font-size:12px; color:var(--muted)">${esc(created)}</span>
+                  </div>
+                  <div style="margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;">
+                    <span class="pill" style="background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};">${esc(pos||'—')}</span>
+                    <span class="pill">SL: ${esc(sl)}</span>
+                    <span class="pill">TP: ${esc(tp)}</span>
+                  </div>
+                  <div style="white-space:pre-wrap;">${esc(dr || '')}</div>`;
+                if (detail) detail.innerHTML = html;
+              });
+            });
+          }
+        } catch (e) {
+          if (list) list.innerHTML = `<em style=color:var(--sell)>Error: ${esc(e && e.message || e)}</em>`;
+        }
+      }
       const healthFreshEl = document.getElementById('healthFreshIndicator');
       const setHealthFreshRunning = () => {
         if (!healthFreshEl) return;

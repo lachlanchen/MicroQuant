@@ -1,0 +1,29 @@
+{
+  "type": "llm_strategy",
+  "name": "Deep Research (1Q)",
+  "description": "Single-question deep research using recent news and prices; returns multi-aspect analysis plus position with SL/TP.",
+  "questions": [
+    {
+      "id": "DR1",
+      "text": "Draft a deep, multi-aspect research brief for this instrument (macro drivers, technical context, flows/sentiment, risks, and catalysts). Conclude with a decisive trading stance (BUY for long / SELL for short) and reasonable stop-loss and take-profit based on the evidence."
+    }
+  ],
+  "question_response_schema": {
+    "type": "object",
+    "properties": {
+      "deep_research": { "type": "string", "minLength": 40 },
+      "position": { "type": "string", "enum": ["BUY", "SELL"] },
+      "sl": { "type": "number" },
+      "tp": { "type": "number" }
+    },
+    "required": ["deep_research", "position", "sl", "tp"],
+    "additionalProperties": false
+  },
+  "scoring": {
+    "thresholds": [
+      { "min": -999, "max": 0, "signal": "SELL" },
+      { "min": 1, "max": 999, "signal": "BUY" }
+    ]
+  }
+}
+

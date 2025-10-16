@@ -393,6 +393,8 @@ ALLOWED_STRATEGIES: dict[str, set[str]] = {
         "metal_pair_compact_10q.json",
         # Tech snapshot remains available for Tech+AI flows
         "tech_snapshot_10q.json",
+        # Deep research (single-question, long-form analysis + position)
+        "deep_research.json",
     },
     "stock": {
         # Compact 10Q + Position (default) and plain 10Q
@@ -400,6 +402,8 @@ ALLOWED_STRATEGIES: dict[str, set[str]] = {
         "stocks_compact_10q.json",
         # Tech snapshot remains available for Tech+AI flows
         "tech_snapshot_10q.json",
+        # Deep research (single-question, long-form analysis + position)
+        "deep_research.json",
     },
 }
 
