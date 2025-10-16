@@ -5498,8 +5498,12 @@ const ensureLwMacd = () => {
             const position = (ans.plan && ans.plan.position) ? String(ans.plan.position) : '';
             const hasLinkedIds = Number.isFinite(Number(meta.basic_run_id)) && Number.isFinite(Number(meta.tech_run_id));
             if (hasLinkedIds) {
-              // Explicitly linked: show plan as valid
-              stylePlanPill(planEl, position || '');
+              // Accept only if the linked Basic/Tech runs are still the latest for this TF
+              const basicLatest = await fetchLatestRun(sym, tf, 'basic');
+              const techLatest = await fetchLatestRun(sym, tf, 'tech');
+              const idMatches = !!(basicLatest && techLatest && Number(basicLatest.id) === Number(meta.basic_run_id) && Number(techLatest.id) === Number(meta.tech_run_id));
+              if (idMatches) { stylePlanPill(planEl, position || ''); }
+              else { stylePlanPill(planEl, null, 'misaligned'); }
               continue;
             }
             // Heuristic fallback for older plans (created before linkage):
