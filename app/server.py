@@ -76,40 +76,42 @@ def _symbol_kind(sym: str) -> str:
     return "stock"
 
 async def _resolve_symbol_weight(symbol: str) -> float:
-    """Resolve per-symbol weight with fallback to kind default; default 1.0.
+    """Resolve per-symbol weight with fallback to kind default.
 
+    Defaults: forex=0.1, metal=1, stock=1 (matches client).
     Reads preferences: symbol_weight:<SYMBOL>, kind_weight:forex, kind_weight:metal, kind_weight:stock
     """
+    s = str(symbol or "").upper()
+    # Defaults by kind
+    kind = _symbol_kind(s)
+    default = 0.1 if kind == "forex" else 1.0
     try:
-        s = str(symbol or "").upper()
         if GLOBAL_POOL is None:
-            return 1.0
+            return default
         keys = [f"symbol_weight:{s}", "kind_weight:forex", "kind_weight:metal", "kind_weight:stock"]
         prefs = await get_prefs(GLOBAL_POOL, keys)
         # Per-symbol override
-        try:
-            v = float(prefs.get(f"symbol_weight:{s}") or "")
-            if v > 0:
-                return v
-        except Exception:
-            pass
-        # Fallback to kind default (mirror client defaults: forex=0.1, metal=1, stock=1)
-        kind = _symbol_kind(s)
-        try:
-            if kind == "forex":
-                v = float(prefs.get("kind_weight:forex") or "")
-                return v if v > 0 else 0.1
-            if kind == "metal":
-                v = float(prefs.get("kind_weight:metal") or "")
-                return v if v > 0 else 1.0
-            if kind == "stock":
-                v = float(prefs.get("kind_weight:stock") or "")
-                return v if v > 0 else 1.0
-        except Exception:
-            pass
-        return 1.0
+        raw = prefs.get(f"symbol_weight:{s}")
+        if raw is not None and str(raw).strip() != "":
+            try:
+                v = float(raw)
+                if v > 0:
+                    return v
+            except Exception:
+                pass
+        # Kind fallback
+        key = f"kind_weight:{kind}"
+        rawk = prefs.get(key)
+        if rawk is not None and str(rawk).strip() != "":
+            try:
+                v = float(rawk)
+                if v > 0:
+                    return v
+            except Exception:
+                pass
+        return default
     except Exception:
-        return 1.0
+        return default
 
 WS_CLIENTS: set = set()
 NEWS_BACKFILL_CB = None
