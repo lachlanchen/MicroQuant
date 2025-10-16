@@ -2614,6 +2614,41 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
             tp_val = float(plan_tp) if (plan_tp is not None) else None
         except Exception:
             tp_val = None
+        # Preflight broker stop distance: if TP/SL violate stops_level, drop them for placement
+        try:
+            info = mt5_client.symbol_info(symbol)
+            point = float(getattr(info, "point", 0.0) or 0.0) if info else 0.0
+            stops_lvl = None
+            for k in ("trade_stops_level", "stops_level"):
+                try:
+                    v = getattr(info, k)
+                    if v is not None:
+                        stops_lvl = float(v)
+                        break
+                except Exception:
+                    continue
+            min_dist = (stops_lvl or 0.0) * point
+            # Fetch current price for side
+            px = None
+            try:
+                t = mt5_client.get_tick(symbol)
+                if t:
+                    px = float(t.get("ask") if side == "buy" else t.get("bid"))
+            except Exception:
+                px = None
+            if px is not None and min_dist and min_dist > 0.0:
+                if tp_val is not None:
+                    dist = (tp_val - px) if side == "buy" else (px - tp_val)
+                    if dist < min_dist:
+                        logger.info("/api/trade/execute_plan drop TP for placement: dist=%.6f < min=%.6f price=%.6f tp=%.6f", dist, min_dist, px, tp_val)
+                        tp_val = None
+                if sl_val is not None:
+                    dist = (px - sl_val) if side == "buy" else (sl_val - px)
+                    if dist < min_dist:
+                        logger.info("/api/trade/execute_plan drop SL for placement: dist=%.6f < min=%.6f price=%.6f sl=%.6f", dist, min_dist, px, sl_val)
+                        sl_val = None
+        except Exception:
+            pass
         try:
             res = mt5_client.place_market(symbol, side, volume, sl=sl_val, tp=tp_val)
         except Exception as e:
