@@ -7,6 +7,7 @@
   <link rel="manifest" href="/static/manifest.webmanifest">
   <meta name="theme-color" content="#1976d2" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <link rel="apple-touch-icon" href="/static/logo.png" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
   <!-- Time scale adapter for Chart.js -->
@@ -10761,17 +10762,12 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       if (btnManageSymbolsClose) btnManageSymbolsClose.addEventListener('click', closeManageSymbols);
       if (btnCancelSymbols) btnCancelSymbols.addEventListener('click', closeManageSymbols);
       if (btnSaveSymbols) btnSaveSymbols.addEventListener('click', saveManageSymbols);
-
+    </script>
   </body>
   </html>
-      // Manage Symbols & Weights UI
-      const btnManageSymbolsOpen = document.getElementById('btnManageSymbolsOpen');
-      const manageSymbolsModal = document.getElementById('manageSymbolsModal');
-      const btnManageSymbolsClose = document.getElementById('btnManageSymbolsClose');
-      const btnSaveSymbols = document.getElementById('btnSaveSymbols');
-      const btnCancelSymbols = document.getElementById('btnCancelSymbols');
-      const btnAddSymbolRow = document.getElementById('btnAddSymbolRow');
-      const newSymbolInput = document.getElementById('newSymbolInput');
+    </script>
+  </body>
+  </html>
       const symbolWeightsBox = document.getElementById('symbolWeightsBox');
       const kindWeightForex = document.getElementById('kindWeightForex');
       const kindWeightMetal = document.getElementById('kindWeightMetal');
