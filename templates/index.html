@@ -3766,39 +3766,67 @@ const ensureLwMacd = () => {
         const sel = document.getElementById('deepStrategy');
         return (sel && sel.value) ? sel.value : 'deep_research.json';
       }
+      function deepLog(msg, level='log') {
+        try {
+          const p = `[Deep] ${msg}`;
+          if (level === 'warn') console.warn(p);
+          else if (level === 'error') console.error(p);
+          else console.log(p);
+        } catch {}
+      }
       function openDeepModal() {
-        if (!deepModal) return;
-        deepModal.style.display = 'flex';
-        deepModal.setAttribute('aria-hidden','false');
-        deepHistoryOffset = 0;
-        loadDeepHistory({ append:false }).catch(()=>{});
+        deepLog('openDeepModal() called');
+        if (!deepModal) { deepLog('deepModal element not found', 'error'); return; }
+        try {
+          deepLog('Before open: display=' + String(deepModal.style.display||'(inline-none)'));
+          deepModal.style.display = 'flex';
+          deepModal.style.zIndex = '9999';
+          deepModal.setAttribute('aria-hidden','false');
+          try {
+            const cs = window.getComputedStyle(deepModal);
+            deepLog('Computed after open: display=' + cs.display + ' visibility=' + cs.visibility + ' opacity=' + cs.opacity);
+          } catch {}
+          if (typeof deepModal.focus === 'function') { try { deepModal.focus(); } catch {} }
+        } catch (e) {
+          deepLog('Failed to show modal: ' + (e && e.message || e), 'error');
+        }
+        try {
+          deepHistoryOffset = 0;
+          loadDeepHistory({ append:false }).catch(err => deepLog('loadDeepHistory failed: ' + (err && err.message || err), 'warn'));
+        } catch (e) {
+          deepLog('Post-open loadDeepHistory threw: ' + (e && e.message || e), 'warn');
+        }
       }
       function closeDeepModal() { if (deepModal) { deepModal.style.display='none'; deepModal.setAttribute('aria-hidden','true'); } }
-      const _openAndRunDeep = () => { try { openDeepModal(); } catch {} try { runDeepResearch(); } catch {} };
-      if (btnDeepResearch) btnDeepResearch.addEventListener('click', (e) => { e.preventDefault(); _openAndRunDeep(); });
+      const _openAndRunDeep = () => { try { openDeepModal(); } catch (e) { deepLog('openDeepModal threw: ' + (e && e.message || e), 'error'); } try { runDeepResearch(); } catch (e) { deepLog('runDeepResearch threw: ' + (e && e.message || e), 'error'); } };
+      if (btnDeepResearch) { deepLog('Binding direct click for #btnDeepResearch (present=' + !!btnDeepResearch + ', modal=' + !!deepModal + ')'); btnDeepResearch.addEventListener('click', (e) => { try { e.preventDefault(); } catch {} deepLog('Direct click on #btnDeepResearch'); _openAndRunDeep(); }); } else { deepLog('#btnDeepResearch not found at bind time', 'warn'); }
       // Defensive: delegate in case direct binding failed due to re-render
       document.addEventListener('click', (ev) => {
         const t = ev && ev.target;
         if (!t) return;
         const id = t.id || (t.getAttribute && t.getAttribute('id')) || '';
-        if (id === 'btnDeepResearch') { try { ev.preventDefault(); } catch {} _openAndRunDeep(); }
+        if (id === 'btnDeepResearch') { deepLog('Delegated click on #btnDeepResearch'); try { ev.preventDefault(); } catch {} _openAndRunDeep(); }
       });
       if (btnDeepClose) btnDeepClose.addEventListener('click', closeDeepModal);
       if (btnDeepMore) btnDeepMore.addEventListener('click', () => { deepHistoryOffset += 10; loadDeepHistory({ append:true }).catch(()=>{}); });
 
       async function runDeepResearch() {
+        deepLog('runDeepResearch() starting');
         const sym = currentSymbol();
         const tf = currentTf();
         const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
         const model = document.getElementById('deepAiModel')?.value || '';
         const payload = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategyName() };
+        deepLog(`payload symbol=${sym} tf=${tf} news=${n} strategy=${payload.strategy} model=${model||'(default)'} `);
         if (model) payload.model = model;
         const detail = document.getElementById('deepResearchDetail');
         if (detail) detail.innerHTML = '<em style="color:var(--muted)">Running deep research…</em>';
         try {
+          deepLog('POST /api/health/run');
           const r = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
-          if (!r.ok || !js || js.ok !== true) { if (detail) detail.innerHTML = `<em style=color:var(--sell)>Failed: ${esc((js&&js.error)||r.statusText||'unknown')}</em>`; return; }
+          deepLog('health.run response ok=' + r.ok + ' js.ok=' + (js && js.ok));
+          if (!r.ok || !js || js.ok !== true) { if (detail) detail.innerHTML = `<em style=color:var(--sell)>Failed: ${esc((js&&js.error)||r.statusText||'unknown')}</em>`; deepLog('health.run failed: ' + ((js&&js.error)||r.statusText||'unknown'), 'warn'); return; }
           // Show result
           const ans = (Array.isArray(js.answers) && js.answers[0] && (js.answers[0].answer || js.answers[0].Answer)) || js.position || {};
           const dr = ans.deep_research || ans.explanation || '';
@@ -3818,6 +3846,7 @@ const ensureLwMacd = () => {
             </div>
             <div style="white-space:pre-wrap;">${esc(dr || '')}</div>`;
           if (detail) detail.innerHTML = html;
+          deepLog('Rendered deep result; pos=' + pos + ' sl=' + sl + ' tp=' + tp);
           // Update inline Deep indicators
           try {
             if (deepPosEl) {
@@ -3839,8 +3868,10 @@ const ensureLwMacd = () => {
           // Refresh history
           deepHistoryOffset = 0;
           await loadDeepHistory({ append:false });
+          deepLog('Deep history refreshed');
         } catch (e) {
           if (detail) detail.innerHTML = `<em style=color:var(--sell)>Error: ${esc(e && e.message || e)}</em>`;
+          deepLog('runDeepResearch error: ' + (e && e.message || e), 'error');
         }
       }
       if (btnDeepStart) btnDeepStart.addEventListener('click', runDeepResearch);
