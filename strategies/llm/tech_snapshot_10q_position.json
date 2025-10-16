@@ -7,7 +7,7 @@
   "created_at": "2025-10-13T00:00:00Z",
   "description": "Interpretive technical analysis using recent snapshot values for trend, momentum, volatility, and volume. Each question returns a trade orientation JSON.",
   "questions": [
-    { "id": "tq_01", "category": "trend", "text": "Looking at the relationship between close price, STL trend, and STL speed - does the overall trend structure favor BUY or SELL?" },
+    { "id": "tq_01", "category": "trend", "text": "Draft a deep, multi-aspect technical research brief for this instrument using the provided snapshot: STL components (trend, seasonal, residual), STL speed and acceleration, RSI, MACD (line/signal/histogram), ADX with +DI/-DI, ATR, volume, and recent OHLC structure. Synthesize these signals to determine the dominant technical orientation. Include a detailed chain of thinking for this technical analysis (clearly enumerated reasoning steps), then conclude with a decisive trading stance (BUY or SELL) and derive a reasonable stop-loss and take-profit from objective market structure (e.g., recent swing highs/lows, ATR bands, key support/resistance). Return only JSON matching {position:'BUY'|'SELL', sl:number, tp:number, explanation:string}." },
     { "id": "tq_02", "category": "trend", "text": "Examining STL residuals over the past N bars - do residuals support a BUY or SELL bias?" },
     { "id": "tq_03", "category": "trend", "text": "Considering both STL speed and acceleration together - does momentum skew toward BUY or SELL?" },
     { "id": "mom_04", "category": "momentum", "text": "Analyzing RSI, MACD, and their recent trajectory - do momentum indicators favor BUY or SELL?" },
