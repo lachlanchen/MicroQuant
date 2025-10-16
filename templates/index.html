@@ -6105,6 +6105,18 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           log(`Order placed: id=${ordId}`);
         } else {
           if (tj && tj.error === 'invalid_stops_preflight') {
+            try {
+              const d = tj.details || {};
+              const side = (d.side || side || '').toUpperCase();
+              const px = d.price;
+              const min = d.min_distance;
+              const dtp = d.dist_tp;
+              const dsl = d.dist_sl;
+              const lvl = d.stops_level_points;
+              const pt = d.point;
+              const fmt = (v) => (v==null? '—' : (typeof v==='number'? v.toFixed(6) : String(v)));
+              log(`Invalid stops: side=${side} price=${fmt(px)} min_dist=${fmt(min)} (points=${fmt(lvl)}×point=${fmt(pt)}) dist_tp=${fmt(dtp)} dist_sl=${fmt(dsl)}`, 'warn');
+            } catch {}
             log('Skip: invalid stops — no trade.', 'warn');
           } else if (tj && tj.error === 'safe_max_exceeded_post_plan') {
             log('Skip: safe max lots reached after plan — no trade.', 'warn');
@@ -6796,6 +6808,12 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             appendAutoLog(`Order placed: id=${orderId != null ? orderId : '—'}`);
           } else {
             if (tj && tj.error === 'invalid_stops_preflight') {
+              try {
+                const d = tj.details || {};
+                const sideU = (d.side || side || '').toUpperCase();
+                const fmt = (v) => (v==null? '—' : (typeof v==='number'? v.toFixed(6) : String(v)));
+                appendAutoLog(`Invalid stops: side=${sideU} price=${fmt(d.price)} min_dist=${fmt(d.min_distance)} (points=${fmt(d.stops_level_points)}×point=${fmt(d.point)}) dist_tp=${fmt(d.dist_tp)} dist_sl=${fmt(d.dist_sl)}`, 'warn');
+              } catch {}
               appendAutoLog('Skip: invalid stops — no trade.', 'warn');
             } else if (tj && tj.error === 'safe_max_exceeded_post_plan') {
               appendAutoLog('Skip: safe max lots reached after plan — no trade.', 'warn');
