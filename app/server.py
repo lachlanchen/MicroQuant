@@ -2492,19 +2492,22 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                     continue
                 old_sl = float(p.get("sl") or 0.0) or None
                 old_tp = float(p.get("tp") or 0.0) or None
-                # Take Profit: use midpoint between existing and plan TP when plan provided
+                # Take Profit: compute midpoint and only move closer to price
                 if plan_tp is not None:
                     try:
                         plan_tp_f = float(plan_tp)
                         if old_tp is None or old_tp == 0:
                             new_tp = plan_tp_f
                         else:
-                            new_tp = (old_tp + plan_tp_f) / 2.0
+                            mid_tp = (old_tp + plan_tp_f) / 2.0
+                            # BUY: closer TP is lower → pick min(mid, old)
+                            # SELL: closer TP is higher → pick max(mid, old)
+                            new_tp = min(mid_tp, old_tp) if side == "buy" else max(mid_tp, old_tp)
                     except Exception:
                         new_tp = old_tp
                 else:
                     new_tp = old_tp
-                # Stop Loss: only when enabled and plan SL provided; use midpoint (plan already nudged client-side)
+                # Stop Loss: only when enabled and plan SL provided; compute midpoint and only move further
                 new_sl = old_sl
                 if sl_enabled and (plan_sl is not None):
                     try:
@@ -2512,7 +2515,10 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                         if old_sl is None or old_sl == 0:
                             new_sl = plan_sl_f
                         else:
-                            new_sl = (old_sl + plan_sl_f) / 2.0
+                            mid_sl = (old_sl + plan_sl_f) / 2.0
+                            # BUY: further SL is lower → pick min(mid, old)
+                            # SELL: further SL is higher → pick max(mid, old)
+                            new_sl = min(mid_sl, old_sl) if side == "buy" else max(mid_sl, old_sl)
                     except Exception:
                         new_sl = old_sl
                 # Only send modify if any change
