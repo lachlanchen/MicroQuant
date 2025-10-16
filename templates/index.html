@@ -6706,7 +6706,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           log(`SL preflight: side=${side} price=${pxStr} SL=${slStr} → ${invalid ? 'INVALID' : 'OK'}` , invalid ? 'error' : 'info');
           if (invalid) { log('Skip: invalid stops', 'error'); return; }
         }
-        // Safe max lots guard (per account; inline value is treated as global cap)
+        // Safe max lots guard (per account; inline value is treated as global cap) — weighted
         try {
           let safeMax = NaN;
           const inline = document.getElementById('autoPeriodicSafeMaxInput');
@@ -6734,15 +6734,23 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const pjs = await pr.json().catch(()=>({}));
               arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
             }
-            const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
-            const reqVol = Number(vol || '0') || 0;
-            log(`Safe lots check: open=${openLots} req=${reqVol} safe_max=${safeMax}${useGlobal?' [global]':''}`);
+            // Compute weighted open lots and weighted requested volume
+            let openLots = 0;
+            for (const x of arr) {
+              const s2 = String(x && x.symbol || '').toUpperCase();
+              const v2 = Number(x && x.volume) || 0;
+              const w2 = WEIGHT_CACHE.symbols.get(s2) || WEIGHT_CACHE.kinds[symbolKind(s2)] || 1;
+              openLots += v2 * w2;
+            }
+            const w = WEIGHT_CACHE.symbols.get(sym) || WEIGHT_CACHE.kinds[symbolKind(sym)] || 1;
+            const reqVol = (Number(vol || '0') || 0) * w;
+            log(`Safe lots check (weighted): open=${openLots.toFixed(2)} req=${reqVol.toFixed(2)} safe_max=${safeMax}${useGlobal?' [global]':''}`);
             if ((openLots + reqVol) > safeMax || openLots >= safeMax) {
               log('Skip: safe max lots reached — no trade.', 'warn');
               try {
                 await fetch('/api/auto_trade/log', {
                   method:'POST', headers:{'Content-Type':'application/json'},
-                  body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: !!slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, req_volume: reqVol, safe_max: safeMax, global: !!useGlobal }, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' })
+                  body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: !!slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots_weighted: openLots, req_volume_weighted: reqVol, safe_max: safeMax, global: !!useGlobal }, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'safe_max' })
                 });
               } catch {}
               try { await updateOpenLotsSummary(); } catch {}
@@ -7425,6 +7433,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (periodicVolEl && Number(periodicVolEl.value) > 0) vol = String(periodicVolEl.value);
           else if (autoVolEl && Number(autoVolEl.value) > 0) vol = String(autoVolEl.value);
           else if (el('volume')) vol = String(el('volume').value);
+          // Apply symbol weighting to volume
+          try { vol = await adjustVolumeByWeight(sym, vol); } catch {}
           const body = new URLSearchParams({ symbol: sym, side: sideLower, volume: vol });
           // Respect Set Stop Loss toggle
           const inlineSl = document.getElementById('autoPeriodicSlToggle');
@@ -7481,7 +7491,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           }
           // Write SL (nudged or plan) to request if enabled
           if (slEnabled && finalSL != null) { body.set('sl', String(finalSL)); }
-          // Safe max lots guard (manual Auto AI Trade)
+          // Safe max lots guard (manual Auto AI Trade) — weighted
           try {
             let safeMax = NaN; let useGlobal = false;
             // Prefer global cap, then per-symbol×TF fallback
@@ -7504,15 +7514,23 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
                 const pjs = await pr.json().catch(()=>({}));
                 arr = Array.isArray(pjs && pjs.positions) ? pjs.positions : (Array.isArray(pjs && pjs.rows) ? pjs.rows : []);
               }
-              const openLots = arr.reduce((acc, x) => acc + (Number(x && x.volume) || 0), 0);
-              const reqVol = Number(vol || '0') || 0;
-              appendAutoLog(`Safe lots check: open=${openLots} req=${reqVol} safe_max=${safeMax}${useGlobal?' [global]':''}`);
+              // Weighted open lots and weighted request
+              let openLots = 0;
+              for (const x of arr) {
+                const s2 = String(x && x.symbol || '').toUpperCase();
+                const v2 = Number(x && x.volume) || 0;
+                const w2 = WEIGHT_CACHE.symbols.get(s2) || WEIGHT_CACHE.kinds[symbolKind(s2)] || 1;
+                openLots += v2 * w2;
+              }
+              const w = WEIGHT_CACHE.symbols.get(sym) || WEIGHT_CACHE.kinds[symbolKind(sym)] || 1;
+              const reqVol = (Number(vol || '0') || 0) * w;
+              appendAutoLog(`Safe lots check (weighted): open=${openLots.toFixed(2)} req=${reqVol.toFixed(2)} safe_max=${safeMax}${useGlobal?' [global]':''}`);
               if ((openLots + reqVol) > safeMax || openLots >= safeMax) {
                 appendAutoLog('Skip: safe max lots reached — no trade.', 'warn');
                 try {
                   const save = await fetch('/api/auto_trade/log', {
                     method:'POST', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots: openLots, req_volume: reqVol, safe_max: safeMax, global: !!useGlobal }, steps: (tradeState.autoSteps || []) })
+                    body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, used_volume: vol, sl_enabled: slEnabled, order_result: { ok:false, skipped:true, error:'safe_max_exceeded', open_lots_weighted: openLots, req_volume_weighted: reqVol, safe_max: safeMax, global: !!useGlobal }, steps: (tradeState.autoSteps || []) })
                   });
                   const saved = await save.json().catch(()=>({}));
                   if (saved && saved.ok && saved.run_id) { appendAutoLog(`Saved log run id=${saved.run_id}`); autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
@@ -10647,7 +10665,13 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       const kindWeightStock = document.getElementById('kindWeightStock');
       function openManageSymbols() {
         if (!manageSymbolsModal) return;
+        try {
+          if (manageSymbolsModal.parentElement !== document.body) {
+            document.body.appendChild(manageSymbolsModal);
+          }
+        } catch {}
         manageSymbolsModal.style.display = 'flex';
+        manageSymbolsModal.style.zIndex = '9999';
         manageSymbolsModal.setAttribute('aria-hidden','false');
         loadManageSymbols();
       }
@@ -10722,6 +10746,19 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (r.ok && js && js.ok) {
             // Refresh local caches
             WEIGHT_CACHE.symbols.clear(); await loadKindWeights(); await loadSymbolWeightsFor(syms);
+            // Update symbol dropdown immediately (UI only)
+            try {
+              const sel = document.getElementById('symbol');
+              if (sel) {
+                const existing = new Set(Array.from(sel.options).map(o=>String(o.value||'').toUpperCase()));
+                for (const s of syms) {
+                  if (!existing.has(s)) {
+                    const opt = document.createElement('option'); opt.value = s; opt.textContent = s; sel.appendChild(opt);
+                    existing.add(s);
+                  }
+                }
+              }
+            } catch {}
             closeManageSymbols();
             status('Symbols & weights saved');
           } else {
@@ -10729,7 +10766,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           }
         } catch (e) { status(`Save failed: ${e && e.message || e}`); }
       }
-      if (btnManageSymbolsOpen) btnManageSymbolsOpen.addEventListener('click', openManageSymbols);
+      if (btnManageSymbolsOpen) btnManageSymbolsOpen.addEventListener('click', (e)=>{ try { e.preventDefault(); } catch{} openManageSymbols(); });
+      document.addEventListener('click', (ev)=>{ const t = ev.target; if (!t) return; if (t.id === 'btnManageSymbolsOpen') { try { ev.preventDefault(); } catch{} openManageSymbols(); } });
       if (btnManageSymbolsClose) btnManageSymbolsClose.addEventListener('click', closeManageSymbols);
       if (btnCancelSymbols) btnCancelSymbols.addEventListener('click', closeManageSymbols);
       if (btnSaveSymbols) btnSaveSymbols.addEventListener('click', saveManageSymbols);
