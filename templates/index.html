@@ -4024,6 +4024,32 @@ const ensureLwMacd = () => {
                 const rid = el.getAttribute('data-id');
                 if (!rid) return;
                 const detail = document.getElementById('deepResearchDetail');
+                // Prefer the runs we just loaded for this symbol/TF to avoid cross-symbol mixups
+                try {
+                  const rowInline = (Array.isArray(runs) ? runs : []).find(it => String(it && it.id) === String(rid));
+                  if (rowInline) {
+                    const ans = rowInline.answers || rowInline.answers_json || {};
+                    const first = Array.isArray(ans.questions) && ans.questions.length ? (ans.questions[0].answer || ans.questions[0].Answer || {}) : (ans.position || {});
+                    const dr = first.deep_research || first.explanation || '';
+                    const pos = (first.position || '').toString().toUpperCase();
+                    const sl = (first.sl != null) ? first.sl : '';
+                    const tp = (first.tp != null) ? first.tp : '';
+                    const created = rowInline.created_at ? new Date(rowInline.created_at).toLocaleString() : '';
+                    const html = `
+                      <div class="row" style="justify-content:space-between; align-items:center;">
+                        <strong>${esc(sym)} ${esc(tf)}</strong>
+                        <span style="font-size:12px; color:var(--muted)">${esc(created)}</span>
+                      </div>
+                      <div style="margin:6px 0; display:flex; gap:8px; flex-wrap:wrap;">
+                        <span class="pill" style="background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};">${esc(pos||'—')}</span>
+                        <span class="pill">SL: ${esc(sl)}</span>
+                        <span class="pill">TP: ${esc(tp)}</span>
+                      </div>
+                      <div style="white-space:pre-wrap;">${esc(dr || '')}</div>`;
+                    if (detail) detail.innerHTML = html;
+                    return;
+                  }
+                } catch {}
                 const p2 = new URLSearchParams();
                 p2.set('symbol', sym);
                 p2.set('limit','1');
