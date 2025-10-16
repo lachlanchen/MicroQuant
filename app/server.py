@@ -2638,14 +2638,29 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                 px = None
             invalid_tp = False
             invalid_sl = False
+            dist_tp = None
+            dist_sl = None
             if px is not None and min_dist and min_dist > 0.0:
                 if tp_val is not None:
-                    dist_tp = (tp_val - px) if side == "buy" else (px - tp_val)
-                    invalid_tp = (dist_tp < min_dist)
+                    dist_tp = float((tp_val - px) if side == "buy" else (px - tp_val))
+                    invalid_tp = (dist_tp < float(min_dist))
                 if sl_val is not None:
-                    dist_sl = (px - sl_val) if side == "buy" else (sl_val - px)
-                    invalid_sl = (dist_sl < min_dist)
+                    dist_sl = float((px - sl_val) if side == "buy" else (sl_val - px))
+                    invalid_sl = (dist_sl < float(min_dist))
             if invalid_tp or invalid_sl:
+                try:
+                    logger.info(
+                        "/api/trade/execute_plan preflight invalid stops: symbol=%s side=%s price=%.10f min_dist=%.10f tp=%s dist_tp=%s sl=%s dist_sl=%s stops_level=%s point=%s",
+                        symbol, side, px if px is not None else -1.0,
+                        min_dist if min_dist is not None else 0.0,
+                        ("%.10f" % tp_val) if tp_val is not None else "None",
+                        ("%.10f" % dist_tp) if dist_tp is not None else "None",
+                        ("%.10f" % sl_val) if sl_val is not None else "None",
+                        ("%.10f" % dist_sl) if dist_sl is not None else "None",
+                        stops_lvl, point,
+                    )
+                except Exception:
+                    pass
                 self.set_header("Content-Type", "application/json")
                 self.set_header("Cache-Control", "no-store")
                 self.finish(json.dumps({
@@ -2656,6 +2671,13 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                     "details": {
                         "invalid_tp": bool(invalid_tp),
                         "invalid_sl": bool(invalid_sl),
+                        "price": px,
+                        "min_distance": min_dist,
+                        "dist_tp": dist_tp,
+                        "dist_sl": dist_sl,
+                        "side": side,
+                        "tp": tp_val,
+                        "sl": sl_val,
                         "stops_level_points": stops_lvl,
                         "point": point,
                     }
