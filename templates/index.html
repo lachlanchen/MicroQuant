@@ -1433,6 +1433,25 @@
         } catch {}
       })();
 
+      // Deep Research AI model preference
+      (function initDeepModelPref(){
+        try {
+          const sel = el('deepAiModel');
+          if (!sel) return;
+          sel.addEventListener('change', () => {
+            try { queuePrefUpdate('deep_ai_model', sel.value || ''); } catch {}
+          });
+          (async () => {
+            try {
+              const r = await fetch(`${PREF_ENDPOINT}?keys=deep_ai_model`, { cache: 'no-store' });
+              const js = await r.json().catch(()=>({}));
+              const saved = js && js.prefs && js.prefs.deep_ai_model;
+              if (saved && typeof saved === 'string') sel.value = saved;
+            } catch {}
+          })();
+        } catch {}
+      })();
+
       const isoToLocalInput = (iso) => {
         if (!iso) return '';
         const date = new Date(iso);
