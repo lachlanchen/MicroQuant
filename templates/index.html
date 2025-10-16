@@ -3774,7 +3774,15 @@ const ensureLwMacd = () => {
         loadDeepHistory({ append:false }).catch(()=>{});
       }
       function closeDeepModal() { if (deepModal) { deepModal.style.display='none'; deepModal.setAttribute('aria-hidden','true'); } }
-      if (btnDeepResearch) btnDeepResearch.addEventListener('click', () => { openDeepModal(); try { runDeepResearch(); } catch {} });
+      const _openAndRunDeep = () => { try { openDeepModal(); } catch {} try { runDeepResearch(); } catch {} };
+      if (btnDeepResearch) btnDeepResearch.addEventListener('click', (e) => { e.preventDefault(); _openAndRunDeep(); });
+      // Defensive: delegate in case direct binding failed due to re-render
+      document.addEventListener('click', (ev) => {
+        const t = ev && ev.target;
+        if (!t) return;
+        const id = t.id || (t.getAttribute && t.getAttribute('id')) || '';
+        if (id === 'btnDeepResearch') { try { ev.preventDefault(); } catch {} _openAndRunDeep(); }
+      });
       if (btnDeepClose) btnDeepClose.addEventListener('click', closeDeepModal);
       if (btnDeepMore) btnDeepMore.addEventListener('click', () => { deepHistoryOffset += 10; loadDeepHistory({ append:true }).catch(()=>{}); });
 
