@@ -5482,6 +5482,8 @@ const ensureLwMacd = () => {
           if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
           else { p.set('kind','stock'); p.set('symbol', sym); }
           p.set('group','basic'); p.set('tf', tf); p.set('limit','5'); p.set('offset','0');
+          // Respect selected Basic template (within symbol-kind compatibility)
+          try { p.set('strategy', resolveBasicStrategyForSymbol(sym)); } catch {}
           const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           const runs = Array.isArray(js.runs) ? js.runs : [];
@@ -7540,6 +7542,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
               else { p.set('kind','stock'); p.set('symbol', sym); }
               p.set('group','basic'); p.set('tf', tf); p.set('limit','1');
+              // Filter to the selected/compatible Basic strategy for this symbol
+              try { p.set('strategy', resolveBasicStrategyForSymbol(sym)); } catch {}
               const r0 = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
               const j0 = await r0.json().catch(()=>({}));
               basicId = (j0 && j0.runs && j0.runs[0] && j0.runs[0].id) || null;
