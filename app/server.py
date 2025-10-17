@@ -1672,11 +1672,11 @@ async def _perform_fetch(
                 async def _bg() -> None:
                     since = datetime.now(timezone.utc) - timedelta(days=days)
                     fetch_fn = partial(mt5_client.fetch_bars_since, symbol, timeframe, since)
-                try:
-                    new_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
-                    if new_bars:
-                        await upsert_ohlc_bars(pool, new_bars)
-                        _backfill_info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
+                    try:
+                        new_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+                        if new_bars:
+                            await upsert_ohlc_bars(pool, new_bars)
+                            _backfill_info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
                             await emit_fetch_event(
                                 symbol=symbol,
                                 timeframe=timeframe,
