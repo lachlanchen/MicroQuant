@@ -3865,6 +3865,33 @@ const ensureLwMacd = () => {
         } catch {}
         let base = '';
         try { base = buildTechSnapshotStringSync(); } catch { base = ''; }
+        // Insert M1 OHLC (last 60) block between current TF OHLC and the Latest Tick section
+        try {
+          const symNow = currentSymbol();
+          const r1 = await fetch(`/api/data?symbol=${encodeURIComponent(symNow)}&tf=M1&limit=60`, { cache:'no-store' });
+          const j1 = await r1.json().catch(()=>({}));
+          const rows1 = Array.isArray(j1) ? j1 : (Array.isArray(j1.rows) ? j1.rows : []);
+          if (rows1 && rows1.length) {
+            const lastN = rows1.slice(Math.max(0, rows1.length - 60));
+            const fmt = (ts, vals) => `${formatDateTime(ts)}\t${vals.map((v)=> (Number.isFinite(Number(v)) ? formatTechNumber(Number(v)) : '—')).join('\t')}`;
+            const lines = ['M1 OHLC (last 60)', 'Time\tOpen\tHigh\tLow\tClose'];
+            for (const rr of lastN) {
+              lines.push(fmt(rr.ts, [Number(rr.open), Number(rr.high), Number(rr.low), Number(rr.close)]));
+            }
+            const m1Block = lines.join('\n');
+            const marker = 'Latest Tick (post-bars)';
+            const idx = base.indexOf(marker);
+            if (idx !== -1) {
+              // Insert right before the marker
+              const head = base.slice(0, idx);
+              const tail = base.slice(idx);
+              base = `${head}\n\n${m1Block}\n\n${tail}`;
+            } else {
+              // Fallback: just append after TF OHLC
+              base = `${base}\n\n${m1Block}`;
+            }
+          }
+        } catch {}
         // Add cross-timeframe STL mini-rows: only D1 (last 10), excluding current TF
         const prev = prevTimeframe(tf);
         const next = nextTimeframe(tf);
@@ -6820,6 +6847,17 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const head = `${sym} • TF ${tf} • N=${windowSize}`;
           parts.push(head);
           parts.push(toBlock(`${tf} OHLC`, ['Open','High','Low','Close'], buildSeries4(opens, highs, lows, closes)));
+          // Add M1 OHLC (last 60) just after the current TF OHLC
+          try {
+            const r1 = await fetch(`/api/data?symbol=${encodeURIComponent(sym)}&tf=M1&limit=60`, { cache:'no-store' });
+            const j1 = await r1.json().catch(()=>({}));
+            const rows1 = Array.isArray(j1) ? j1 : (Array.isArray(j1.rows) ? j1.rows : []);
+            if (rows1 && rows1.length) {
+              const lastN = rows1.slice(Math.max(0, rows1.length - 60));
+              const m1Series = lastN.map(rr => ({ ts: rr.ts, values: [Number(rr.open), Number(rr.high), Number(rr.low), Number(rr.close)] }));
+              parts.push(toBlock('M1 OHLC (last 60)', ['Open','High','Low','Close'], m1Series));
+            }
+          } catch {}
           parts.push(toBlock('Bollinger (20,2)', ['Mid','Upper','Lower'], buildSeries3(boll.middle, boll.upper, boll.lower)));
           parts.push(toBlock('Volume', ['Value'], buildSeries(volumes)));
           parts.push(toBlock('RSI (14)', ['Value'], buildSeries(rsi)));
