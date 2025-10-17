@@ -464,8 +464,7 @@ ALLOWED_STRATEGIES: dict[str, set[str]] = {
         # Metals variants used for XAU/XAG within forex_pair kind
         "metal_pair_compact_10q_position.json",
         "metal_pair_compact_10q.json",
-        # Tech snapshot remains available for Tech+AI flows
-        "tech_snapshot_10q.json",
+        # Tech snapshot (position variant only) remains available for Tech+AI flows
         # Deep research (single-question, long-form analysis + position)
         "deep_research.json",
     },
@@ -473,8 +472,7 @@ ALLOWED_STRATEGIES: dict[str, set[str]] = {
         # Compact 10Q + Position (default) and plain 10Q
         "stocks_compact_10q_position.json",
         "stocks_compact_10q.json",
-        # Tech snapshot remains available for Tech+AI flows
-        "tech_snapshot_10q.json",
+        # Tech snapshot (position variant only) remains available for Tech+AI flows
         # Deep research (single-question, long-form analysis + position)
         "deep_research.json",
     },
@@ -4167,20 +4165,17 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
         symbol = str(self.get_argument("symbol", default=default_symbol())).upper()
         timeframe = str(self.get_argument("tf", default="H1")).upper()
 
-        # Determine kind and get latest tech snapshot run for this symbol
+        # Determine kind and get latest tech snapshot run for this symbol (position variant only)
         if _is_fx_symbol(symbol):
             kind = "forex_pair"
             base = symbol[:3]
             quote = symbol[3:6]
-            # Consider both tech strategies (position and plain)
             runs_pos = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q_position.json")
-            runs_plain = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q.json")
-            runs = (runs_pos or []) + (runs_plain or [])
+            runs = (runs_pos or [])
         else:
             kind = "stock"
             runs_pos = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q_position.json")
-            runs_plain = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q.json")
-            runs = (runs_pos or []) + (runs_plain or [])
+            runs = (runs_pos or [])
 
         # Prefer a run that matches the requested timeframe in its meta
         def _match_tf(run: dict) -> bool:
@@ -4679,8 +4674,8 @@ class HealthRunHandler(tornado.web.RequestHandler):
         except Exception:
             tech_run_id = None
         # Route to Tech+AI branch only when a snapshot is provided or an explicit
-        # tech strategy is requested. Do NOT treat empty strategy as tech.
-        if snapshot_text or strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json"}:
+        # tech strategy is requested (position variant only). Do NOT treat empty strategy as tech.
+        if snapshot_text or strategy_override in {"tech_snapshot_10q_position.json"}:
             symbol = (payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
             timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
             if not snapshot_text:
@@ -4688,11 +4683,11 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 self.set_header("Content-Type", "application/json")
                 self.finish(json.dumps({"ok": False, "error": "tech_snapshot text required"}))
                 return
-            # Choose strategy (position variant by default)
+            # Choose strategy (position variant only)
             chosen_strategy = strategy_override or "tech_snapshot_10q_position.json"
             strat = _load_strategy_json(chosen_strategy)
             if not strat:
-                chosen_strategy = "tech_snapshot_10q.json"
+                chosen_strategy = "tech_snapshot_10q_position.json"
                 strat = _load_strategy_json(chosen_strategy)
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
             question_schema = strat.get("question_response_schema") if isinstance(strat, dict) else None
@@ -5518,7 +5513,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
         if basic_run is None:
             basic_run = await _latest_run(basic_strategy)
         if tech_run is None:
-            tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
+            tech_run = await _latest_run("tech_snapshot_10q_position.json")
         if deep_run is None:
             deep_run = await _latest_run("deep_research.json")
 
@@ -5545,7 +5540,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
                         "kind": kind,
                         "symbol": symbol,
                         "timeframe": timeframe,
-                        "strategy": "tech_snapshot_10q.json",
+                        "strategy": "tech_snapshot_10q_position.json",
                         "tech_snapshot": snapshot_text,
                     }
                     req2 = HTTPRequest(url, method="POST", headers={"Content-Type": "application/json"}, body=json.dumps(tech_payload))
@@ -5554,7 +5549,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 logger.debug("failed to auto-run basic/tech reports before trade plan", exc_info=True)
             # Requery after attempted creation
             basic_run = await _latest_run(basic_strategy)
-            tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
+            tech_run = await _latest_run("tech_snapshot_10q_position.json")
 
         def _format_run_block(run: dict | None) -> str:
             """Format a health run block for inclusion in the trade-plan prompt.

@@ -444,7 +444,6 @@
                 <span style="display:inline-block; width:120px; text-align:right;">Tech template</span>
                 <select id="techAiStrategy" style="min-width:220px; padding:4px 6px;">
                   <option value="tech_snapshot_10q_position.json" selected>Tech Snapshot + Position (10)</option>
-                  <option value="tech_snapshot_10q.json">Tech Snapshot (10)</option>
                 </select>
               </label>
               <label style="display:flex; align-items:center; gap:6px;">
@@ -3089,7 +3088,7 @@ const ensureLwMacd = () => {
       // Title: use Tech+AI Health Check when Tech snapshot strategy is in use
       const titleEl = el('healthModalTitle');
       if (titleEl) {
-        if (preferredStrategy === 'tech_snapshot_10q.json' || preferredStrategy === 'tech_snapshot_10q_position.json') {
+        if (preferredStrategy === 'tech_snapshot_10q_position.json') {
           titleEl.textContent = 'Tech+AI Health Check';
         } else {
           titleEl.textContent = 'Basic Health Check';
@@ -3106,7 +3105,7 @@ const ensureLwMacd = () => {
         }
         healthState.strategy = preferredStrategy;
         // If Tech snapshot is selected, group as 'tech' to filter history appropriately
-        if (preferredStrategy === 'tech_snapshot_10q.json' || preferredStrategy === 'tech_snapshot_10q_position.json') {
+        if (preferredStrategy === 'tech_snapshot_10q_position.json') {
           healthState.group = 'tech';
         } else {
           healthState.group = null;
@@ -3550,7 +3549,7 @@ const ensureLwMacd = () => {
         if (healthState.strategy) { params.set('strategy', healthState.strategy); }
         if (healthState.group) { params.set('group', healthState.group); }
         if (healthState.excludeStrategy) { params.set('exclude_strategy', healthState.excludeStrategy); }
-        if (healthState.strategy === 'tech_snapshot_10q.json' || healthState.strategy === 'tech_snapshot_10q_position.json') { params.set('tf', currentTf()); }
+        if (healthState.strategy === 'tech_snapshot_10q_position.json') { params.set('tf', currentTf()); }
         try {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
@@ -3605,7 +3604,7 @@ const ensureLwMacd = () => {
           body.strategy = strategyName;
         }
         // When running the technical snapshot strategy, attach the snapshot text and timeframe
-        if (strategyName === 'tech_snapshot_10q.json') {
+        if (strategyName === 'tech_snapshot_10q_position.json') {
           try {
             const snapshot = await buildTechSnapshotString();
             body.tech_snapshot = snapshot;
@@ -4568,7 +4567,7 @@ const ensureLwMacd = () => {
         const prev = btn.textContent;
         btn.disabled = true; btn.classList.add('pulsing'); btn.textContent = 'Running…';
         const finish = () => { btn.disabled = false; btn.classList.remove('pulsing'); btn.textContent = prev; };
-        const p = (strat === 'tech_snapshot_10q.json' || strat === 'tech_snapshot_10q_position.json') ? startTechAiRun() : startHealthRun();
+        const p = (strat === 'tech_snapshot_10q_position.json') ? startTechAiRun() : startHealthRun();
         if (p && typeof p.then === 'function') p.finally(finish); else finish();
       });
       if (btnHealthMore) btnHealthMore.addEventListener('click', ()=> { healthState.offset = (healthState.offset||0) + 5; loadHealthHistory(); });
@@ -4579,7 +4578,7 @@ const ensureLwMacd = () => {
         const sym = symbolSelect.value.toUpperCase();
         const kind = isFxPair(sym) ? 'forex_pair' : 'stock';
         const techSel = document.getElementById('techAiStrategy');
-        const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q.json';
+        const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q_position.json';
         const b = btnTechAiHealth; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…';
         try { openHealth(kind, techStrat); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 500); }
       });

@@ -24,7 +24,7 @@
       { "min": 7,  "max": 10, "signal": "STRONG_BUY" },
       { "min": 3,  "max": 6,  "signal": "BUY" },
       { "min": -2, "max": 2,  "signal": "NEUTRAL" },
-      { "min": -6, "max": -3, "signal": "SELL" },
+      { "min": -6, "max": -3,  "signal": "SELL" },
       { "min": -10, "max": -7, "signal": "STRONG_SELL" }
     ]
   }
