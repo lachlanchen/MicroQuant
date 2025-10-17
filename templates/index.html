@@ -5280,7 +5280,9 @@ const ensureLwMacd = () => {
         const tf = currentTf();
         try {
           const snapshot = await buildTechSnapshotString();
-          const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: 'tech_snapshot_10q_position.json' };
+          const techSelEl = document.getElementById('techAiStrategy');
+          const techStratSel = (techSelEl && techSelEl.value) ? techSelEl.value : 'tech_snapshot_10q_position.json';
+          const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStratSel };
           const techModelSel = document.getElementById('techAiModel');
           const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
           if (techModel) body.model = techModel;
@@ -5493,7 +5495,9 @@ const ensureLwMacd = () => {
           const p = new URLSearchParams();
           if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
           else { p.set('kind','stock'); p.set('symbol', sym); }
-          p.set('strategy','tech_snapshot_10q_position.json'); p.set('tf', tf); p.set('limit','5'); p.set('offset','0');
+          const tsel = document.getElementById('techAiStrategy');
+          const tstrat = (tsel && tsel.value) ? String(tsel.value) : 'tech_snapshot_10q_position.json';
+          p.set('strategy', tstrat); p.set('tf', tf); p.set('limit','5'); p.set('offset','0');
           const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           const runs = Array.isArray(js.runs) ? js.runs : [];
@@ -6282,7 +6286,9 @@ const ensureLwMacd = () => {
       async function newTechRunForSymbol(sym, tf) {
         try {
           const snapshot = await buildTechSnapshotForSymbol(sym, tf);
-          const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: 'tech_snapshot_10q_position.json' };
+          const techSel = document.getElementById('techAiStrategy');
+          const techStrat = (techSel && techSel.value) ? techSel.value : 'tech_snapshot_10q_position.json';
+          const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
           const techModelSel = document.getElementById('techAiModel');
           const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
           if (techModel) body.model = techModel;
@@ -7544,7 +7550,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const p = new URLSearchParams();
               if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
               else { p.set('kind','stock'); p.set('symbol', sym); }
-              p.set('strategy','tech_snapshot_10q_position.json'); p.set('tf', tf); p.set('limit','1');
+              const tsel = document.getElementById('techAiStrategy');
+              const tstrat = (tsel && tsel.value) ? String(tsel.value) : 'tech_snapshot_10q_position.json';
+              p.set('strategy', tstrat); p.set('tf', tf); p.set('limit','1');
               const r0 = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
               const j0 = await r0.json().catch(()=>({}));
               techId = (j0 && j0.runs && j0.runs[0] && j0.runs[0].id) || null;
@@ -7585,7 +7593,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const params = new URLSearchParams();
           if (isFxPair(sym)) { const pq = splitPair(sym); params.set('kind','forex_pair'); params.set('base', pq.base); params.set('quote', pq.quote); }
           else { params.set('kind','stock'); params.set('symbol', sym); }
-          params.set('strategy','tech_snapshot_10q_position.json');
+          {
+            const tsel = document.getElementById('techAiStrategy');
+            const tstrat = (tsel && tsel.value) ? String(tsel.value) : 'tech_snapshot_10q_position.json';
+            params.set('strategy', tstrat);
+          }
           params.set('tf', tf);
           params.set('limit','1');
           const r = await fetch(`/api/health/runs?${params.toString()}`, { cache:'no-store' });
