@@ -6551,7 +6551,22 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         // If stale or unknown/no-run, run checks (Tech requires snapshot)
         // Danger path: if there are new articles, force a Basic run regardless of status label
         const needBasic = !!(hj && (Number(hj.new_count||0) > 0 || hj.status === 'unknown' || !hj.last_run_at));
-        const needTech  = !!(tfj && ((tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0) || tfj.status === 'unknown' || !tfj.last_run_at));
+        let needTech  = !!(tfj && ((tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0) || tfj.status === 'unknown' || !tfj.last_run_at));
+        // Strategy-aware override: if selected Tech strategy has no recent run for this TF, force a new run
+        let techStrat = 'tech_snapshot_10q_position.json';
+        try { const sel = document.getElementById('techAiStrategy'); techStrat = (sel && sel.value) ? sel.value : 'tech_snapshot_10q_position.json'; } catch {}
+        if (!needTech) {
+          try {
+            const pS = new URLSearchParams();
+            if (isFxPair(sym)) { const pq = splitPair(sym); pS.set('kind','forex_pair'); pS.set('base', pq.base); pS.set('quote', pq.quote); }
+            else { pS.set('kind','stock'); pS.set('symbol', sym); }
+            pS.set('strategy', techStrat); pS.set('tf', tf); pS.set('limit','1');
+            const rS = await fetch(`/api/health/runs?${pS.toString()}`, { cache:'no-store' });
+            const jS = await rS.json().catch(()=>({}));
+            const latestSpec = Array.isArray(jS.runs) && jS.runs.length ? jS.runs[0] : null;
+            if (!latestSpec || !latestSpec.id) needTech = true;
+          } catch {}
+        }
         if (needBasic) log('Outdated: Basic — running new check…');
         if (needTech) log('Outdated: Tech — running new check…');
         let basicId = null, techId = null;
@@ -6580,17 +6595,26 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             if (js && js.ok && js.run_id) { techId = js.run_id; log(`Tech run id=${techId}`); }
           } catch (e) { log(`Tech run error: ${e && e.message || e}`, 'error'); }
         }
-        // Determine latest tech signal for side
+        // Determine latest tech signal for side — prefer latest run for the selected Tech strategy
         let side = null, latest = null;
         try {
-          const p = new URLSearchParams();
-          if (isFxPair(sym)) { const pq = splitPair(sym); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
-          else { p.set('kind','stock'); p.set('symbol', sym); }
-          // Use TECH group so we always get the latest run regardless of specific template
-          p.set('group','tech'); p.set('tf', tf); p.set('limit','1');
-          const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
-          const js = await r.json().catch(()=>({}));
+          // First try: fetch latest run for the currently selected strategy/TF
+          const pSpec = new URLSearchParams();
+          if (isFxPair(sym)) { const pq = splitPair(sym); pSpec.set('kind','forex_pair'); pSpec.set('base', pq.base); pSpec.set('quote', pq.quote); }
+          else { pSpec.set('kind','stock'); pSpec.set('symbol', sym); }
+          pSpec.set('strategy', techStrat); pSpec.set('tf', tf); pSpec.set('limit','1');
+          let r = await fetch(`/api/health/runs?${pSpec.toString()}`, { cache:'no-store' });
+          let js = await r.json().catch(()=>({}));
           latest = Array.isArray(js.runs) && js.runs.length ? js.runs[0] : null;
+          if (!latest) {
+            // Fallback: any TECH-group run for this TF
+            const pAny = new URLSearchParams(pSpec);
+            pAny.delete('strategy');
+            pAny.set('group','tech');
+            r = await fetch(`/api/health/runs?${pAny.toString()}`, { cache:'no-store' });
+            js = await r.json().catch(()=>({}));
+            latest = Array.isArray(js.runs) && js.runs.length ? js.runs[0] : null;
+          }
           if (latest) {
             const ans = latest.answers || latest.answers_json || {};
             // Prefer explicit signal classification
