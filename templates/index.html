@@ -3616,8 +3616,11 @@ const ensureLwMacd = () => {
         }
         debugLog('[Health] using strategy', strategyName || '(auto)');
         const outBox = el('healthResultsBox');
-        outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
+        outBox.innerHTML = '<div style="color:var(--muted)">Refreshing news…</div>';
         try {
+          // Ensure DB has latest articles for this symbol before running
+          try { await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
+          outBox.innerHTML = '<div style="color:var(--muted)">Running… this can take ~30–60s</div>';
           // Optimistically show running state on Basic freshness
           if (typeof setHealthFreshRunning === 'function') setHealthFreshRunning();
           // Optional model override for Basic Health
@@ -4006,8 +4009,11 @@ const ensureLwMacd = () => {
         deepLog(`payload symbol=${sym} tf=${tf} news=${n} strategy=${payload.strategy} model=${model||'(default)'} `);
         if (model) payload.model = model;
         const detail = document.getElementById('deepResearchDetail');
-        if (detail) detail.innerHTML = '<em style="color:var(--muted)">Running deep research…</em>';
+        if (detail) detail.innerHTML = '<em style="color:var(--muted)">Refreshing news…</em>';
         try {
+          // Ensure DB has latest articles for this symbol before running Deep
+          try { await fetch(`/api/news?symbol=${encodeURIComponent(sym)}&refresh=1`, { cache:'no-store' }); } catch {}
+          if (detail) detail.innerHTML = '<em style="color:var(--muted)">Running deep research…</em>';
           deepLog('POST /api/health/run');
           const r = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
