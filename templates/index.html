@@ -3297,6 +3297,20 @@ const ensureLwMacd = () => {
         };
 
         const priceOhlcData = buildFromArrays([opens, highs, lows, closes]);
+        // Fetch M1 OHLC (last 60) to show between current TF OHLC and Latest Tick
+        let m1OhlcData = [];
+        try {
+          const r1 = await fetch(`/api/data?symbol=${encodeURIComponent(symbol)}&tf=M1&limit=60`, { cache:'no-store' });
+          const j1 = await r1.json().catch(()=>({}));
+          const rows1 = Array.isArray(j1) ? j1 : (Array.isArray(j1.rows) ? j1.rows : []);
+          if (rows1 && rows1.length) {
+            const lastN = rows1.slice(Math.max(0, rows1.length - 60));
+            m1OhlcData = lastN.map(rr => ({
+              time: formatDateTime(rr.ts),
+              values: [formatTechNumber(Number(rr.open)), formatTechNumber(Number(rr.high)), formatTechNumber(Number(rr.low)), formatTechNumber(Number(rr.close))],
+            }));
+          }
+        } catch {}
         const volumeData = buildFromArray(volumes);
         const rsiData = buildFromArray(rsiValues);
         const boll = computeBollingerBands(closes);
@@ -3326,6 +3340,7 @@ const ensureLwMacd = () => {
 
         const sections = [
           buildTechTable(`${tf} OHLC`, ['Open','High','Low','Close'], priceOhlcData),
+          (m1OhlcData && m1OhlcData.length ? buildTechTable('M1 OHLC (last 60)', ['Open','High','Low','Close'], m1OhlcData) : ''),
           (tickRows.length ? buildTechTable('Latest Tick (post-bars)', ['Bid','Ask','Mid'], tickRows) : ''),
           buildTechTable('Bollinger (20,2)', ['Mid', 'Upper', 'Lower'], bollData),
           buildTechTable('Volume', ['Value'], volumeData),
