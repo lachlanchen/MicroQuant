@@ -3660,8 +3660,9 @@ const ensureLwMacd = () => {
           try { const tk = getLatestTick(sym); if (tk) { body.latest_tick = tk; body.latest_tick_line = latestTickSummary(sym); } } catch {}
           // Optional model override for Tech+AI
           const techModelSel = document.getElementById('techAiModel');
-          const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
-          if (techModel) body.model = techModel;
+          let techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
+          if (!techModel) techModel = 'deepseek-chat';
+          body.model = techModel;
           debugLog('[Health][TechAI] running tech snapshot for', sym, currentTf());
           if (typeof setTechFreshRunning === 'function') setTechFreshRunning();
           outBox.innerHTML = '<div style="color:var(--muted)">Running Tech+AI…</div>';
@@ -5278,13 +5279,15 @@ const ensureLwMacd = () => {
         const sym = currentSymbol();
         const tf = currentTf();
         try {
-          const snapshot = await buildTechSnapshotString();
+          // Build snapshot for the exact symbol/timeframe
+          const snapshot = await buildTechSnapshotForSymbol(sym, tf);
           const techSelEl = document.getElementById('techAiStrategy');
           const techStratSel = (techSelEl && techSelEl.value) ? techSelEl.value : 'tech_snapshot_10q_position.json';
           const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStratSel };
           const techModelSel = document.getElementById('techAiModel');
-          const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
-          if (techModel) body.model = techModel;
+          let techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
+          if (!techModel) techModel = 'deepseek-chat';
+          body.model = techModel;
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
           if (js && js.ok && js.run_id) {
@@ -6291,8 +6294,9 @@ const ensureLwMacd = () => {
           const techStrat = (techSel && techSel.value) ? techSel.value : 'tech_snapshot_10q_position.json';
           const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
           const techModelSel = document.getElementById('techAiModel');
-          const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
-          if (techModel) body.model = techModel;
+          let techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
+          if (!techModel) techModel = 'deepseek-chat';
+          body.model = techModel;
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
           return (js && js.ok && js.run_id) ? Number(js.run_id) : null;
@@ -6600,10 +6604,18 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         }
         if (needTech) {
           try {
-            const snapshot = await buildTechSnapshotString();
+            // Build snapshot for this symbol/timeframe, not the current chart
+            const snapshot = await buildTechSnapshotForSymbol(sym, tf);
             const techSel = document.getElementById('techAiStrategy');
             const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q_position.json';
             const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
+            // Default Tech model if none selected
+            try {
+              const techModelSel = document.getElementById('techAiModel');
+              let techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
+              if (!techModel) techModel = 'deepseek-chat';
+              body.model = techModel;
+            } catch {}
             const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await res.json().catch(()=>({}));
             if (js && js.ok && js.run_id) { techId = js.run_id; log(`Tech run id=${techId}`); }
@@ -7787,7 +7799,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           appendAutoLog(`Drafting ${side} plan…`);
           const planResp = await (async ()=>{
             const lev = getLeverageValue();
-            const snapshot = await buildTechSnapshotString();
+            // Build per-symbol snapshot for the plan as well
+            const snapshot = await buildTechSnapshotForSymbol(sym, tf);
             const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
             try { if (Number.isFinite(Number(basicId))) body.basic_run_id = Number(basicId); } catch {}
             try {
