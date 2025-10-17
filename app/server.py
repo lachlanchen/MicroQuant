@@ -2349,6 +2349,7 @@ async def make_app():
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
             (r"/api/stl/prune", STLPruneHandler, dict(pool=pool)),
+            (r"/api/stl/prune_all", STLPruneAllHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler, dict(pool=pool)),
             (r"/api/account/closed_deals", ClosedDealsHandler),
@@ -3719,6 +3720,53 @@ class STLPruneHandler(tornado.web.RequestHandler):
             "deleted": len(deleted_ids),
             "deleted_ids": deleted_ids,
         }))
+
+
+class STLPruneAllHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        # Safety confirmation required
+        confirm = self.get_argument("confirm", default="0").lower() in {"1", "true", "yes", "on"}
+        if not confirm:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "confirm=1 required"}))
+            return
+        keep_arg = self.get_argument("keep", default="1")
+        try:
+            keep = max(0, int(keep_arg))
+        except Exception:
+            keep = 1
+        # Delete all but the latest `keep` runs per (symbol, timeframe)
+        q = (
+            """
+            WITH ranked AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (PARTITION BY symbol, timeframe ORDER BY created_at DESC, id DESC) AS rn
+                FROM stl_runs
+            )
+            DELETE FROM stl_runs s
+            USING ranked r
+            WHERE s.id = r.id AND r.rn > $1
+            """
+        )
+        deleted = 0
+        try:
+            async with self.pool.acquire() as conn:
+                status = await conn.execute(q, keep)
+                try:
+                    deleted = int(status.split()[-1])
+                except Exception:
+                    deleted = 0
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "deleted": deleted, "kept": keep}))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
 
 
 class PreferencesHandler(tornado.web.RequestHandler):
