@@ -526,6 +526,18 @@
             </select>
           </label>
         </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:80px; color:var(--muted);">AI model</span>
+            <select id="autoPeriodicModelSelect" style="min-width:160px;">
+              <option value="gpt-5">gpt-5</option>
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="deepseek-chat" selected>deepseek-chat</option>
+              <option value="deepseek-reasoner">deepseek-reasoner</option>
+            </select>
+          </label>
+        </div>
         <!-- Trading session indicator (below period timer) -->
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button id="btnTradingStatus" class="btn" style="padding:6px 10px; background:#9e9e9e; color:#fff; border:none;">Trading: —</button>
@@ -895,8 +907,20 @@
               <input id="autoSlNudgeDiv" type="range" min="2" max="10" step="1" value="4" style="width:120px;" />
               <span id="autoSlNudgeDivVal" style="font-size:12px; color:var(--muted); min-width:20px; text-align:center;">4</span>
             </label>
-            <span id="autoSafeHint" style="font-size:12px; color:var(--muted);"></span>
-          </div>
+          <span id="autoSafeHint" style="font-size:12px; color:var(--muted);"></span>
+        </div>
+        <div class="row" style="gap:6px; align-items:center; margin-top:2px;">
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:12px; color:var(--muted);">AI model</span>
+            <select id="autoAiModelSelect" style="min-width:200px; padding:4px 6px;">
+              <option value="gpt-5">gpt-5</option>
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="deepseek-chat" selected>deepseek-chat (default)</option>
+              <option value="deepseek-reasoner">deepseek-reasoner</option>
+            </select>
+          </label>
+        </div>
           <!-- Mirrors of Basic/Tech/Plan (display-only) -->
         <div id="autoMirrorBasicRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
         <div style="display:flex; flex-direction:column; min-width:80px;">
@@ -1496,14 +1520,26 @@
 
       // Trade AI model preference
       const aiModelSelect = el('aiModelSelect');
+      const autoAiModelSelect = el('autoAiModelSelect');
+      const autoPeriodicModelSelect = el('autoPeriodicModelSelect');
+      function setAllTradeModel(val) {
+        try { if (aiModelSelect) aiModelSelect.value = val; } catch {}
+        try { if (autoAiModelSelect) autoAiModelSelect.value = val; } catch {}
+        try { if (autoPeriodicModelSelect) autoPeriodicModelSelect.value = val; } catch {}
+      }
       const getTradeAiModel = () => {
         const val = aiModelSelect && aiModelSelect.value ? aiModelSelect.value.trim() : '';
-        return val || 'deepseek-chat';
+        if (val) return val;
+        const v2 = autoAiModelSelect && autoAiModelSelect.value ? autoAiModelSelect.value.trim() : '';
+        if (v2) return v2;
+        const v3 = autoPeriodicModelSelect && autoPeriodicModelSelect.value ? autoPeriodicModelSelect.value.trim() : '';
+        return v3 || 'deepseek-chat';
       };
       if (aiModelSelect) {
         aiModelSelect.value = 'deepseek-chat';
         aiModelSelect.addEventListener('change', () => {
           const model = getTradeAiModel();
+          setAllTradeModel(model);
           try { queuePrefUpdate('trade_ai_model', model); } catch (e) {}
         });
         // Load saved preference (non-blocking)
@@ -1512,11 +1548,27 @@
             const r = await fetch(`${PREF_ENDPOINT}?keys=trade_ai_model`, { cache: 'no-store' });
             const js = await r.json();
             const saved = js && js.prefs && js.prefs.trade_ai_model;
-            if (saved && typeof saved === 'string') {
-              aiModelSelect.value = saved;
-            }
+            if (saved && typeof saved === 'string') { setAllTradeModel(saved); }
           } catch {}
         })();
+      }
+      if (autoAiModelSelect) {
+        autoAiModelSelect.addEventListener('change', () => {
+          const model = autoAiModelSelect.value || 'deepseek-chat';
+          setAllTradeModel(model);
+          try { queuePrefUpdate('trade_ai_model', model); flushPrefQueue(); } catch {}
+        });
+        // Initialize from saved pref
+        (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=trade_ai_model`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.trade_ai_model; if (saved) setAllTradeModel(saved); } catch {} })();
+      }
+      if (autoPeriodicModelSelect) {
+        autoPeriodicModelSelect.addEventListener('change', () => {
+          const model = autoPeriodicModelSelect.value || 'deepseek-chat';
+          setAllTradeModel(model);
+          try { queuePrefUpdate('trade_ai_model', model); flushPrefQueue(); } catch {}
+        });
+        // Initialize from saved pref
+        (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=trade_ai_model`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.trade_ai_model; if (saved) setAllTradeModel(saved); } catch {} })();
       }
 
       // Basic AI model preference
