@@ -5381,11 +5381,7 @@ const ensureLwMacd = () => {
           const barsN = Math.max(10, Math.min(500, Number((typeof resolveTechWindow==='function' && resolveTechWindow()) || defaultTechWindow(tf) || 50)));
           body.n_bars = barsN;
         } catch {}
-        try {
-          const basicModelSel = document.getElementById('basicAiModel');
-          const basicModel = basicModelSel && basicModelSel.value ? basicModelSel.value : '';
-          if (basicModel) body.model = basicModel;
-        } catch {}
+        try { body.model = getTradeAiModel(); } catch {}
         try {
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
@@ -6345,10 +6341,7 @@ const ensureLwMacd = () => {
           const techSel = document.getElementById('techAiStrategy');
           const techStrat = (techSel && techSel.value) ? techSel.value : 'tech_snapshot_10q_position.json';
           const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
-          const techModelSel = document.getElementById('techAiModel');
-          let techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
-          if (!techModel) techModel = 'deepseek-chat';
-          body.model = techModel;
+          try { body.model = getTradeAiModel(); } catch {}
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
           return (js && js.ok && js.run_id) ? Number(js.run_id) : null;
@@ -6358,7 +6351,7 @@ const ensureLwMacd = () => {
         try {
           const nInput = document.getElementById('deepNewsCount');
           const n = Math.max(1, Math.min(500, Number(nInput?.value || 100)));
-          const model = document.getElementById('deepAiModel')?.value || '';
+          const model = getTradeAiModel();
           const stratName = (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json');
           const body = { symbol: sym, timeframe: tf, news_count: n, strategy: stratName };
           if (model) body.model = model;
@@ -6644,11 +6637,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           try {
             const strategy = resolveBasicStrategyForSymbol(sym);
             const body = { symbol: sym, timeframe: tf, strategy };
-            try {
-              const basicModelSel = document.getElementById('basicAiModel');
-              const basicModel = basicModelSel && basicModelSel.value ? basicModelSel.value : '';
-              if (basicModel) body.model = basicModel;
-            } catch {}
+            try { body.model = getTradeAiModel(); } catch {}
             const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await res.json().catch(()=>({}));
             if (js && js.ok && js.run_id) { basicId = js.run_id; log(`Basic run id=${basicId}`); }
@@ -6661,13 +6650,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const techSel = document.getElementById('techAiStrategy');
             const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q_position.json';
             const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
-            // Default Tech model if none selected
-            try {
-              const techModelSel = document.getElementById('techAiModel');
-              let techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
-              if (!techModel) techModel = 'deepseek-chat';
-              body.model = techModel;
-            } catch {}
+            try { body.model = getTradeAiModel(); } catch {}
             const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await res.json().catch(()=>({}));
             if (js && js.ok && js.run_id) { techId = js.run_id; log(`Tech run id=${techId}`); }
@@ -6675,9 +6658,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         }
         if (needDeep) {
           try {
-            // Use UI prefs if present
             const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
-            const model = document.getElementById('deepAiModel')?.value || '';
+            const model = getTradeAiModel();
             const body = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategy };
             if (model) body.model = model;
             const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
