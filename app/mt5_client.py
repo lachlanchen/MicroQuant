@@ -163,7 +163,8 @@ class MT5Client:
         self.logger.debug("symbol_select %s", symbol)
         mt5.symbol_select(symbol, True)
 
-        self.logger.info("copy_rates_from_pos symbol=%s tf=%s count=%s", symbol, timeframe, count)
+        # Demote to debug to avoid noisy logs during background fills
+        self.logger.debug("copy_rates_from_pos symbol=%s tf=%s count=%s", symbol, timeframe, count)
         rates = mt5.copy_rates_from_pos(symbol, tf, 0, int(count))
         if rates is None:
             code, msg = mt5.last_error()
@@ -211,7 +212,8 @@ class MT5Client:
             since_dt = since_dt.replace(tzinfo=timezone.utc)
 
         end_dt = datetime.now(timezone.utc)
-        self.logger.info("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, since_dt, end_dt)
+        # Demote to debug to reduce backfill chatter
+        self.logger.debug("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, since_dt, end_dt)
         mt5.symbol_select(symbol, True)
         rates = mt5.copy_rates_range(symbol, tf, since_dt, end_dt)
         if rates is None:
@@ -268,7 +270,8 @@ class MT5Client:
         from datetime import timedelta
         eff_end = end_dt + timedelta(hours=max(0, fwd_hours))
 
-        self.logger.info("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, start_dt, eff_end)
+        # Demote to debug to reduce backfill chatter
+        self.logger.debug("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, start_dt, eff_end)
         mt5.symbol_select(symbol, True)
         rates = mt5.copy_rates_range(symbol, tf, start_dt, eff_end)
         if rates is None:

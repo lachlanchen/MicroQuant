@@ -65,6 +65,31 @@ except Exception:  # pragma: no cover - optional dependency
 EXECUTOR = ThreadPoolExecutor(max_workers=2)
 logger = logging.getLogger("mt5app")
 
+# Toggle noisy background/backfill logging without changing overall log level.
+# Controlled by environment var LOG_BACKFILL (default: 0 / off).
+_LOG_BACKFILL = str(os.getenv("LOG_BACKFILL", "0")).strip().lower() in {"1", "true", "yes", "on"}
+
+def _backfill_info(msg: str, *args, **kwargs) -> None:
+    if _LOG_BACKFILL:
+        try:
+            logger.info(msg, *args, **kwargs)
+        except Exception:
+            pass
+
+def _backfill_warn(msg: str, *args, **kwargs) -> None:
+    if _LOG_BACKFILL:
+        try:
+            logger.warning(msg, *args, **kwargs)
+        except Exception:
+            pass
+
+def _backfill_exc(msg: str, *args, **kwargs) -> None:
+    if _LOG_BACKFILL:
+        try:
+            logger.exception(msg, *args, **kwargs)
+        except Exception:
+            pass
+
 # --- Weights and symbol kind helpers (server-side mirror of client logic) ---
 def _symbol_kind(sym: str) -> str:
     s = str(sym or "").upper()
@@ -763,7 +788,7 @@ async def run_news_backfill(days: int = 7) -> dict:
     stored = 0
     page = 0
     updated_symbols: dict[str, int] = {}
-    logger.info("[news] backfill start days=%d since=%s to=%s", days, since, to)
+    _backfill_info("[news] backfill start days=%d since=%s to=%s", days, since, to)
     while page < 5:
         try:
             items = await tornado.ioloop.IOLoop.current().run_in_executor(
@@ -833,7 +858,7 @@ async def run_news_backfill(days: int = 7) -> dict:
             items=cnt,
             note=f"days={days}",
         )
-    logger.info("[news] backfill complete fetched=%d inserted=%d days=%d symbols=%s", total, stored, days, sorted(updated_symbols))
+    _backfill_info("[news] backfill complete fetched=%d inserted=%d days=%d symbols=%s", total, stored, days, sorted(updated_symbols))
     return {"ok": True, "fetched": total, "inserted": stored, "days": days, "symbols": sorted(updated_symbols)}
 
 
@@ -1508,7 +1533,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
     """Kick off a lightweight background job to enrich history for a symbol across timeframes."""
     tfs = timeframes or ALL_TIMEFRAMES
     loop = tornado.ioloop.IOLoop.current()
-    logger.info("[backfill] scheduling %s across %d timeframes", symbol, len(tfs))
+    _backfill_info("[backfill] scheduling %s across %d timeframes", symbol, len(tfs))
 
     async def _runner():
         now = datetime.now(timezone.utc)
@@ -1526,7 +1551,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                     fetch_mode_name = "since"
                 if bars:
                     inserted = await upsert_ohlc_bars(pool, bars)
-                    logger.info("[backfill] %s %s +%d bars (inserted=%d)", symbol, tf, len(bars), inserted)
+                    _backfill_info("[backfill] %s %s +%d bars (inserted=%d)", symbol, tf, len(bars), inserted)
                     await emit_fetch_event(
                         symbol=symbol,
                         timeframe=tf,
@@ -1558,7 +1583,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                         note=f"~{days}d window (no new bars)",
                     )
             except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("[backfill] %s %s failed: %s", symbol, tf, exc)
+                _backfill_warn("[backfill] %s %s failed: %s", symbol, tf, exc)
                 await emit_fetch_event(
                     symbol=symbol,
                     timeframe=tf,
@@ -1647,11 +1672,11 @@ async def _perform_fetch(
                 async def _bg() -> None:
                     since = datetime.now(timezone.utc) - timedelta(days=days)
                     fetch_fn = partial(mt5_client.fetch_bars_since, symbol, timeframe, since)
-                    try:
-                        new_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
-                        if new_bars:
-                            await upsert_ohlc_bars(pool, new_bars)
-                            logger.info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
+                try:
+                    new_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
+                    if new_bars:
+                        await upsert_ohlc_bars(pool, new_bars)
+                        _backfill_info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
                             await emit_fetch_event(
                                 symbol=symbol,
                                 timeframe=timeframe,
@@ -1678,7 +1703,7 @@ async def _perform_fetch(
                                 note=f"backfill ~{days}d (no new bars)",
                             )
                     except Exception as exc:  # pragma: no cover - logging only
-                        logger.exception("full_async backfill failed for %s %s: %s", symbol, timeframe, exc)
+                        _backfill_exc("full_async backfill failed for %s %s: %s", symbol, timeframe, exc)
                         await emit_fetch_event(
                             symbol=symbol,
                             timeframe=timeframe,

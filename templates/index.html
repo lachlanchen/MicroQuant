@@ -7236,7 +7236,15 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         return delay;
       }
       function ensureAutoPeriodicTimer() {
-        clearAutoPeriodicTimer();
+        // If a run is already scheduled and due very soon, avoid re-arming to prevent "missed" triggers.
+        const remaining = autoPeriodicNextAtMs ? (autoPeriodicNextAtMs - Date.now()) : 0;
+        if ((autoPeriodicTimeout || autoPeriodicTimer) && remaining > 10_000) {
+          clearAutoPeriodicTimer();
+        } else if ((autoPeriodicTimeout || autoPeriodicTimer) && remaining <= 10_000) {
+          // Keep the imminent schedule and just refresh the countdown label
+          try { startPeriodicUiCountdown(); } catch {}
+          return;
+        }
         if (!autoPeriodicToggle || !autoPeriodicToggle.checked) return;
         // Respect market hours — pause when closed
         try {
