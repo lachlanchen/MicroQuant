@@ -7402,33 +7402,54 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         const nowMin = toMinutes(h, m);
         let open = true;
         let opensAt = null; // Date
+        let closesAt = null; // Date
         if (kind === 'stock') {
-          // US regular session 13:30–20:00 UTC Mon–Fri
+          // US regular session 13:30–20:00 UTC Mon–Fri (DST-aware window left to user clock)
           const openMin = toMinutes(13,30), closeMin = toMinutes(20,0);
-          open = (dow>=1 && dow<=5) && (nowMin >= openMin && nowMin < closeMin);
+          const isWeekday = (dow>=1 && dow<=5);
+          open = isWeekday && (nowMin >= openMin && nowMin < closeMin);
           if (!open) {
-            // Compute next weekday at 13:30 UTC
+            // Next weekday at 13:30 UTC
             let addDays = 0;
-            let targetDow = dow;
-            if (dow === 0) { addDays = 1; targetDow = 1; }
-            else if (dow >= 1 && dow <= 4) { addDays = (nowMin < openMin) ? 0 : 1; }
-            else if (dow === 5) { addDays = (nowMin < openMin) ? 0 : 3; }
-            else if (dow === 6) { addDays = 2; }
-            const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+addDays, 13, 30, 0, 0));
-            opensAt = next;
+            if (dow === 0) addDays = 1;            // Sun -> Mon
+            else if (dow >= 1 && dow <= 4) addDays = (nowMin < openMin) ? 0 : 1; // same day before open else next day
+            else if (dow === 5) addDays = (nowMin < openMin) ? 0 : 3; // Fri before open -> Fri, else Mon
+            else if (dow === 6) addDays = 2;       // Sat -> Mon
+            opensAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+addDays, 13, 30, 0, 0));
+          } else {
+            // Closes today at 20:00 UTC
+            closesAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 20, 0, 0, 0));
           }
         } else {
-          // Forex/Metals: 24x5 — closed on Sat/Sun by heuristic
-          open = (dow>=1 && dow<=5);
-          if (!open) {
-            // Next Monday 00:00 UTC
-            const daysToMon = (8 - dow) % 7 || 1; // Sun->1, Sat->2
-            const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+daysToMon, 0, 0, 0, 0));
-            opensAt = next;
+          // Forex/Metals (heuristic): Open Sun 22:00 UTC → Fri 22:00 UTC; closed Fri 22:00 → Sun 22:00
+          const fxOpenMin = toMinutes(22,0);
+          if (dow === 0) { // Sunday
+            open = (nowMin >= fxOpenMin);
+            if (!open) opensAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 22, 0, 0, 0));
+            else closesAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+5, 22, 0, 0, 0)); // Fri 22:00
+          } else if (dow >= 1 && dow <= 4) { // Mon–Thu
+            open = true;
+            // Compute upcoming Fri 22:00 as a rough close-of-week reference
+            const daysToFri = 5 - dow;
+            closesAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+daysToFri, 22, 0, 0, 0));
+          } else if (dow === 5) { // Friday
+            open = (nowMin < fxOpenMin);
+            if (open) closesAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 22, 0, 0, 0));
+            else {
+              // Next open: Sunday 22:00 UTC
+              const daysToSun = 2; // Fri->Sun
+              opensAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+daysToSun, 22, 0, 0, 0));
+            }
+          } else { // Saturday
+            open = false;
+            // Next open: Sunday 22:00 UTC
+            const daysToSun = 1;
+            opensAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()+daysToSun, 22, 0, 0, 0));
           }
         }
         const msUntilOpen = (!open && opensAt) ? Math.max(0, opensAt.getTime() - now.getTime()) : 0;
-        return { open, opensAt, msUntilOpen, kind };
+        const msUntilClose = (open && closesAt) ? Math.max(0, closesAt.getTime() - now.getTime()) : null;
+        return { open, opensAt, msUntilOpen, closesAt, msUntilClose, kind };
       }
       function updateTradingStatusUI(cache) {
         const btn = document.getElementById('btnTradingStatus');
@@ -7440,7 +7461,23 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (ts.open) {
           btn.textContent = 'Trading: Open';
           btn.style.background = '#2ecc71'; btn.style.color = '#fff';
-          if (note) note.textContent = '';
+          if (note) {
+            if (ts.msUntilClose != null) {
+              const updateNoteOpen = () => {
+                const t = tradingSessionStatus(sym);
+                const ms = Number(t.msUntilClose||0);
+                const hh = Math.floor(ms/3600000);
+                const mm = Math.floor((ms%3600000)/60000);
+                const ss = Math.floor((ms%60000)/1000);
+                const when = t.closesAt ? t.closesAt.toUTCString() : '';
+                note.textContent = `Closes in ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')} • ${when}`;
+              };
+              updateNoteOpen();
+              tradingStatusTimer = setInterval(updateNoteOpen, 1000);
+            } else {
+              note.textContent = '';
+            }
+          }
         } else {
           btn.textContent = 'Trading: Closed';
           btn.style.background = '#e74c3c'; btn.style.color = '#fff';
@@ -7460,6 +7497,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       // Keep trading status current
       (async ()=>{ try { updateTradingStatusUI(); } catch {} })();
       const symSel2 = document.getElementById('symbol'); if (symSel2) symSel2.addEventListener('change', ()=>{ try { updateTradingStatusUI(); ensureAutoPeriodicTimer(); } catch {} });
+      const tfSel2 = document.getElementById('timeframe'); if (tfSel2) tfSel2.addEventListener('change', ()=>{ try { updateTradingStatusUI(); } catch {} });
       // Persist Auto controls
       const autoSafeMaxInput = document.getElementById('autoSafeMaxInput');
       const autoVolumeInput = document.getElementById('autoVolumeInput');
