@@ -540,6 +540,10 @@
         <!-- Per-symbol freshness and last-decision pills for selected periodic symbols -->
         <div id="autoPeriodicSymbolsMeta" style="margin:6px 0 0 0; display:flex; flex-direction:column; gap:6px;"></div>
         <div id="autoPeriodicSymbolsMetaInfo" style="margin:2px 0 0 0; font-size:12px; color:var(--muted);">Last updated: —</div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+          <button class="btn danger" id="btnRerunAllChecks" style="padding:6px 10px;">Rerun All Checks</button>
+          <span style="font-size:12px; color:var(--muted);">Runs Deep, Basic, and Tech now (ignores freshness)</span>
+        </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <span style="min-width:110px; color:var(--muted);">Account</span>
           <select id="autoPeriodicAccountSelect" class="blue-select" multiple size="4" style="min-width:220px; flex:1;"></select>
@@ -6265,6 +6269,56 @@ const ensureLwMacd = () => {
       // Run once on load for quicker first sync
       (async () => { try { await runPeriodicPillMaintenanceCycle(); } catch {} })();
       ensurePeriodicSymbolsMetaTimer();
+
+      // Rerun All Checks (Deep, Basic, Tech) for selected symbols — ignore freshness
+      const btnRerunAllChecks = document.getElementById('btnRerunAllChecks');
+      async function newTechRunForSymbol(sym, tf) {
+        try {
+          const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+          const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: 'tech_snapshot_10q_position.json' };
+          const techModelSel = document.getElementById('techAiModel');
+          const techModel = techModelSel && techModelSel.value ? techModelSel.value : '';
+          if (techModel) body.model = techModel;
+          const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+          const js = await res.json().catch(()=>({}));
+          return (js && js.ok && js.run_id) ? Number(js.run_id) : null;
+        } catch { return null; }
+      }
+      async function newDeepRunForSymbol(sym, tf) {
+        try {
+          const nInput = document.getElementById('deepNewsCount');
+          const n = Math.max(1, Math.min(500, Number(nInput?.value || 100)));
+          const model = document.getElementById('deepAiModel')?.value || '';
+          const stratName = (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json');
+          const body = { symbol: sym, timeframe: tf, news_count: n, strategy: stratName };
+          if (model) body.model = model;
+          const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+          const js = await res.json().catch(()=>({}));
+          return (js && js.ok && js.run_id) ? Number(js.run_id) : null;
+        } catch { return null; }
+      }
+      async function rerunAllChecksIgnoreFreshness() {
+        const sel = document.getElementById('autoPeriodicSymbols');
+        const tf = currentTf();
+        let symbols = [];
+        try { symbols = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>String(o.value||'').toUpperCase()); } catch {}
+        if (!Array.isArray(symbols) || symbols.length === 0) symbols = [currentSymbol()];
+        const msg = `Rerun Deep, Basic and Tech now?\nTF ${tf}\nSymbols: ${symbols.join(', ')}`;
+        if (!window.confirm(msg)) return;
+        try { setPeriodicStatus(`[Checks] Running ${symbols.join(', ')} on ${tf}`, true); } catch {}
+        for (const sym of symbols) {
+          try { setPeriodicStatus(`[${sym}] Running Deep…`, true); } catch {}
+          await newDeepRunForSymbol(sym, tf);
+          try { setPeriodicStatus(`[${sym}] Running Basic…`, true); } catch {}
+          await newBasicRunForSymbol(sym, tf);
+          try { setPeriodicStatus(`[${sym}] Running Tech…`, true); } catch {}
+          await newTechRunForSymbol(sym, tf);
+          try { await updatePeriodicRowFreshness(sym, tf); } catch {}
+        }
+        try { if (periodicMetaInfo) periodicMetaInfo.textContent = 'Last updated: ' + new Date().toLocaleTimeString(); } catch {}
+        try { setPeriodicStatus('', false); } catch {}
+      }
+      if (btnRerunAllChecks) btnRerunAllChecks.addEventListener('click', rerunAllChecksIgnoreFreshness);
 
       // Periodic History UI
       const btnPeriodicHistoryOpen = document.getElementById('btnPeriodicHistoryOpen');
