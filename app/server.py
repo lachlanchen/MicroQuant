@@ -1330,9 +1330,36 @@ async def _maybe_auto_stl(
     try:
         # Only auto-recompute for H1 and higher timeframes
         allowed = {"H1", "H4", "D1", "W1", "MN1", "Y1"}
-        if (timeframe or "").upper() not in allowed:
+        tfu = (timeframe or "").upper()
+        if tfu not in allowed:
             return
         if not isinstance(inserted, int) or inserted <= 0:
+            return
+
+        # Respect UI intent: run lazily only when auto periodic is enabled
+        # and when this symbol×TF is the currently selected pair (persisted via fetch?persist=1)
+        want_auto = False
+        try:
+            prefs = await get_prefs(pool, [
+                "auto_trade_periodic:global",
+                "last_symbol",
+                "last_tf",
+                f"stl_auto_compute:{symbol.upper()}:{tfu}",
+            ])
+            # Explicit per-symbol×TF override can force-enable/disable
+            override = (prefs.get(f"stl_auto_compute:{symbol.upper()}:{tfu}") or "").strip().lower()
+            if override in {"0", "false", "no", "off"}:
+                return
+            if override in {"1", "true", "yes", "on"}:
+                want_auto = True
+            else:
+                auto_enabled = (str(prefs.get("auto_trade_periodic:global") or "0").strip() == "1")
+                last_sym = str(prefs.get("last_symbol") or "").upper()
+                last_tf = str(prefs.get("last_tf") or "").upper()
+                want_auto = auto_enabled and (last_sym == str(symbol or "").upper()) and (last_tf == tfu)
+        except Exception:
+            want_auto = False
+        if not want_auto:
             return
         event_scope = "auto_stl"
         # Announce schedule
@@ -1354,6 +1381,17 @@ async def _maybe_auto_stl(
             end_dt=None,
             max_points=limit_points,
         )
+        # Prune older STL runs for this symbol×TF (keep latest only)
+        try:
+            runs = await list_stl_runs(pool, str(symbol).upper(), tfu)
+            if runs and len(runs) > 1:
+                for old in runs[1:]:
+                    try:
+                        await delete_stl_run(pool, int(old["id"]))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         await emit_stl_event(
             symbol=symbol,
             timeframe=timeframe,
@@ -2310,6 +2348,7 @@ async def make_app():
             (r"/api/account/closed_deals_sync", ClosedDealsSyncHandler),
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
+            (r"/api/stl/prune", STLPruneHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler, dict(pool=pool)),
             (r"/api/account/closed_deals", ClosedDealsHandler),
@@ -3546,6 +3585,18 @@ class STLComputeHandler(tornado.web.RequestHandler):
                     end_dt=end_dt if scope in ("current", "single") else None,
                     max_points=limit,
                 )
+                # Prune older runs for this symbol×TF (keep latest only)
+                try:
+                    tfu = (tf or "").upper()
+                    runs = await list_stl_runs(self.pool, str(sym).upper(), tfu)
+                    if runs and len(runs) > 1:
+                        for old in runs[1:]:
+                            try:
+                                await delete_stl_run(self.pool, int(old["id"]))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
                 logger.info("[stl] %s %s completed period=%s points=%s inserted=%s", sym, tf, result.get("period"), result.get("points"), result.get("inserted"))
                 await emit_stl_event(
                     symbol=sym,
@@ -3623,6 +3674,51 @@ class STLDeleteHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "run_id": run_id_int}))
+
+
+class STLPruneHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        symbol = self.get_argument("symbol", default=None)
+        timeframe = self.get_argument("tf", default=None)
+        keep_arg = self.get_argument("keep", default="1")
+        try:
+            keep = max(0, int(keep_arg))
+        except Exception:
+            keep = 1
+        if not symbol or not timeframe:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "symbol and tf required"}))
+            return
+        symu = str(symbol).upper()
+        tfu = str(timeframe).upper()
+        runs = await list_stl_runs(self.pool, symu, tfu)
+        deleted_ids: list[int] = []
+        if runs and len(runs) > keep:
+            for old in runs[keep:]:
+                try:
+                    rid = int(old.get("id"))
+                except Exception:
+                    continue
+                try:
+                    n = await delete_stl_run(self.pool, rid)
+                    if n > 0:
+                        deleted_ids.append(rid)
+                except Exception:
+                    continue
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({
+            "ok": True,
+            "symbol": symu,
+            "timeframe": tfu,
+            "kept": keep,
+            "deleted": len(deleted_ids),
+            "deleted_ids": deleted_ids,
+        }))
 
 
 class PreferencesHandler(tornado.web.RequestHandler):
