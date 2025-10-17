@@ -6514,6 +6514,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         // Refresh freshness pills for the current symbol/timeframe (UI)
         try { await refreshTechFreshness(); } catch {}
         try { await refreshHealthFreshness(); } catch {}
+        try { await updateAutoDeepFreshness(); } catch {}
         try { await renderPeriodicSymbolsMeta(); } catch {}
         // Also refresh the positions panel for the currently selected symbol/account
         try { if (typeof refreshPositions === 'function') await refreshPositions(); } catch {}
@@ -6539,7 +6540,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           log(`Model=${model} lev=${lev}`);
         } catch {}
         // Freshness
-        let hj = null, tfj = null;
+        let hj = null, tfj = null, dfj = null;
         try {
           const strat = resolveBasicStrategyForSymbol(sym);
           const r = await fetch(`/api/health/freshness?symbol=${encodeURIComponent(sym)}&strategy=${encodeURIComponent(strat)}`, { cache:'no-store' });
@@ -6547,10 +6548,23 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (r.ok && hj && hj.ok) log(`Basic freshness: status=${hj.status} new=${hj.new_count ?? '—'} (strategy=${strat})`);
         } catch {}
         try { const q = new URLSearchParams({ symbol: sym, tf }); const r = await fetch(`/api/tech/freshness?${q.toString()}`, { cache:'no-store' }); tfj = await r.json().catch(()=>({})); if (r.ok && tfj && tfj.ok) log(`Tech freshness: status=${tfj.status} outdated_bars=${tfj.outdated_bars ?? '—'}`); } catch {}
+        // Deep freshness (strategy-specific)
+        let deepStrategy = 'deep_research.json';
+        try { deepStrategy = (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json'); } catch {}
+        try {
+          const p = new URLSearchParams({ symbol: sym, strategy: deepStrategy });
+          const r = await fetch(`/api/health/freshness?${p.toString()}`, { cache:'no-store' });
+          dfj = await r.json().catch(()=>({}));
+          if (r.ok && dfj && dfj.ok) {
+            const nc = (dfj.new_count != null ? Number(dfj.new_count) : '—');
+            log(`Deep freshness: status=${dfj.status} new=${nc} (strategy=${deepStrategy})`);
+          }
+        } catch {}
         // If stale or unknown/no-run, run checks (Tech requires snapshot)
         // Danger path: if there are new articles, force a Basic run regardless of status label
         const needBasic = !!(hj && (Number(hj.new_count||0) > 0 || hj.status === 'unknown' || !hj.last_run_at));
         let needTech  = !!(tfj && ((tfj.status === 'stale' && Number(tfj.outdated_bars||0) > 0) || tfj.status === 'unknown' || !tfj.last_run_at));
+        const needDeep  = !!(dfj && (Number(dfj.new_count||0) > 0 || dfj.status === 'unknown' || !dfj.last_run_at));
         // Strategy-aware override: if selected Tech strategy has no recent run for this TF, force a new run
         let techStrat = 'tech_snapshot_10q_position.json';
         try { const sel = document.getElementById('techAiStrategy'); techStrat = (sel && sel.value) ? sel.value : 'tech_snapshot_10q_position.json'; } catch {}
@@ -6568,7 +6582,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         }
         if (needBasic) log('Outdated: Basic — running new check…');
         if (needTech) log('Outdated: Tech — running new check…');
-        let basicId = null, techId = null;
+        if (needDeep) log('Outdated: Deep — running new check…');
+        let basicId = null, techId = null, deepId = null;
         if (needBasic) {
           try {
             const strategy = resolveBasicStrategyForSymbol(sym);
@@ -6593,6 +6608,18 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const js = await res.json().catch(()=>({}));
             if (js && js.ok && js.run_id) { techId = js.run_id; log(`Tech run id=${techId}`); }
           } catch (e) { log(`Tech run error: ${e && e.message || e}`, 'error'); }
+        }
+        if (needDeep) {
+          try {
+            // Use UI prefs if present
+            const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
+            const model = document.getElementById('deepAiModel')?.value || '';
+            const body = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategy };
+            if (model) body.model = model;
+            const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+            const js = await res.json().catch(()=>({}));
+            if (js && js.ok && js.run_id) { deepId = js.run_id; log(`Deep run id=${deepId}`); }
+          } catch (e) { log(`Deep run error: ${e && e.message || e}`, 'error'); }
         }
         // Determine latest tech signal for side — prefer latest run for the selected Tech strategy
         let side = null, latest = null;
@@ -6685,6 +6712,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
           try { if (Number.isFinite(Number(basicId))) body.basic_run_id = Number(basicId); } catch {}
           try { const tid = (techId && Number.isFinite(Number(techId))) ? Number(techId) : (latest && latest.id ? Number(latest.id) : null); if (Number.isFinite(tid)) body.tech_run_id = tid; } catch {}
+          try { if (Number.isFinite(Number(deepId))) body.deep_run_id = Number(deepId); } catch {}
           const r = await fetch('/api/ai/trade_plan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await r.json().catch(()=>({}));
           if (!r.ok || !js || js.ok !== true) { log(`Plan failed: ${(js && js.error) || r.statusText || 'unknown'}`, 'error'); return; }
