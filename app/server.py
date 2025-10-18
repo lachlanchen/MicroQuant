@@ -3008,7 +3008,7 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
                 "strategy": strategy,
                 "score": score,
                 "signal": signal,
-                "answers": ans.get("questions") or [],
+                "answers": ans,
                 "meta": meta,
             }
 
