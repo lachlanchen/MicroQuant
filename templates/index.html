@@ -532,6 +532,16 @@
             </select>
           </label>
         </div>
+        <!-- Moved up: Tech report above AI model -->
+        <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:110px; color:var(--muted);">Tech report</span>
+            <select id="autoPeriodicTechSnapshotModeSelect" style="min-width:160px;">
+              <option value="snapshot_plus_history" selected>Snapshot + History (new)</option>
+              <option value="snapshot">Tech Snapshot (classic)</option>
+            </select>
+          </label>
+        </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <label style="display:flex; align-items:center; gap:6px;">
             <span style="min-width:80px; color:var(--muted);">AI model</span>
@@ -542,6 +552,17 @@
               <option value="deepseek-chat" selected>deepseek-chat</option>
               <option value="deepseek-reasoner">deepseek-reasoner</option>
             </select>
+          </label>
+        </div>
+        <!-- Moved: Auto volume and Safe max directly under AI model -->
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:110px; color:var(--muted);">Auto volume</span>
+            <input id="autoPeriodicVolumeInput" type="number" min="0.01" step="0.01" value="0.01" style="width:110px;" />
+          </label>
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:110px; color:var(--muted);">Safe max lots</span>
+            <input id="autoPeriodicSafeMaxInput" type="number" min="0.01" step="0.01" style="width:110px;" />
           </label>
         </div>
         <!-- Trading session indicator (below period timer) -->
@@ -565,31 +586,13 @@
           <span style="min-width:110px; color:var(--muted);">Account</span>
           <select id="autoPeriodicAccountSelect" class="blue-select" multiple size="4" style="min-width:220px; flex:1;"></select>
         </div>
-        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
-          <label style="display:flex; align-items:center; gap:6px;">
-            <span style="min-width:110px; color:var(--muted);">Tech report</span>
-            <select id="autoPeriodicTechSnapshotModeSelect" style="min-width:160px;">
-              <option value="snapshot_plus_history" selected>Snapshot + History (new)</option>
-              <option value="snapshot">Tech Snapshot (classic)</option>
-            </select>
-          </label>
-        </div>
         <!-- Selected-accounts weighted lots helper -->
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button class="btn secondary" id="btnShowWeightedLotsSel" style="padding:6px 10px;">Show weighted lots (selected)</button>
           <button class="btn secondary" id="btnShowWeightedLotsAll" style="padding:6px 10px;">Weighted log (all)</button>
           <span id="selectedWeightedLotsSummary" style="font-size:12px; color:var(--muted);"></span>
         </div>
-        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
-          <label style="display:flex; align-items:center; gap:6px;">
-            <span style="min-width:110px; color:var(--muted);">Auto volume</span>
-            <input id="autoPeriodicVolumeInput" type="number" min="0.01" step="0.01" value="0.01" style="width:110px;" />
-          </label>
-          <label style="display:flex; align-items:center; gap:6px;">
-            <span style="min-width:110px; color:var(--muted);">Safe max lots</span>
-            <input id="autoPeriodicSafeMaxInput" type="number" min="0.01" step="0.01" style="width:110px;" />
-          </label>
-        </div>
+        <!-- Auto volume/Safe max moved above; removed here -->
         <div id="openLotsSummary" style="margin-top:4px; font-size:12px; color:var(--muted);"></div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
           <button class="btn secondary" id="btnPeriodicHistoryOpen" style="padding:6px 10px;">Periodic History</button>
