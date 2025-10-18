@@ -3679,6 +3679,7 @@ const ensureLwMacd = () => {
           history = await r.json().catch(()=>null);
         } catch {}
         const sections = [];
+        const HIDE_LAST = (typeof getHideLastTechReport === 'function') ? getHideLastTechReport() : true;
         const buildKV = (rows) => `<div style="border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);">${rows.map(([k,v])=>`<div class=\"row\" style=\"justify-content:space-between; gap:8px; margin:2px 0;\"><span style=\"color:var(--muted)\">${esc(k)}</span><span>${esc(v)}</span></div>`).join('')}</div>`;
         // 0) Full last periodic Tech+AI report (if any)
         try {
@@ -3739,7 +3740,7 @@ const ensureLwMacd = () => {
               ['Category', _cat || '—'],
             ]);
             // Render order: explanations first, then ranges, then score summary
-            sections.push(`<div>${header}${qaHtml}${rangeHtml}${scoreBox}</div>`);
+            if (!HIDE_LAST) sections.push(`<div>${header}${qaHtml}${rangeHtml}${scoreBox}</div>`);
           }
         } catch {}
         // Last periodic tech
@@ -3751,9 +3752,9 @@ const ensureLwMacd = () => {
             rows.push(['Strategy', lastTech.strategy || '—']);
             rows.push(['Signal', lastTech.signal ?? '—']);
             rows.push(['Score', String(lastTech.score ?? '—')]);
-            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last periodic Tech+AI</div>${buildKV(rows)}</div>`);
+            if (!HIDE_LAST) sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last periodic Tech+AI</div>${buildKV(rows)}</div>`);
           } else {
-            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last periodic Tech+AI</div><div style="padding:8px; color:var(--muted);">No periodic auto run found.</div></div>`);
+            if (!HIDE_LAST) sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last periodic Tech+AI</div><div style="padding:8px; color:var(--muted);">No periodic auto run found.</div></div>`);
           }
         } catch {}
         // Last periodic plans (match open orders; hide when none)
@@ -3816,23 +3817,7 @@ const ensureLwMacd = () => {
         }
         catch {}
         box.innerHTML = sections.join('');
-        // Remove duplicate or hidden Tech summary blocks if present
-        try {
-          const headers = box.querySelectorAll('div');
-          const HIDE_LAST = (typeof getHideLastTechReport === 'function') ? getHideLastTechReport() : false;
-          headers.forEach(h => {
-            const txt = (h.textContent || '').trim();
-            const isSimple = (txt === 'Last periodic Tech+AI');
-            const isHeader = txt.startsWith('Last periodic Tech+AI —');
-            if (isSimple && h.parentElement) {
-              // Legacy duplicate removal
-              h.parentElement.remove();
-            } else if (HIDE_LAST && (isSimple || isHeader) && h.parentElement) {
-              // Respect user toggle: hide the last Tech summary (both header and simple summary)
-              h.parentElement.remove();
-            }
-          });
-        } catch {}
+        // Summary blocks are gated at render-time; no DOM pruning needed
         // Build textual technical snapshot and render
         try {
           const txt = await buildTechSnapshotString();
