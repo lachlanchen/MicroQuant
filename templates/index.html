@@ -3519,7 +3519,7 @@ const ensureLwMacd = () => {
               const id = q && q.id ? q.id : String(idx+1);
               return `<div style=\"padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); margin-bottom:6px;\"><div style=\"font-weight:600;\">Q${esc(String(id))}: <span style=\"color:var(--accent)\">${esc(String(pos||'—'))}</span></div>${expl?`<div style=\"margin-top:4px; color:var(--muted)\">${esc(String(expl))}</div>`:''}</div>`;
             }).join('');
-            const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Last periodic Tech+AI — ${esc(lastTech.created_at || '')}</div><div>${esc(String(ans.signal || ''))}</div></div><div style=\"color:var(--muted); font-size:12px; margin-top:4px;\">Latest periodic technical AI report (10 questions). Each item shows the decision and the strongest evidence.</div>`;
+            const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Last periodic Tech+AI — ${esc(lastTech.created_at || '')}</div><div>${esc(String(ans.signal || ''))}</div></div><div style=\"color:var(--muted); font-size:12px; margin-top:4px;\">Latest periodic technical AI report (10 questions). Each item shows the decision and the strongest evidence. Reference only — answers should rely on the latest data.</div>`;
             const scoreBox = buildKV([
               ['Symbol', meta.symbol || symbol],
               ['Timeframe', meta.timeframe || tf],
@@ -3578,7 +3578,26 @@ const ensureLwMacd = () => {
           });
           const table = `<div style="font-weight:600; margin-bottom:6px;">Open Positions</div><div style="color:var(--muted); font-size:12px; margin-bottom:6px;">Currently open positions for this symbol with PnL.</div>${buildTechTable('Open Positions', head, rows)}`;
           sections.push(table);
-        } catch {}
+          // Order ↔ Plan links (tag-based; nearest-by-time fallback)
+  const links = Array.isArray(history && history.order_plan_links) ? history.order_plan_links : [];
+  if (links.length) {
+    const linkHtml = links.map(l => {
+      const t = l && l.ticket != null ? String(l.ticket) : '—';
+      const method = l && l.method ? String(l.method) : '—';
+      const plan = l && l.plan ? l.plan : null;
+      const a = plan && plan.answers ? plan.answers : {};
+      const pos = a.position || (a.plan && a.plan.position) || '—';
+      const sl = a.stop_loss ?? (a.plan && a.plan.stop_loss);
+      const tp = a.take_profit ?? (a.plan && a.plan.take_profit);
+      const created = plan && plan.created_at ? plan.created_at : '—';
+      const kv = buildKV([[ 'Ticket', t ], [ 'Matched plan', created ], [ 'Position', pos || '—' ], [ 'SL', sl != null ? String(sl) : '—' ], [ 'TP', tp != null ? String(tp) : '—' ], [ 'Method', method ]]);
+      return `<div style=\\"margin-bottom:8px;\\">${kv}</div>`;
+    }).join('');
+    const note = '<div style=\\"color:var(--muted); font-size:12px; margin-bottom:6px;\\">Tagged orders link precisely. Un‑tagged orders are matched to the nearest plan by time (fallback).</div>';
+    sections.push(`<div><div style=\\"font-weight:600; margin-bottom:6px;\\">Order ↔ Plan links</div>${note}${linkHtml}</div>`);
+  }
+}
+catch {}
         box.innerHTML = sections.join('');
         // Remove any legacy duplicate summary block if present
         try {
