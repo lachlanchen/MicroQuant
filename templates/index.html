@@ -3517,7 +3517,9 @@ const ensureLwMacd = () => {
               const pos = (a && typeof a === 'object') ? (a.position || a.POSITION || '') : (typeof a === 'string' ? a : '');
               const expl = (q && q.explanation) ? q.explanation : '';
               const id = q && q.id ? q.id : String(idx+1);
-              return `<div style=\"padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); margin-bottom:6px;\"><div style=\"font-weight:600;\">Q${esc(String(id))}: <span style=\"color:var(--accent)\">${esc(String(pos||'—'))}</span></div>${expl?`<div style=\"margin-top:4px; color:var(--muted)\">${esc(String(expl))}</div>`:''}</div>`;
+              const posLine = `<div style=\"margin-top:4px;\"><strong>Position:</strong> <span style=\"color:var(--accent)\">${esc(String(pos||'—'))}</span></div>`;
+              const explLine = expl ? `<div style=\"color:var(--muted)\">${esc(String(expl))}</div>` : '';
+              return `<div style=\"padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); margin-bottom:6px;\"><div style=\"font-weight:600;\">Q${esc(String(id))}</div>${explLine}${posLine}</div>`;
             }).join('');
             const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Last periodic Tech+AI — ${esc(lastTech.created_at || '')}</div><div>${esc(String(ans.signal || ''))}</div></div><div style=\"color:var(--muted); font-size:12px; margin-top:4px;\">Latest periodic technical AI report (10 questions). Each item shows the decision and the strongest evidence. Reference only — answers should rely on the latest data.</div>`;
             const scoreBox = buildKV([
@@ -3544,10 +3546,10 @@ const ensureLwMacd = () => {
             sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last periodic Tech+AI</div><div style="padding:8px; color:var(--muted);">No periodic auto run found.</div></div>`);
           }
         } catch {}
-        // Last three periodic plans
+        // Last periodic plans (match open orders; hide when none)
         try {
           const plans = Array.isArray(history && history.last_three_plans) ? history.last_three_plans : [];
-          if (plans.length) {
+          if (plans.length && posCount > 0) {
             const html = plans.map((p, idx) => {
               const a = p && p.answers ? p.answers : {};
               const pos = a.position || (a.meta && a.meta.position) || (a.plan && a.plan.position) || (a.position && a.position.position) || a?.position; // best effort
