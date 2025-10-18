@@ -364,6 +364,14 @@
         <div style="padding:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
           <div style="display:flex; flex-direction:column; gap:10px;">
             <strong style="color:var(--accent)">Analysis</strong>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <label class="switch" title="Show or hide Deep Research controls">
+                <input type="checkbox" id="chkShowDeep" class="toggle-input" checked />
+                <span class="toggle"></span>
+                <span>Show Deep Research</span>
+              </label>
+            </div>
+            <div id="deepPanelWrap">
             <!-- Deep Research controls (own template + model at top) -->
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
@@ -397,6 +405,7 @@
             </div>
             <!-- Fallback inline box for Deep Research if modal suppressed by CSS -->
             <div id="deepInlineBox" style="display:none; margin-top:8px; border:1px dashed #90caf9; background:rgba(227,242,253,0.6); color:#0d47a1; border-radius:8px; padding:8px;"></div>
+            </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label style="display:flex; align-items:center; gap:6px;">
                 <span style="display:inline-block; width:120px; text-align:right;">Template</span>
@@ -1562,6 +1571,9 @@
       const aiModelSelect = el('aiModelSelect');
       const autoAiModelSelect = el('autoAiModelSelect');
       const autoPeriodicModelSelect = el('autoPeriodicModelSelect');
+      // Deep Research show/hide toggle
+      const deepPanelWrap = el('deepPanelWrap');
+      const showDeepToggle = el('chkShowDeep');
       // Tech snapshot mode (classic vs history)
       const techSnapshotModeSelect = el('techSnapshotModeSelect');
       const autoTechSnapshotModeSelect = el('autoTechSnapshotModeSelect');
@@ -1619,6 +1631,25 @@
           } catch {}
         })();
       }
+      // Apply Deep Research visibility from preference
+      function applyDeepVisible(on) {
+        try { if (deepPanelWrap) deepPanelWrap.style.display = on ? '' : 'none'; } catch {}
+        try { if (showDeepToggle) showDeepToggle.checked = !!on; } catch {}
+      }
+      (async () => {
+        try {
+          const r = await fetch(`${PREF_ENDPOINT}?keys=show_deep_research`, { cache:'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const saved = js && js.prefs && js.prefs.show_deep_research;
+          const on = !(String(saved||'1') === '0');
+          applyDeepVisible(on);
+        } catch { applyDeepVisible(true); }
+      })();
+      if (showDeepToggle) showDeepToggle.addEventListener('change', () => {
+        const on = !!showDeepToggle.checked;
+        applyDeepVisible(on);
+        try { queuePrefUpdate('show_deep_research', on ? '1' : '0'); flushPrefQueue(); } catch {}
+      });
       if (autoAiModelSelect) {
         autoAiModelSelect.addEventListener('change', () => {
           const model = autoAiModelSelect.value || 'deepseek-chat';

@@ -1166,6 +1166,7 @@ PREF_KEYS = [
     "deep_news_count",
     # New: choose classic Tech Snapshot vs Snapshot + History
     "tech_snapshot_mode",
+    "show_deep_research",
     "balance_poll_min",
     "closed_orders_poll_min",
 ]
