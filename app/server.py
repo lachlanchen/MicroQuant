@@ -1,5 +1,6 @@
 import os
 import hashlib
+import re
 import json
 import logging
 import asyncio
@@ -3119,6 +3120,99 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
             tick = mt5_client.get_tick(symbol)
         except Exception:
             tick = None
+
+        # Size the plans list to match open orders count when present; otherwise show last 3
+        try:
+            want = len(positions) if isinstance(positions, list) else 0
+            if want > 0:
+                last_three_plans = last_three_plans[:want]
+            else:
+                last_three_plans = last_three_plans[:3]
+        except Exception:
+            pass
+
+        # Build per-position ↔ plan links using comment tag when present, else nearest plan by time
+        order_plan_links: list[dict] = []
+        try:
+            # Preload a pool of recent plans for fallback matching
+            recent_plans = await list_health_runs(
+                self.pool,
+                kind=kind,
+                symbol=(symbol if kind == "stock" else None),
+                base_ccy=(symbol[:3] if kind == "forex_pair" else None),
+                quote_ccy=(symbol[3:6] if kind == "forex_pair" else None),
+                limit=50,
+                offset=0,
+                strategy="ai_trade_plan",
+            )
+            # Optional timeframe filter on answers_json.meta.timeframe
+            tf_up = timeframe.upper()
+            def _tf_ok(run: dict) -> bool:
+                try:
+                    ans = run.get("answers_json") or {}
+                    meta = ans.get("meta") or {}
+                    return str(meta.get("timeframe") or "").upper() == tf_up
+                except Exception:
+                    return True
+            recent_plans = [r for r in recent_plans if _tf_ok(r)]
+            # Serialize once
+            ser_plans: list[dict] = []
+            for r in recent_plans:
+                s = _ser_run(r)
+                if s:
+                    ser_plans.append(s)
+            # Index by id for quick lookup
+            plan_by_id = {int(s["id"]): s for s in ser_plans if s.get("id") is not None}
+
+            tag_re = re.compile(r"aq:pl=r(\d+)x([0-9a-fA-F]{6})")
+            from datetime import datetime as _dt, timezone as _tz
+            for p in (positions or []):
+                try:
+                    ticket = int(p.get("ticket") or 0)
+                except Exception:
+                    ticket = 0
+                comment = str(p.get("comment") or "")
+                # 1) Tag-based match
+                match = tag_re.search(comment)
+                linked = None
+                method = None
+                if match:
+                    try:
+                        rid = int(match.group(1))
+                        linked = plan_by_id.get(rid)
+                        method = "tag"
+                    except Exception:
+                        linked = None
+                # 2) Nearest-by-time fallback
+                if linked is None:
+                    try:
+                        ts = int(p.get("time") or 0)
+                        when = _dt.fromtimestamp(ts, tz=_tz.utc) if ts else None
+                    except Exception:
+                        when = None
+                    if when and ser_plans:
+                        # Choose plan with minimal |created_at - when|
+                        best = None
+                        best_delta = None
+                        for s in ser_plans:
+                            try:
+                                ca = s.get("created_at")
+                                ca_dt = _dt.fromisoformat(ca) if isinstance(ca, str) else None
+                            except Exception:
+                                ca_dt = None
+                            if not ca_dt:
+                                continue
+                            delta = abs((ca_dt - when).total_seconds())
+                            if (best_delta is None) or (delta < best_delta):
+                                best_delta = delta
+                                best = s
+                        if best is not None:
+                            linked = best
+                            method = "nearest"
+                entry = {"ticket": ticket, "method": method, "plan": linked}
+                order_plan_links.append(entry)
+        except Exception:
+            order_plan_links = []
         # Keep number of plans equal to number of open orders when possible
         try:
             want = len(positions) if isinstance(positions, list) else 0
@@ -3137,6 +3231,7 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
                     "timeframe": timeframe,
                     "last_periodic_tech": last_periodic_tech,
                     "last_three_plans": last_three_plans,
+                    "order_plan_links": order_plan_links,
                     "positions": positions,
                     "tick": tick,
                 }
