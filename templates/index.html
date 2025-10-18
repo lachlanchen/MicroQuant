@@ -3488,6 +3488,48 @@ const ensureLwMacd = () => {
         } catch {}
         const sections = [];
         const buildKV = (rows) => `<div style="border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);">${rows.map(([k,v])=>`<div class=\"row\" style=\"justify-content:space-between; gap:8px; margin:2px 0;\"><span style=\"color:var(--muted)\">${esc(k)}</span><span>${esc(v)}</span></div>`).join('')}</div>`;
+        // 0) Full last periodic Tech+AI report (if any)
+        try {
+          const lastTech = history && history.last_periodic_tech;
+          if (lastTech && lastTech.answers) {
+            const ans = lastTech.answers || {};
+            const meta = ans.meta || {};
+            const scores = ans.scores || ans.SCORES || {};
+            const buy = Number(scores.BUY || 0);
+            const sell = Number(scores.SELL || 0);
+            const net = Number(scores.NET || (buy - sell));
+            const thresholds = Array.isArray(lastTech.thresholds) ? lastTech.thresholds : [];
+            let rangeHtml = '';
+            if (thresholds.length) {
+              const rowsHtml = thresholds.map((t) => {
+                const minv = Number(t.min);
+                const maxv = Number(t.max);
+                const label = String(t.signal || '');
+                const hit = (net >= minv && net <= maxv);
+                return `<tr${hit? ' style=\"font-weight:600; color:var(--accent)\"' : ''}><td style=\"padding:4px 6px; border-bottom:1px solid var(--line)\">${esc(String(minv))}</td><td style=\"padding:4px 6px; border-bottom:1px solid var(--line)\">${esc(String(maxv))}</td><td style=\"padding:4px 6px; border-bottom:1px solid var(--line)\">${esc(label)}</td></tr>`;
+              }).join('');
+              rangeHtml = `<div style=\"border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);\"><div style=\"font-weight:600; margin-bottom:6px;\">Score ranges</div><table style=\"width:100%; border-collapse:collapse; font-size:13px;\"><thead><tr><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Min</th><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Max</th><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Category</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+            }
+            // Build Q&A list
+            const qlist = Array.isArray(ans.questions) ? ans.questions : [];
+            const qaHtml = qlist.map((q, idx) => {
+              const a = q && q.answer ? q.answer : q?.ANSWER || {};
+              const pos = (a && typeof a === 'object') ? (a.position || a.POSITION || '') : (typeof a === 'string' ? a : '');
+              const expl = (q && q.explanation) ? q.explanation : '';
+              const id = q && q.id ? q.id : String(idx+1);
+              return `<div style=\"padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); margin-bottom:6px;\"><div style=\"font-weight:600;\">Q${esc(String(id))}: <span style=\"color:var(--accent)\">${esc(String(pos||'—'))}</span></div>${expl?`<div style=\"margin-top:4px; color:var(--muted)\">${esc(String(expl))}</div>`:''}</div>`;
+            }).join('');
+            const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Last periodic Tech+AI — ${esc(lastTech.created_at || '')}</div><div>${esc(String(ans.signal || ''))}</div></div>`;
+            const scoreBox = buildKV([
+              ['Symbol', meta.symbol || symbol],
+              ['Timeframe', meta.timeframe || tf],
+              ['BUY', String(buy)],
+              ['SELL', String(sell)],
+              ['Score (NET)', String(net)],
+            ]);
+            sections.push(`<div>${header}${scoreBox}${rangeHtml}${qaHtml}</div>`);
+          }
+        } catch {}
         // Last periodic tech
         try {
           const lastTech = history && history.last_periodic_tech;

@@ -3053,6 +3053,16 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
                 except Exception:
                     tech_run = None
                 last_periodic_tech = _ser_run(tech_run)
+                # Attach scoring thresholds from the strategy json, if available
+                try:
+                    if last_periodic_tech:
+                        ans = last_periodic_tech.get("answers") or {}
+                        strategy_name = str(ans.get("strategy") or "tech_snapshot_10q_position.json")
+                        strat = _load_strategy_json(strategy_name)
+                        thresholds = ((strat.get("scoring") or {}).get("thresholds") or []) if isinstance(strat, dict) else []
+                        last_periodic_tech["thresholds"] = thresholds
+                except Exception:
+                    pass
 
             # Collect up to three most recent plan runs referenced by periodic auto logs
             plan_ids: list[int] = []
