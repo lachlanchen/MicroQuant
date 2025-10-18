@@ -822,6 +822,12 @@
         </div>
         <div id="tradeInfo" style="color:var(--muted); font-size:13px; margin-top:6px;"></div>
         <!-- Source selections for Basic and Tech+AI -->
+        <!-- Reordered: Deep first, then Basic, then Tech+AI -->
+        <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
+          <span style="min-width:110px; color:var(--muted);">Deep</span>
+          <select id="selectDeepRun" style="flex:1; min-width:220px;"></select>
+          <button class="btn secondary" id="btnNewDeepRun" style="padding:6px 10px;">New Research</button>
+        </div>
         <div class="row" style="gap:8px; align-items:center; margin-top:8px;">
           <span style="min-width:110px; color:var(--muted);">Basic</span>
           <select id="selectBasicRun" style="flex:1; min-width:220px;"></select>
@@ -831,11 +837,6 @@
           <span style="min-width:110px; color:var(--muted);">Tech+AI</span>
           <select id="selectTechRun" style="flex:1; min-width:220px;"></select>
           <button class="btn secondary" id="btnNewTechRun" style="padding:6px 10px;">New Check</button>
-        </div>
-        <div class="row" style="gap:8px; align-items:center; margin-top:6px;">
-          <span style="min-width:110px; color:var(--muted);">Deep</span>
-          <select id="selectDeepRun" style="flex:1; min-width:220px;"></select>
-          <button class="btn secondary" id="btnNewDeepRun" style="padding:6px 10px;">New Research</button>
         </div>
         <!-- Plan selection hidden (no longer needed in UI) -->
         <div class="row" style="gap:8px; align-items:center; margin-top:6px; display:none;">
@@ -5459,6 +5460,44 @@ const ensureLwMacd = () => {
           updateExecuteBtn();
         } catch (e) { /* ignore */ }
       }
+      // Fast-path render from cached run
+      function renderPlanFromRun(run) {
+        try {
+          const sym = currentSymbol();
+          const tf = currentTf();
+          const ans = run && (run.answers || run.answers_json) || {};
+          const p = ans.plan || {};
+          const created = run && run.created_at ? new Date(run.created_at).toLocaleString() : '';
+          const outBox = el('tradeResultsBox');
+          const enforced = (ans.meta && ans.meta.enforced) ? ' (risk cap applied)' : '';
+          const fmtSL3 = p.stop_loss != null ? formatPriceForSymbol(sym, p.stop_loss) : '—';
+          const fmtTP3 = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '—';
+          if (outBox) outBox.innerHTML = `<div class="row" style="justify-content:space-between; align-items:center;">
+            <strong>Plan</strong><span style="font-size:12px; color:var(--muted)">${esc(sym)} ${esc(tf)}${enforced}${created ? ` • ${esc(created)}` : ''}</span>
+          </div>
+          <div style="margin-top:6px; display:flex; gap:12px; flex-wrap:wrap;">
+            <span class="pill" style="background:${(p.position||'').toUpperCase()==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${(p.position||'').toUpperCase()==='BUY'?'#2ecc71':'#e74c3c'};">${esc((p.position||'').toUpperCase())}</span>
+            <span class="pill">SL: ${esc(fmtSL3)}</span>
+            <span class="pill">TP: ${esc(fmtTP3)}</span>
+          </div>
+          <div style="margin-top:6px; color:var(--muted);">${esc(p.explanation||'')}</div>`;
+          lastAiPlan = { position: String(p.position||'').toUpperCase(), stop_loss: p.stop_loss, take_profit: p.take_profit, symbol: sym, timeframe: tf };
+          updateExecuteBtn();
+        } catch {}
+      }
+      // Cache for plan runs
+      const PLAN_RUN_CACHE = new Map();
+      // Click to render selected recent plan
+      if (tradeHistoryBox) {
+        tradeHistoryBox.addEventListener('click', (ev) => {
+          const node = ev.target.closest('[data-run-id]');
+          if (!node) return;
+          const rid = Number(node.getAttribute('data-run-id'));
+          if (!Number.isFinite(rid)) return;
+          const cached = PLAN_RUN_CACHE.get(rid);
+          if (cached) renderPlanFromRun(cached); else renderSelectedPlan(rid);
+        });
+      }
       async function loadTradeSourceDropdowns() {
         const sym = currentSymbol();
         const tf = currentTf();
@@ -5715,7 +5754,9 @@ const ensureLwMacd = () => {
             const sl = plan.stop_loss != null ? formatPriceForSymbol(r.symbol || sym, plan.stop_loss) : '—';
             const tp = plan.take_profit != null ? formatPriceForSymbol(r.symbol || sym, plan.take_profit) : '—';
             const posPill = pos ? `<span class=\"pill\" style=\"background:${pos==='BUY'?'rgba(46,204,113,0.12)':'rgba(231,76,60,0.12)'}; border-color:${pos==='BUY'?'#2ecc71':'#e74c3c'};\">${pos}</span>` : '';
-            return `<div class=\"row\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%;\">\n              <span style=\"font-size:13px; color:var(--muted);\">${t}</span>\n              <span>${posPill} <span style=\"font-size:12px; color:var(--muted);\">SL ${esc(sl)} • TP ${esc(tp)}</span></span>\n            </div>`;
+            // Cache for quick click rendering
+            try { PLAN_RUN_CACHE.set(Number(r.id), r); } catch {}
+            return `<div class=\"row\" data-run-id=\"${String(r.id)}\" style=\"justify-content:space-between; border:1px solid var(--line); border-radius:6px; padding:6px 8px; background:#fff; width:100%; cursor:pointer;\" title=\"View plan\">\n              <span style=\"font-size:13px; color:var(--muted);\">${t}</span>\n              <span>${posPill} <span style=\"font-size:12px; color:var(--muted);\">SL ${esc(sl)} • TP ${esc(tp)}</span></span>\n            </div>`;
           }).join('');
           tradeHistoryBox.insertAdjacentHTML('beforeend', html);
         } catch (e) {
