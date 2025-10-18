@@ -3529,7 +3529,8 @@ const ensureLwMacd = () => {
               ['SELL', String(sell)],
               ['Score (NET)', String(net)],
             ]);
-            sections.push(`<div>${header}${scoreBox}${rangeHtml}${qaHtml}</div>`);
+            // Render order: explanations first, then ranges, then score summary
+            sections.push(`<div>${header}${qaHtml}${rangeHtml}${scoreBox}</div>`);
           }
         } catch {}
         // Last periodic tech
