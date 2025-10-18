@@ -6988,7 +6988,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const pSide = (plan.position || '').toUpperCase();
             const slStr = plan.stop_loss != null ? formatPriceForSymbol(sym, plan.stop_loss) : '—';
             const tpStr = plan.take_profit != null ? formatPriceForSymbol(sym, plan.take_profit) : '—';
-            log(`Plan: position=${pSide} SL=${slStr} TP=${tpStr}`);
+            const expl = (plan.explanation || '').toString();
+            const exShort = expl.length > 200 ? (expl.slice(0, 200) + '…') : expl;
+            log(`Plan: position=${pSide} SL=${slStr} TP=${tpStr}${exShort ? ` • ${exShort}` : ''}`);
           } catch {}
         } catch (e) { log(`Plan error: ${e && e.message || e}`, 'error'); return; }
         // Removed post-plan client-side safe-max check here — executor and per-account
@@ -8124,7 +8126,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const pSide = (p.position || '').toUpperCase();
             const slStr = p.stop_loss != null ? formatPriceForSymbol(sym, p.stop_loss) : '—';
             const tpStr = p.take_profit != null ? formatPriceForSymbol(sym, p.take_profit) : '—';
-            appendAutoLog(`Plan: position=${pSide} SL=${slStr} TP=${tpStr}`);
+            const expl = (p.explanation || '').toString();
+            const exShort = expl.length > 200 ? (expl.slice(0, 200) + '…') : expl;
+            appendAutoLog(`Plan: position=${pSide} SL=${slStr} TP=${tpStr}${exShort ? ` • ${exShort}` : ''}`);
           } catch {}
           updateExecuteBtn();
           appendAutoLog('Executing order…');
