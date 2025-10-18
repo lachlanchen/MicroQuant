@@ -2638,6 +2638,14 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
             plan_run_id = int(payload.get("plan_run_id")) if payload.get("plan_run_id") is not None else None
         except Exception:
             plan_run_id = None
+        # Begin log
+        try:
+            logger.info(
+                "/api/trade/execute_plan start symbol=%s side=%s tf=%s vol=%.3f sl_enabled=%s plan_run_id=%s",
+                symbol, side, timeframe, volume, sl_enabled, plan_run_id
+            )
+        except Exception:
+            pass
 
         # 1) Close opposite direction positions for this symbol
         opp = "short" if side == "buy" else "long"
@@ -2645,6 +2653,17 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
             closed = mt5_client.close_all_for(symbol, side=opp)
         except Exception as exc:
             closed = [{"ok": False, "error": str(exc)}]
+        # Log summary of close step
+        try:
+            closed_count = len(closed) if isinstance(closed, list) else 0
+            codes = [int(x.get("retcode", -1)) for x in (closed or []) if isinstance(x, dict)]
+            ok = sum(1 for c in codes if c == getattr(mt5_client.mt5, "TRADE_RETCODE_DONE", 10009)) if hasattr(mt5_client, 'mt5') else sum(1 for c in codes if c == 10009)
+            logger.info(
+                "/api/trade/execute_plan pre-close opposite symbol=%s proceed_side=%s close_side=%s closed=%d ok=%d/%d codes=%s",
+                symbol, side, opp, closed_count, ok, len(codes), codes[:10]
+            )
+        except Exception:
+            pass
 
         # 2) Update SL/TP for existing positions in the same direction
         #    Rule: move both SL and TP to the mean (midpoint) of existing and plan values.
@@ -2764,6 +2783,13 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
                 w_req = await _resolve_symbol_weight(symbol)
                 req_weighted = float(volume) * (w_req if w_req > 0 else 1.0)
                 if (open_weighted + req_weighted) > safe_max or open_weighted >= safe_max:
+                    try:
+                        logger.info(
+                            "/api/trade/execute_plan safe_max_exceeded symbol=%s side=%s open_w=%.3f req_w=%.3f safe=%.3f scope=%s",
+                            symbol, side, open_weighted, req_weighted, safe_max, 'global' if use_global else 'symbol'
+                        )
+                    except Exception:
+                        pass
                     self.set_header("Content-Type", "application/json")
                     self.set_header("Cache-Control", "no-store")
                     self.finish(json.dumps({
@@ -2826,14 +2852,17 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
             if invalid_tp or invalid_sl:
                 try:
                     logger.info(
-                        "/api/trade/execute_plan preflight invalid stops: symbol=%s side=%s price=%.10f min_dist=%.10f tp=%s dist_tp=%s sl=%s dist_sl=%s stops_level=%s point=%s",
-                        symbol, side, px if px is not None else -1.0,
-                        min_dist if min_dist is not None else 0.0,
-                        ("%.10f" % tp_val) if tp_val is not None else "None",
-                        ("%.10f" % dist_tp) if dist_tp is not None else "None",
-                        ("%.10f" % sl_val) if sl_val is not None else "None",
-                        ("%.10f" % dist_sl) if dist_sl is not None else "None",
-                        stops_lvl, point,
+                        "/api/trade/execute_plan preflight invalid_stops symbol=%s side=%s px=%s min_dist=%s tp=%s dist_tp=%s sl=%s dist_sl=%s stops_level=%s point=%s",
+                        symbol,
+                        side,
+                        f"{px:.10f}" if px is not None else "None",
+                        f"{min_dist:.10f}" if min_dist is not None else "None",
+                        f"{tp_val:.10f}" if tp_val is not None else "None",
+                        f"{dist_tp:.10f}" if dist_tp is not None else "None",
+                        f"{sl_val:.10f}" if sl_val is not None else "None",
+                        f"{dist_sl:.10f}" if dist_sl is not None else "None",
+                        stops_lvl,
+                        point,
                     )
                 except Exception:
                     pass
@@ -2891,6 +2920,12 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
             return
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
+        try:
+            rc = int(res.get("retcode", -1)) if isinstance(res, dict) else -1
+            oid = (res.get("order") or res.get("deal")) if isinstance(res, dict) else None
+            logger.info("/api/trade/execute_plan order symbol=%s side=%s vol=%.2f retcode=%s id=%s", symbol, side, volume, rc, oid)
+        except Exception:
+            pass
         self.finish(json.dumps({
             "ok": bool(res.get("ok")) if isinstance(res, dict) else False,
             "order_result": res,
@@ -2927,9 +2962,13 @@ class CloseHandler(tornado.web.RequestHandler):
         scope = self.get_argument("scope", default="current").lower()
         symbol = self.get_argument("symbol", default=default_symbol())
         side = self.get_argument("side", default="both").lower()
+        reason = self.get_argument("reason", default=None)
         if side not in {"both", "long", "short"}:
             side = "both"
-        logger.info("/api/close scope=%s symbol=%s side=%s", scope, symbol, side)
+        if reason:
+            logger.info("/api/close scope=%s symbol=%s side=%s reason=%s", scope, symbol, side, reason)
+        else:
+            logger.info("/api/close scope=%s symbol=%s side=%s", scope, symbol, side)
         try:
             if scope == "all":
                 res = mt5_client.close_all(side=None if side == "both" else side)
@@ -2952,9 +2991,15 @@ class CloseHandler(tornado.web.RequestHandler):
         try:
             codes = [int(x.get("retcode", -1)) for x in (res or []) if isinstance(x, dict)]
             ok = sum(1 for c in codes if c == getattr(mt5_client.mt5, "TRADE_RETCODE_DONE", 10009)) if hasattr(mt5_client, 'mt5') else sum(1 for c in codes if c == 10009)
-            logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d ok=%d/%d codes=%s", scope, symbol, side, closed_count, ok, len(codes), codes[:10])
+            if reason:
+                logger.info("/api/close done scope=%s symbol=%s side=%s reason=%s closed=%d ok=%d/%d codes=%s", scope, symbol, side, reason, closed_count, ok, len(codes), codes[:10])
+            else:
+                logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d ok=%d/%d codes=%s", scope, symbol, side, closed_count, ok, len(codes), codes[:10])
         except Exception:
-            logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d", scope, symbol, side, closed_count)
+            if reason:
+                logger.info("/api/close done scope=%s symbol=%s side=%s reason=%s closed=%d", scope, symbol, side, reason, closed_count)
+            else:
+                logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d", scope, symbol, side, closed_count)
         self.finish(json.dumps({"ok": True, "closed": res, "closed_count": closed_count, "scope": scope, "side": side}))
 
     async def post(self):
