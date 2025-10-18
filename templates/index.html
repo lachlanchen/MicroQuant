@@ -3571,36 +3571,39 @@ const ensureLwMacd = () => {
             sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div><div style="padding:8px; color:var(--muted);">None</div></div>`);
           }
         } catch {}
-        // Open positions
+        // Open positions — render matched plans first, then positions with account info
         try {
+          // 1) Matched plan links
+          const links = Array.isArray(history && history.order_plan_links) ? history.order_plan_links : [];
+          if (links.length) {
+            const linkHtml = links.map(l => {
+              const t = l && l.ticket != null ? String(l.ticket) : '—';
+              const method = l && l.method ? String(l.method) : '—';
+              const plan = l && l.plan ? l.plan : null;
+              const a = plan && plan.answers ? plan.answers : {};
+              const pos = a.position || (a.plan && a.plan.position) || '—';
+              const sl = a.stop_loss ?? (a.plan && a.plan.stop_loss);
+              const tp = a.take_profit ?? (a.plan && a.plan.take_profit);
+              const created = plan && plan.created_at ? plan.created_at : '—';
+              const kv = buildKV([[ 'Ticket', t ], [ 'Matched plan', created ], [ 'Position', pos || '—' ], [ 'SL', sl != null ? String(sl) : '—' ], [ 'TP', tp != null ? String(tp) : '—' ], [ 'Method', method ]]);
+              return `<div style=\"margin-bottom:8px;\">${kv}</div>`;
+            }).join('');
+            const note = '<div style="color:var(--muted); font-size:12px; margin-bottom:6px;">Tagged orders link precisely. Un‑tagged orders are matched to the nearest plan by time (fallback).</div>';
+            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Order ↔ Plan links</div>${note}${linkHtml}</div>`);
+          }
+          // 2) Positions table with account label
           const pos = Array.isArray(history && history.positions) ? history.positions : [];
           const head = ['Ticket','Side','Lots','Open','SL','TP','PnL'];
           const rows = pos.map(p => {
             const side = (Number(p.type) === 0) ? 'BUY' : 'SELL';
             return { time: String(p.symbol||''), values: [String(p.ticket||''), side, String(p.volume||''), String(p.price_open||''), String(p.sl||''), String(p.tp||''), String(p.profit||'')] };
           });
-          const table = `<div style="font-weight:600; margin-bottom:6px;">Open Positions</div><div style="color:var(--muted); font-size:12px; margin-bottom:6px;">Currently open positions for this symbol with PnL.</div>${buildTechTable('Open Positions', head, rows)}`;
+          const acct = (history && history.account) || null;
+          const acctLine = acct && acct.login != null ? `<div style=\"color:var(--muted); font-size:12px; margin-bottom:6px;\">Account ${String(acct.login)}${acct.currency ? ' • '+String(acct.currency) : ''}</div>` : '<div style=\"color:var(--muted); font-size:12px; margin-bottom:6px;\">Currently open positions for this symbol with PnL.</div>';
+          const table = `<div style=\"font-weight:600; margin-bottom:6px;\">Open Positions</div>${acctLine}${buildTechTable('Open Positions', head, rows)}`;
           sections.push(table);
-          // Order ↔ Plan links (tag-based; nearest-by-time fallback)
-  const links = Array.isArray(history && history.order_plan_links) ? history.order_plan_links : [];
-  if (links.length) {
-    const linkHtml = links.map(l => {
-      const t = l && l.ticket != null ? String(l.ticket) : '—';
-      const method = l && l.method ? String(l.method) : '—';
-      const plan = l && l.plan ? l.plan : null;
-      const a = plan && plan.answers ? plan.answers : {};
-      const pos = a.position || (a.plan && a.plan.position) || '—';
-      const sl = a.stop_loss ?? (a.plan && a.plan.stop_loss);
-      const tp = a.take_profit ?? (a.plan && a.plan.take_profit);
-      const created = plan && plan.created_at ? plan.created_at : '—';
-      const kv = buildKV([[ 'Ticket', t ], [ 'Matched plan', created ], [ 'Position', pos || '—' ], [ 'SL', sl != null ? String(sl) : '—' ], [ 'TP', tp != null ? String(tp) : '—' ], [ 'Method', method ]]);
-      return `<div style=\\"margin-bottom:8px;\\">${kv}</div>`;
-    }).join('');
-    const note = '<div style=\\"color:var(--muted); font-size:12px; margin-bottom:6px;\\">Tagged orders link precisely. Un‑tagged orders are matched to the nearest plan by time (fallback).</div>';
-    sections.push(`<div><div style=\\"font-weight:600; margin-bottom:6px;\\">Order ↔ Plan links</div>${note}${linkHtml}</div>`);
-  }
-}
-catch {}
+        }
+        catch {}
         box.innerHTML = sections.join('');
         // Remove any legacy duplicate summary block if present
         try {
