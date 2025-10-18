@@ -7089,8 +7089,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             }
           }
         } catch {}
-      if (!side) { log('Skip: Tech+AI neutral — no trade.', 'warn'); return; }
-      log(`Signal: ${side}`);
+      let techNeutral = false;
+      if (!side) { log('Tech+AI is neutral'); techNeutral = true; }
+      if (side) log(`Signal: ${side}`);
       // Determine Basic orientation for logging (no behavior change)
         try {
           const pb = new URLSearchParams();
@@ -7118,10 +7119,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const alignedDirect = basicSide ? (basicSide === side) : false;
           const neutralAccept = (String(basicStr).toUpperCase() === 'NEUTRAL') && getAcceptTechWhenBasicNeutral();
           log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicStr} aligned=${alignedDirect ? 'YES' : (neutralAccept ? 'ACCEPT_TECH' : 'NO')}`);
-          if (basicSide && basicSide !== side && !neutralAccept) {
-            log('Skip: Tech and Basic not aligned — no trade.', 'warn');
-            try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || null, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'not_aligned' }) }); } catch {}
-            // Close all open positions for this symbol across selected accounts on misalignment
+          // Helper: close positions across selected accounts
+          async function closeForAccounts(closeSide /* 'both' | 'long' | 'short' */) {
             try {
               const accountsSel = document.getElementById('autoPeriodicAccountSelect');
               const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
@@ -7130,14 +7129,51 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
                 if (acct) { log(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
                 try { await logAccountPositionsAll(log); } catch {}
                 try { await logAccountPositions(sym, log); } catch {}
-                const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=both`, { method:'POST', cache:'no-store' });
+                const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=${encodeURIComponent(closeSide)}` , { method:'POST', cache:'no-store' });
                 const jc = await rc.json().catch(()=>({}));
                 const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
-                log(`Closed positions due to misalignment: ${c}`);
+                log(`Closed positions (${closeSide}): ${c}`);
                 try { await logAccountPositionsAll(log); } catch {}
                 try { await logAccountPositions(sym, log); } catch {}
               }
             } catch {}
+          }
+          // Helper: close opposite side for a given direction
+          const closeOppositeOf = async (dir /* 'BUY'|'SELL' */) => {
+            const sideParam = (String(dir).toUpperCase() === 'BUY') ? 'short' : 'long';
+            await closeForAccounts(sideParam);
+          };
+
+          // If Tech is neutral, decide closures here and exit early
+          if (techNeutral) {
+            const hold = getHoldOnTechNeutral();
+            if (hold) {
+              if (String(basicStr).toUpperCase() === 'BUY' || String(basicStr).toUpperCase() === 'SELL') {
+                // Hold is ON: if Accept Tech is OFF, still prune opposite to Basic to de-risk
+                if (!getAcceptTechWhenBasicNeutral()) {
+                  await closeOppositeOf(basicStr);
+                } else {
+                  log('Hold: Tech neutral; keep positions.');
+                }
+              } else {
+                log('Hold: Tech neutral; Basic neutral; keep positions.');
+              }
+            } else {
+              // Hold OFF → close all on Tech neutral
+              await closeForAccounts('both');
+            }
+            return;
+          }
+
+          // Tech has direction here. If Basic is neutral and Accept Tech is OFF → close opposite to Tech and stop.
+          if (!basicSide && !neutralAccept) {
+            await closeOppositeOf(side);
+            return;
+          }
+          if (basicSide && basicSide !== side && !neutralAccept) {
+            log('Skip: Tech and Basic not aligned — no trade.', 'warn');
+            try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || null, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'not_aligned' }) }); } catch {}
+            await closeForAccounts('both');
             return;
           }
         } catch {}
@@ -8261,40 +8297,66 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             }
           }
           if (!side) {
+            // Tech neutral: fetch Basic orientation to decide close/hold
+            let bSide = null;
+            try {
+              const pb = new URLSearchParams();
+              if (isFxPair(sym)) { const pq = splitPair(sym); pb.set('kind','forex_pair'); pb.set('base', pq.base); pb.set('quote', pq.quote); }
+              else { pb.set('kind','stock'); pb.set('symbol', sym); }
+              pb.set('group','basic'); pb.set('tf', tf); pb.set('limit','1');
+              const rb = await fetch(`/api/health/runs?${pb.toString()}`, { cache:'no-store' });
+              const jb = await rb.json().catch(()=>({}));
+              const bb = Array.isArray(jb.runs) && jb.runs.length ? jb.runs[0] : null;
+              if (bb) {
+                const ansb = bb.answers || bb.answers_json || {};
+                if (typeof ansb.signal === 'string') {
+                  const sigb = String(ansb.signal).toUpperCase();
+                  if (sigb.includes('BUY')) bSide = 'BUY'; else if (sigb.includes('SELL')) bSide = 'SELL'; else bSide = 'NEUTRAL';
+                } else {
+                  const scoresb = ansb.scores || {};
+                  if (typeof scoresb.NET === 'number') bSide = (scoresb.NET > 0 ? 'BUY' : (scoresb.NET < 0 ? 'SELL' : 'NEUTRAL'));
+                }
+              }
+            } catch {}
             const hold = getHoldOnTechNeutral();
-            status(hold ? 'Tech+AI neutral — holding positions.' : 'Tech+AI is neutral — no trade.');
-            appendAutoLog(hold ? 'Tech neutral — hold enabled: not closing positions.' : 'Skip: Tech+AI neutral — no trade.', hold ? 'info' : 'warn');
+            const acceptTech = getAcceptTechWhenBasicNeutral();
+            status(hold ? 'Tech neutral — evaluating hold/close policy…' : 'Tech neutral — closing per policy');
+            appendAutoLog(`Tech neutral; Basic=${bSide||'NEUTRAL'}; Hold=${hold?'ON':'OFF'}; AcceptTech=${acceptTech?'ON':'OFF'}`);
+            // Persist neutral event
             try {
               const save = await fetch('/api/auto_trade/log', {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: null, skipped: true, skip_reason: 'tech_neutral', steps: (tradeState.autoSteps || []) })
               });
               const saved = await save.json().catch(()=>({}));
-              if (saved && saved.ok && saved.run_id) {
-                appendAutoLog(`Saved log run id=${saved.run_id}`);
-                autoHistoryOffset = 0;
-                await loadAutoHistory(5, 0);
-              }
+              if (saved && saved.ok && saved.run_id) { appendAutoLog(`Saved log run id=${saved.run_id}`); autoHistoryOffset = 0; await loadAutoHistory(5, 0); }
             } catch {}
-            if (!hold) {
-              // Close all open positions for this symbol across selected accounts on neutral Tech
-              try {
-                const accountsSel = document.getElementById('autoPeriodicAccountSelect');
-                const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
-                const list = (accounts && accounts.length) ? accounts : [null];
+            // Close logic
+            try {
+              const accountsSel = document.getElementById('autoPeriodicAccountSelect');
+              const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
+              const list = (accounts && accounts.length) ? accounts : [null];
+              const closeFor = async (sideParam) => {
                 for (const acct of list) {
                   if (acct) { appendAutoLog(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
-                  try { await logAccountPositionsAll(); } catch {}
-                  try { await logAccountPositions(sym); } catch {}
-                  const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=both`, { method:'POST', cache:'no-store' });
+                  const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=${encodeURIComponent(sideParam)}`, { method:'POST', cache:'no-store' });
                   const jc = await rc.json().catch(()=>({}));
                   const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
-                  appendAutoLog(`Closed positions due to neutral Tech: ${c}`);
-                  try { await logAccountPositionsAll(); } catch {}
-                  try { await logAccountPositions(sym); } catch {}
+                  appendAutoLog(`Closed (${sideParam}) due to Tech neutral: ${c}`);
                 }
-              } catch {}
-            }
+              };
+              if (!hold) {
+                await closeFor('both');
+              } else {
+                if (bSide === 'BUY') {
+                  if (!acceptTech) await closeFor('short');
+                } else if (bSide === 'SELL') {
+                  if (!acceptTech) await closeFor('long');
+                } else {
+                  appendAutoLog('Hold ON and Basic neutral — no close');
+                }
+              }
+            } catch {}
             return;
           }
           // Check Basic alignment with Tech
@@ -8344,6 +8406,20 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
                   appendAutoLog(`Saved log run id=${saved.run_id}`);
                   autoHistoryOffset = 0;
                   await loadAutoHistory(5, 0);
+                }
+              } catch {}
+              // Close opposite to Tech direction when Basic neutral and AcceptTech is OFF
+              try {
+                const accountsSel = document.getElementById('autoPeriodicAccountSelect');
+                const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
+                const list = (accounts && accounts.length) ? accounts : [null];
+                const sideParam = (String(side).toUpperCase() === 'BUY') ? 'short' : 'long';
+                for (const acct of list) {
+                  if (acct) { appendAutoLog(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
+                  const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=${encodeURIComponent(sideParam)}`, { method:'POST', cache:'no-store' });
+                  const jc = await rc.json().catch(()=>({}));
+                  const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
+                  appendAutoLog(`Closed (${sideParam}) due to Basic neutral: ${c}`);
                 }
               } catch {}
               return;
