@@ -3562,7 +3562,8 @@ const ensureLwMacd = () => {
               ];
               return `<div style=\"margin-bottom:8px;\"><div style=\"font-weight:600; color:var(--muted);\">#${idx+1}</div>${buildKV(rows)}${expl?`<div style=\"margin-top:6px;\"><em>${esc(expl)}</em></div>`:''}</div>`;
             }).join('');
-            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div><div style="color:var(--muted); font-size:12px; margin-bottom:6px;">Most recent periodic auto-generated trade plans for this symbol.</div>${html}</div>`);
+            const hdr = `Last ${plans.length} periodic AI Trade Plan${plans.length>1?'s':''}`;
+            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">${hdr}</div><div style="color:var(--muted); font-size:12px; margin-bottom:6px;">${esc(note)}</div>${html}</div>`);
           } else {
             sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div><div style="padding:8px; color:var(--muted);">None</div></div>`);
           }
