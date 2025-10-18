@@ -3772,8 +3772,9 @@ const ensureLwMacd = () => {
                 ['Position', pos || '—'],
                 ['SL', sl != null ? String(sl) : '—'],
                 ['TP', tp != null ? String(tp) : '—'],
+                ...(expl ? [['Explanation', expl]] : []),
               ];
-              return `<div style=\"margin-bottom:8px;\"><div style=\"font-weight:600; color:var(--muted);\">#${idx+1}</div>${buildKV(rows)}${expl?`<div style=\"margin-top:6px;\"><em>${esc(expl)}</em></div>`:''}</div>`;
+              return `<div style=\"margin-bottom:8px;\"><div style=\"font-weight:600; color:var(--muted);\">#${idx+1}</div>${buildKV(rows)}</div>`;
             }).join('');
             const hdr = `Last ${plans.length} periodic AI Trade Plan${plans.length>1?'s':''}`;
             sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">${hdr}</div><div style="color:var(--muted); font-size:12px; margin-bottom:6px;">${esc(note)}</div>${html}</div>`);
@@ -3796,9 +3797,8 @@ const ensureLwMacd = () => {
               const tp = a.take_profit ?? (a.plan && a.plan.take_profit);
               const expl = a.explanation || (a.plan && a.plan.explanation) || '';
               const created = plan && plan.created_at ? plan.created_at : '—';
-              const kv = buildKV([[ 'Ticket', t ], [ 'Matched plan', created ], [ 'Position', pos || '—' ], [ 'SL', sl != null ? String(sl) : '—' ], [ 'TP', tp != null ? String(tp) : '—' ]]);
-              const exHtml = expl ? `<div style=\"margin-top:6px;\"><em>${esc(expl)}</em></div>` : '';
-              return `<div style=\"margin-bottom:8px;\">${kv}${exHtml}</div>`;
+              const kv = buildKV([[ 'Ticket', t ], [ 'Matched plan', created ], [ 'Position', pos || '—' ], [ 'SL', sl != null ? String(sl) : '—' ], [ 'TP', tp != null ? String(tp) : '—' ], ...(expl ? [[ 'Explanation', expl ]] : [])]);
+              return `<div style=\"margin-bottom:8px;\">${kv}</div>`;
             }).join('');
             const note = '<div style="color:var(--muted); font-size:12px; margin-bottom:6px;">Tagged orders link precisely. Un‑tagged orders are matched to the nearest plan by time (fallback).</div>';
             sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Order ↔ Plan links</div>${note}${linkHtml}</div>`);
