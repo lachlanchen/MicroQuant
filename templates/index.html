@@ -1565,15 +1565,18 @@
       function setAllTradeModel(val) {
         try { if (aiModelSelect) aiModelSelect.value = val; } catch {}
         try { if (autoAiModelSelect) autoAiModelSelect.value = val; } catch {}
-        try { if (autoPeriodicModelSelect) autoPeriodicModelSelect.value = val; } catch {}
       }
       const getTradeAiModel = () => {
         const val = aiModelSelect && aiModelSelect.value ? aiModelSelect.value.trim() : '';
         if (val) return val;
         const v2 = autoAiModelSelect && autoAiModelSelect.value ? autoAiModelSelect.value.trim() : '';
         if (v2) return v2;
-        const v3 = autoPeriodicModelSelect && autoPeriodicModelSelect.value ? autoPeriodicModelSelect.value.trim() : '';
-        return v3 || 'deepseek-chat';
+        return 'deepseek-chat';
+      };
+      // Periodic model (independent from trade plan model)
+      const getPeriodicAiModel = () => {
+        const v = autoPeriodicModelSelect && autoPeriodicModelSelect.value ? autoPeriodicModelSelect.value.trim() : '';
+        return v || 'deepseek-chat';
       };
       // Tech snapshot mode — mirror across selectors and persist
       function setAllTechSnapshotMode(val) {
@@ -1635,11 +1638,10 @@
       if (autoPeriodicModelSelect) {
         autoPeriodicModelSelect.addEventListener('change', () => {
           const model = autoPeriodicModelSelect.value || 'deepseek-chat';
-          setAllTradeModel(model);
-          try { queuePrefUpdate('trade_ai_model', model); flushPrefQueue(); } catch {}
+          try { queuePrefUpdate('periodic_ai_model', model); flushPrefQueue(); } catch {}
         });
-        // Initialize from saved pref
-        (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=trade_ai_model`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.trade_ai_model; if (saved) setAllTradeModel(saved); } catch {} })();
+        // Initialize from saved periodic pref
+        (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=periodic_ai_model`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.periodic_ai_model; if (saved && autoPeriodicModelSelect) autoPeriodicModelSelect.value = saved; } catch {} })();
       }
       if (autoPeriodicTechSnapshotModeSelect) {
         autoPeriodicTechSnapshotModeSelect.addEventListener('change', () => {
@@ -5681,7 +5683,7 @@ const ensureLwMacd = () => {
           const barsN = Math.max(10, Math.min(500, Number((typeof resolveTechWindow==='function' && resolveTechWindow()) || defaultTechWindow(tf) || 50)));
           body.n_bars = barsN;
         } catch {}
-        try { body.model = getTradeAiModel(); } catch {}
+        try { body.model = getPeriodicAiModel(); } catch {}
         try {
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
@@ -6643,7 +6645,7 @@ const ensureLwMacd = () => {
           const techSel = document.getElementById('techAiStrategy');
           const techStrat = (techSel && techSel.value) ? techSel.value : 'tech_snapshot_10q_position.json';
           const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
-          try { body.model = getTradeAiModel(); } catch {}
+          try { body.model = getPeriodicAiModel(); } catch {}
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
           return (js && js.ok && js.run_id) ? Number(js.run_id) : null;
@@ -6653,7 +6655,7 @@ const ensureLwMacd = () => {
         try {
           const nInput = document.getElementById('deepNewsCount');
           const n = Math.max(1, Math.min(500, Number(nInput?.value || 100)));
-          const model = getTradeAiModel();
+          const model = getPeriodicAiModel();
           const stratName = (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json');
           const body = { symbol: sym, timeframe: tf, news_count: n, strategy: stratName };
           if (model) body.model = model;
@@ -6886,7 +6888,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         } catch {}
         try { log('Fetching latest bars…'); await fetch(`/api/fetch?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}&mode=inc&count=1000&persist=1`, { cache:'no-store' }); } catch {}
         try {
-          const model = getTradeAiModel();
+          const model = getPeriodicAiModel();
           const lev = getLeverageValue();
           log(`Model=${model} lev=${lev}`);
         } catch {}
@@ -6939,7 +6941,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           try {
             const strategy = resolveBasicStrategyForSymbol(sym);
             const body = { symbol: sym, timeframe: tf, strategy };
-            try { body.model = getTradeAiModel(); } catch {}
+            try { body.model = getPeriodicAiModel(); } catch {}
             const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await res.json().catch(()=>({}));
             if (js && js.ok && js.run_id) { basicId = js.run_id; log(`Basic run id=${basicId}`); }
@@ -6952,7 +6954,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const techSel = document.getElementById('techAiStrategy');
             const techStrat = techSel && techSel.value ? techSel.value : 'tech_snapshot_10q_position.json';
             const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
-            try { body.model = getTradeAiModel(); } catch {}
+            try { body.model = getPeriodicAiModel(); } catch {}
             const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
             const js = await res.json().catch(()=>({}));
             if (js && js.ok && js.run_id) { techId = js.run_id; log(`Tech run id=${techId}`); }
@@ -6961,7 +6963,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         if (needDeep) {
           try {
             const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
-            const model = getTradeAiModel();
+            const model = getPeriodicAiModel();
             const body = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategy };
             if (model) body.model = model;
             const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });

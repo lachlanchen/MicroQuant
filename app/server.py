@@ -1159,6 +1159,7 @@ PREF_KEYS = [
     "chart_shift",
     # Unified model + tech snapshot output preferences (mirrored in UI)
     "trade_ai_model",
+    "periodic_ai_model",
     "basic_ai_model",
     "tech_ai_model",
     "deep_ai_model",
