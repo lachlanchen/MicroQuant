@@ -431,6 +431,7 @@
             <!-- Tech Snapshot button on its own row -->
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Snapshot</button>
+              <button class="btn secondary" id="btnTechHealthHistory" style="padding:6px 10px;">Tech Snapshot + History</button>
             </div>
             <!-- Bars separated for clarity -->
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
@@ -782,6 +783,19 @@
         </div>
         <div id="techSummaryMeta" style="margin-top:4px; font-size:13px; color:var(--muted);"></div>
         <div id="techSummaryBox" style="margin-top:12px; display:flex; flex-direction:column; gap:12px;"></div>
+      </div>
+    </div>
+    <!-- Technical Snapshot + History Modal -->
+    <div id="techHistoryModal" style="position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.4); z-index:1000;">
+      <div style="background:#fff; border-radius:8px; border:1px solid var(--line); padding:16px; width:min(760px, 94vw); max-height:86vh; overflow:auto;">
+        <div class="row" style="justify-content:space-between; align-items:center; position:sticky; top:0; background:#fff; z-index:5; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid var(--line);">
+          <strong style="color:var(--accent)">Tech Snapshot + History</strong>
+          <button class="btn secondary" id="btnTechHistClose" style="padding:6px 10px;">Close</button>
+        </div>
+        <div id="techHistMeta" style="margin-top:4px; font-size:13px; color:var(--muted);"></div>
+        <div id="techHistBox" style="margin-top:12px; display:flex; flex-direction:column; gap:12px;"></div>
+        <div id="techHistSnapshotHeader" style="margin-top:8px; font-weight:600;">Current Technical Snapshot</div>
+        <pre id="techHistSnapshotText" style="margin-top:6px; background:var(--panel); padding:10px; border:1px solid var(--line); border-radius:8px; white-space:pre-wrap; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;"></pre>
       </div>
     </div>
     </div>
@@ -3452,6 +3466,86 @@ const ensureLwMacd = () => {
         modal.style.display = 'flex';
       }
 
+      async function openTechSnapshotHistory() {
+        try { applyTechWindowDefault(false); } catch {}
+        const modal = el('techHistoryModal');
+        const box = el('techHistBox');
+        const metaBox = el('techHistMeta');
+        const snapPre = el('techHistSnapshotText');
+        if (!modal || !box || !metaBox || !snapPre) return;
+        const symbol = currentSymbol();
+        const tf = currentTf();
+        metaBox.textContent = `${symbol} • TF ${tf}`;
+        box.innerHTML = '<div style="padding:8px; color:var(--muted);">Loading history…</div>';
+        snapPre.textContent = 'Building technical snapshot…';
+        modal.style.display = 'flex';
+        // Fetch combined history from server
+        let history = null;
+        try {
+          const p = new URLSearchParams({ symbol, tf });
+          const r = await fetch(`/api/tech/snapshot_plus_history?${p.toString()}`, { cache: 'no-store' });
+          history = await r.json().catch(()=>null);
+        } catch {}
+        const sections = [];
+        const buildKV = (rows) => `<div style="border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);">${rows.map(([k,v])=>`<div class=\"row\" style=\"justify-content:space-between; gap:8px; margin:2px 0;\"><span style=\"color:var(--muted)\">${esc(k)}</span><span>${esc(v)}</span></div>`).join('')}</div>`;
+        // Last periodic tech
+        try {
+          const lastTech = history && history.last_periodic_tech;
+          const rows = [];
+          if (lastTech) {
+            rows.push(['Created', lastTech.created_at || '—']);
+            rows.push(['Strategy', lastTech.strategy || '—']);
+            rows.push(['Signal', lastTech.signal ?? '—']);
+            rows.push(['Score', String(lastTech.score ?? '—')]);
+            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last periodic Tech+AI</div>${buildKV(rows)}</div>`);
+          } else {
+            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last periodic Tech+AI</div><div style="padding:8px; color:var(--muted);">No periodic auto run found.</div></div>`);
+          }
+        } catch {}
+        // Last three periodic plans
+        try {
+          const plans = Array.isArray(history && history.last_three_plans) ? history.last_three_plans : [];
+          if (plans.length) {
+            const html = plans.map((p, idx) => {
+              const a = p && p.answers ? p.answers : {};
+              const pos = a.position || (a.meta && a.meta.position) || (a.plan && a.plan.position) || (a.position && a.position.position) || a?.position; // best effort
+              const sl = a.stop_loss ?? (a.plan && a.plan.stop_loss);
+              const tp = a.take_profit ?? (a.plan && a.plan.take_profit);
+              const expl = a.explanation || (a.plan && a.plan.explanation) || '';
+              const rows = [
+                ['Created', p.created_at || '—'],
+                ['Position', pos || '—'],
+                ['SL', sl != null ? String(sl) : '—'],
+                ['TP', tp != null ? String(tp) : '—'],
+              ];
+              return `<div style=\"margin-bottom:8px;\"><div style=\"font-weight:600; color:var(--muted);\">#${idx+1}</div>${buildKV(rows)}${expl?`<div style=\"margin-top:6px;\"><em>${esc(expl)}</em></div>`:''}</div>`;
+            }).join('');
+            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div>${html}</div>`);
+          } else {
+            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div><div style="padding:8px; color:var(--muted);">None</div></div>`);
+          }
+        } catch {}
+        // Open positions
+        try {
+          const pos = Array.isArray(history && history.positions) ? history.positions : [];
+          const head = ['Ticket','Side','Lots','Open','SL','TP','PnL'];
+          const rows = pos.map(p => {
+            const side = (Number(p.type) === 0) ? 'BUY' : 'SELL';
+            return { time: String(p.symbol||''), values: [String(p.ticket||''), side, String(p.volume||''), String(p.price_open||''), String(p.sl||''), String(p.tp||''), String(p.profit||'')] };
+          });
+          const table = buildTechTable('Open Positions', head, rows);
+          sections.push(table);
+        } catch {}
+        box.innerHTML = sections.join('');
+        // Build textual technical snapshot and render
+        try {
+          const txt = await buildTechSnapshotString();
+          snapPre.textContent = String(txt || '').trim() || '(no snapshot)';
+        } catch (err) {
+          snapPre.textContent = 'Failed to build snapshot';
+        }
+      }
+
       const renderHealthOutcome = (container, payload) => {
         if (!container) return;
         const answers = Array.isArray(payload.answers)
@@ -4668,6 +4762,10 @@ const ensureLwMacd = () => {
       if (btnHealthMore) btnHealthMore.addEventListener('click', ()=> { healthState.offset = (healthState.offset||0) + 5; loadHealthHistory(); });
       if (btnHealthClose) btnHealthClose.addEventListener('click', ()=> { const modal = el('healthModal'); if (modal) modal.style.display = 'none'; });
       if (btnTechHealth) btnTechHealth.addEventListener('click', () => { const b=btnTechHealth; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…'; try { openTechHealth(); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 500); } });
+      const btnTechHealthHistory = document.getElementById('btnTechHealthHistory');
+      if (btnTechHealthHistory) btnTechHealthHistory.addEventListener('click', () => { const b=btnTechHealthHistory; const prev=b.textContent; b.disabled=true; b.classList.add('pulsing'); b.textContent='Opening…'; try { openTechSnapshotHistory(); } finally { setTimeout(()=>{ b.disabled=false; b.classList.remove('pulsing'); b.textContent=prev; }, 600); } });
+      const btnTechHistClose = document.getElementById('btnTechHistClose');
+      if (btnTechHistClose) btnTechHistClose.addEventListener('click', () => { const m=el('techHistoryModal'); if (m) m.style.display='none'; });
       if (btnTechAiHealth) btnTechAiHealth.addEventListener('click', () => {
         // Open modal filtered to Tech strategy; wait for user to click Start
         const sym = symbolSelect.value.toUpperCase();

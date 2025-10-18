@@ -2375,6 +2375,7 @@ async def make_app():
             (r"/api/stl/prune_all", STLPruneAllHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler, dict(pool=pool)),
+            (r"/api/tech/snapshot_plus_history", TechSnapshotHistoryHandler, dict(pool=pool)),
             (r"/api/account/closed_deals", ClosedDealsHandler),
             # Backfill latest forex + equities news into DB
             (r"/api/news/backfill_forex", NewsBackfillHandler, dict(pool=pool)),
@@ -2975,6 +2976,134 @@ class TickHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
         self.finish(json.dumps({"ok": True, "tick": t}))
+
+
+class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        symbol = str(self.get_argument("symbol", default=default_symbol())).upper()
+        timeframe = str(self.get_argument("tf", default="H1")).upper()
+
+        # Determine kind for list_health_runs
+        kind = "forex_pair" if _is_fx_symbol(symbol) else "stock"
+
+        # Helper: serialize a health run for compact UI use
+        def _ser_run(run: dict | None) -> dict | None:
+            if not run:
+                return None
+            created_at = run.get("created_at")
+            if created_at and hasattr(created_at, "isoformat"):
+                created_at = created_at.isoformat()
+            ans = run.get("answers_json") or {}
+            # Extract a few common fields if present
+            score = ans.get("score")
+            signal = ans.get("signal")
+            strategy = ans.get("strategy")
+            meta = ans.get("meta") or {}
+            return {
+                "id": run.get("id"),
+                "created_at": created_at,
+                "strategy": strategy,
+                "score": score,
+                "signal": signal,
+                "answers": ans.get("questions") or [],
+                "meta": meta,
+            }
+
+        last_periodic_tech: dict | None = None
+        last_three_plans: list[dict] = []
+        try:
+            # Pull recent auto logs and pick periodic ones
+            # Strategy 'auto_ai_trade' stores references to basic/tech/plan run ids in answers_json.meta
+            runs = await list_health_runs(
+                self.pool,
+                kind=kind,
+                symbol=(symbol if kind == "stock" else None),
+                base_ccy=(symbol[:3] if kind == "forex_pair" else None),
+                quote_ccy=(symbol[3:6] if kind == "forex_pair" else None),
+                limit=30,
+                offset=0,
+                strategy="auto_ai_trade",
+            )
+            # Filter periodic first; fall back to any auto run if none are marked periodic
+            def _is_periodic(r: dict) -> bool:
+                try:
+                    meta = (r.get("answers_json") or {}).get("meta") or {}
+                    return bool(meta.get("periodic"))
+                except Exception:
+                    return False
+            periodic = [r for r in runs if _is_periodic(r)]
+            ordered = periodic if periodic else runs
+
+            # Latest periodic tech run id
+            tech_run_id = None
+            if ordered:
+                try:
+                    meta = (ordered[0].get("answers_json") or {}).get("meta") or {}
+                    val = meta.get("tech_run_id")
+                    if val is not None:
+                        tech_run_id = int(val)
+                except Exception:
+                    tech_run_id = None
+            if tech_run_id is not None:
+                try:
+                    tech_run = await get_health_run_by_id(self.pool, tech_run_id)
+                except Exception:
+                    tech_run = None
+                last_periodic_tech = _ser_run(tech_run)
+
+            # Collect up to three most recent plan runs referenced by periodic auto logs
+            plan_ids: list[int] = []
+            for r in ordered:
+                try:
+                    meta = (r.get("answers_json") or {}).get("meta") or {}
+                    pid = meta.get("plan_run_id")
+                    if pid is not None:
+                        plan_ids.append(int(pid))
+                except Exception:
+                    continue
+                if len(plan_ids) >= 3:
+                    break
+            for pid in plan_ids:
+                try:
+                    pr = await get_health_run_by_id(self.pool, pid)
+                    s = _ser_run(pr)
+                    if s:
+                        last_three_plans.append(s)
+                except Exception:
+                    continue
+        except Exception:
+            # Non-fatal: continue with empty history
+            last_periodic_tech = None
+            last_three_plans = []
+
+        # Open positions + latest tick
+        try:
+            positions = mt5_client.list_positions(symbol)
+        except Exception:
+            positions = []
+        try:
+            tick = mt5_client.get_tick(symbol)
+        except Exception:
+            tick = None
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            json.dumps(
+                {
+                    "ok": True,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "last_periodic_tech": last_periodic_tech,
+                    "last_three_plans": last_three_plans,
+                    "positions": positions,
+                    "tick": tick,
+                }
+            )
+        )
 
 
 class AccountBalanceHandler(tornado.web.RequestHandler):
