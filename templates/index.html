@@ -3508,7 +3508,7 @@ const ensureLwMacd = () => {
                 const hit = (net >= minv && net <= maxv);
                 return `<tr${hit? ' style=\"font-weight:600; color:var(--accent)\"' : ''}><td style=\"padding:4px 6px; border-bottom:1px solid var(--line)\">${esc(String(minv))}</td><td style=\"padding:4px 6px; border-bottom:1px solid var(--line)\">${esc(String(maxv))}</td><td style=\"padding:4px 6px; border-bottom:1px solid var(--line)\">${esc(label)}</td></tr>`;
               }).join('');
-              rangeHtml = `<div style=\"border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);\"><div style=\"font-weight:600; margin-bottom:6px;\">Score ranges</div><table style=\"width:100%; border-collapse:collapse; font-size:13px;\"><thead><tr><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Min</th><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Max</th><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Category</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+              rangeHtml = `<div style=\"border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);\"><div style=\"font-weight:600; margin-bottom:6px;\">Score ranges</div><div style=\"color:var(--muted); font-size:12px; margin-bottom:6px;\">How the NET score maps to a category. The highlighted row matches the latest score.</div><table style=\"width:100%; border-collapse:collapse; font-size:13px;\"><thead><tr><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Min</th><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Max</th><th style=\"text-align:left; padding:4px 6px; border-bottom:1px solid var(--line)\">Category</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
             }
             // Build Q&A list
             const qlist = Array.isArray(ans.questions) ? ans.questions : [];
@@ -3519,7 +3519,7 @@ const ensureLwMacd = () => {
               const id = q && q.id ? q.id : String(idx+1);
               return `<div style=\"padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); margin-bottom:6px;\"><div style=\"font-weight:600;\">Q${esc(String(id))}: <span style=\"color:var(--accent)\">${esc(String(pos||'—'))}</span></div>${expl?`<div style=\"margin-top:4px; color:var(--muted)\">${esc(String(expl))}</div>`:''}</div>`;
             }).join('');
-            const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Last periodic Tech+AI — ${esc(lastTech.created_at || '')}</div><div>${esc(String(ans.signal || ''))}</div></div>`;
+            const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Last periodic Tech+AI — ${esc(lastTech.created_at || '')}</div><div>${esc(String(ans.signal || ''))}</div></div><div style=\"color:var(--muted); font-size:12px; margin-top:4px;\">Latest periodic technical AI report (10 questions). Each item shows the decision and the strongest evidence.</div>`;
             const scoreBox = buildKV([
               ['Symbol', meta.symbol || symbol],
               ['Timeframe', meta.timeframe || tf],
@@ -3562,7 +3562,7 @@ const ensureLwMacd = () => {
               ];
               return `<div style=\"margin-bottom:8px;\"><div style=\"font-weight:600; color:var(--muted);\">#${idx+1}</div>${buildKV(rows)}${expl?`<div style=\"margin-top:6px;\"><em>${esc(expl)}</em></div>`:''}</div>`;
             }).join('');
-            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div>${html}</div>`);
+            sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div><div style="color:var(--muted); font-size:12px; margin-bottom:6px;">Most recent periodic auto-generated trade plans for this symbol.</div>${html}</div>`);
           } else {
             sections.push(`<div><div style="font-weight:600; margin-bottom:6px;">Last 3 periodic AI Trade Plans</div><div style="padding:8px; color:var(--muted);">None</div></div>`);
           }
@@ -3575,13 +3575,31 @@ const ensureLwMacd = () => {
             const side = (Number(p.type) === 0) ? 'BUY' : 'SELL';
             return { time: String(p.symbol||''), values: [String(p.ticket||''), side, String(p.volume||''), String(p.price_open||''), String(p.sl||''), String(p.tp||''), String(p.profit||'')] };
           });
-          const table = buildTechTable('Open Positions', head, rows);
+          const table = `<div style="font-weight:600; margin-bottom:6px;">Open Positions</div><div style="color:var(--muted); font-size:12px; margin-bottom:6px;">Currently open positions for this symbol with PnL.</div>${buildTechTable('Open Positions', head, rows)}`;
           sections.push(table);
         } catch {}
         box.innerHTML = sections.join('');
+        // Remove any legacy duplicate summary block if present
+        try {
+          const headers = box.querySelectorAll('div');
+          headers.forEach(h => {
+            const txt = (h.textContent || '').trim();
+            if (txt === 'Last periodic Tech+AI' && h.parentElement) {
+              h.parentElement.remove();
+            }
+          });
+        } catch {}
         // Build textual technical snapshot and render
         try {
           const txt = await buildTechSnapshotString();
+          const hdr = el('techHistSnapshotHeader');
+          if (hdr) {
+            hdr.textContent = 'Current Technical Snapshot';
+            const expl = document.createElement('div');
+            expl.style.cssText = 'color:var(--muted); font-size:12px; margin-top:4px;';
+            expl.textContent = 'Live snapshot used by Tech+AI runs for technical analysis.';
+            hdr.insertAdjacentElement('afterend', expl);
+          }
           snapPre.textContent = String(txt || '').trim() || '(no snapshot)';
         } catch (err) {
           snapPre.textContent = 'Failed to build snapshot';
