@@ -437,6 +437,11 @@
             </div>
             <!-- Tech Snapshot buttons moved below Bars -->
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <label class="switch" title="Hide the last Tech+AI check report block in the History modal" style="gap:6px;">
+                <input type="checkbox" id="hideLastTechToggle" class="toggle-input" checked />
+                <span class="toggle"></span>
+                <span>Hide last Tech report</span>
+              </label>
               <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Snapshot</button>
               <button class="btn secondary" id="btnTechHealthHistory" style="padding:6px 10px;">Tech Snapshot + History</button>
             </div>
@@ -540,6 +545,11 @@
               <option value="snapshot_plus_history" selected>Snapshot + History (new)</option>
               <option value="snapshot">Tech Snapshot (classic)</option>
             </select>
+          </label>
+          <label class="switch" title="Hide the last Tech+AI check report block in the History modal" style="gap:6px;">
+            <input type="checkbox" id="hideLastTechTogglePeriodic" class="toggle-input" checked />
+            <span class="toggle"></span>
+            <span>Hide last Tech report</span>
           </label>
         </div>
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
@@ -1586,6 +1596,9 @@
       const aiModelSelect = el('aiModelSelect');
       const autoAiModelSelect = el('autoAiModelSelect');
       const autoPeriodicModelSelect = el('autoPeriodicModelSelect');
+      // Hide last Tech+AI report (history modal) — synced toggle
+      const hideLastTechToggle = el('hideLastTechToggle');
+      const hideLastTechTogglePeriodic = el('hideLastTechTogglePeriodic');
       // Alignment policy toggles
       const acceptTechOnBasicNeutralToggle = el('acceptTechOnBasicNeutral');
       const holdOnTechNeutralToggle = el('holdOnTechNeutral');
@@ -1611,6 +1624,31 @@
         const v = autoPeriodicModelSelect && autoPeriodicModelSelect.value ? autoPeriodicModelSelect.value.trim() : '';
         return v || 'deepseek-chat';
       };
+      // Hide-last-Tech helpers (default ON)
+      function getHideLastTechReport(){
+        try { if (hideLastTechToggle) return !!hideLastTechToggle.checked; } catch {}
+        try { if (hideLastTechTogglePeriodic) return !!hideLastTechTogglePeriodic.checked; } catch {}
+        return true;
+      }
+      function setHideLastTechReport(on){
+        try { if (hideLastTechToggle) hideLastTechToggle.checked = !!on; } catch {}
+        try { if (hideLastTechTogglePeriodic) hideLastTechTogglePeriodic.checked = !!on; } catch {}
+      }
+      function persistHideLastTech(){ try { queuePrefUpdate('hide_last_tech_report', getHideLastTechReport() ? '1' : '0'); flushPrefQueue(); } catch {} }
+      ;(()=>{
+        const onChange = ()=>{ setHideLastTechReport(getHideLastTechReport()); persistHideLastTech(); };
+        try { if (hideLastTechToggle) hideLastTechToggle.addEventListener('change', onChange); } catch {}
+        try { if (hideLastTechTogglePeriodic) hideLastTechTogglePeriodic.addEventListener('change', onChange); } catch {}
+        (async () => {
+          try {
+            const r = await fetch(`${PREF_ENDPOINT}?keys=hide_last_tech_report`, { cache:'no-store' });
+            const js = await r.json().catch(()=>({}));
+            const v = js && js.prefs && js.prefs.hide_last_tech_report;
+            const on = (v == null) ? true : !(String(v).toLowerCase()==='0' || String(v).toLowerCase()==='false');
+            setHideLastTechReport(on);
+          } catch {}
+        })();
+      })();
       // Alignment policy helpers (default ON)
       const getAcceptTechWhenBasicNeutral = () => {
         try {
@@ -3774,12 +3812,19 @@ const ensureLwMacd = () => {
         }
         catch {}
         box.innerHTML = sections.join('');
-        // Remove any legacy duplicate summary block if present
+        // Remove duplicate or hidden Tech summary blocks if present
         try {
           const headers = box.querySelectorAll('div');
+          const HIDE_LAST = (typeof getHideLastTechReport === 'function') ? getHideLastTechReport() : false;
           headers.forEach(h => {
             const txt = (h.textContent || '').trim();
-            if (txt === 'Last periodic Tech+AI' && h.parentElement) {
+            const isSimple = (txt === 'Last periodic Tech+AI');
+            const isHeader = txt.startsWith('Last periodic Tech+AI —');
+            if (isSimple && h.parentElement) {
+              // Legacy duplicate removal
+              h.parentElement.remove();
+            } else if (HIDE_LAST && (isSimple || isHeader) && h.parentElement) {
+              // Respect user toggle: hide the last Tech summary (both header and simple summary)
               h.parentElement.remove();
             }
           });
