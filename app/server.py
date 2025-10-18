@@ -1167,6 +1167,9 @@ PREF_KEYS = [
     "deep_news_count",
     # New: choose classic Tech Snapshot vs Snapshot + History
     "tech_snapshot_mode",
+    # Alignment policy toggles (default ON in UI)
+    "accept_tech_when_basic_neutral",
+    "hold_on_tech_neutral",
     "balance_poll_min",
     "closed_orders_poll_min",
 ]

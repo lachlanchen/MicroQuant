@@ -554,6 +554,19 @@
             </select>
           </label>
         </div>
+        <!-- Alignment policy toggles (persisted) -->
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <label class="switch" title="If Basic check is Neutral, accept Tech Buy/Sell instead of treating as misaligned" style="gap:6px;">
+            <input type="checkbox" id="acceptTechOnBasicNeutral" class="toggle-input" checked />
+            <span class="toggle"></span>
+            <span>Basics Neutral → Accept Tech</span>
+          </label>
+          <label class="switch" title="If Tech is Neutral, do not close open positions; hold until Basic switches direction" style="gap:6px;">
+            <input type="checkbox" id="holdOnTechNeutral" class="toggle-input" checked />
+            <span class="toggle"></span>
+            <span>Tech Neutral → Hold</span>
+          </label>
+        </div>
         <!-- Moved: Auto volume and Safe max directly under AI model -->
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <label style="display:flex; align-items:center; gap:6px;">
@@ -960,7 +973,19 @@
             </select>
           </label>
         </div>
-          <!-- Mirrors of Basic/Tech/Plan (display-only) -->
+        <div class="row" style="gap:6px; align-items:center; margin-top:4px;">
+          <label class="switch" title="If Basic check is Neutral, accept Tech Buy/Sell instead of treating as misaligned" style="gap:6px;">
+            <input type="checkbox" id="autoAcceptTechOnBasicNeutral" class="toggle-input" checked />
+            <span class="toggle"></span>
+            <span>Basics Neutral → Accept Tech</span>
+          </label>
+          <label class="switch" title="If Tech is Neutral, do not close open positions; hold until Basic switches direction" style="gap:6px;">
+            <input type="checkbox" id="autoHoldOnTechNeutral" class="toggle-input" checked />
+            <span class="toggle"></span>
+            <span>Tech Neutral → Hold</span>
+          </label>
+        </div>
+        <!-- Mirrors of Basic/Tech/Plan (display-only) -->
         <div id="autoMirrorBasicRow" class="row" style="gap:6px; align-items:center; margin-top:2px;">
         <div style="display:flex; flex-direction:column; min-width:80px;">
         <span style="font-size:12px; color:var(--muted);">Basic</span>
@@ -1561,6 +1586,11 @@
       const aiModelSelect = el('aiModelSelect');
       const autoAiModelSelect = el('autoAiModelSelect');
       const autoPeriodicModelSelect = el('autoPeriodicModelSelect');
+      // Alignment policy toggles
+      const acceptTechOnBasicNeutralToggle = el('acceptTechOnBasicNeutral');
+      const holdOnTechNeutralToggle = el('holdOnTechNeutral');
+      const autoAcceptTechOnBasicNeutralToggle = el('autoAcceptTechOnBasicNeutral');
+      const autoHoldOnTechNeutralToggle = el('autoHoldOnTechNeutral');
       // Tech snapshot mode (classic vs history)
       const techSnapshotModeSelect = el('techSnapshotModeSelect');
       const autoTechSnapshotModeSelect = el('autoTechSnapshotModeSelect');
@@ -1580,6 +1610,21 @@
       const getPeriodicAiModel = () => {
         const v = autoPeriodicModelSelect && autoPeriodicModelSelect.value ? autoPeriodicModelSelect.value.trim() : '';
         return v || 'deepseek-chat';
+      };
+      // Alignment policy helpers (default ON)
+      const getAcceptTechWhenBasicNeutral = () => {
+        try {
+          if (acceptTechOnBasicNeutralToggle) return !!acceptTechOnBasicNeutralToggle.checked;
+          if (autoAcceptTechOnBasicNeutralToggle) return !!autoAcceptTechOnBasicNeutralToggle.checked;
+        } catch {}
+        return true;
+      };
+      const getHoldOnTechNeutral = () => {
+        try {
+          if (holdOnTechNeutralToggle) return !!holdOnTechNeutralToggle.checked;
+          if (autoHoldOnTechNeutralToggle) return !!autoHoldOnTechNeutralToggle.checked;
+        } catch {}
+        return true;
       };
       // Tech snapshot mode — mirror across selectors and persist
       function setAllTechSnapshotMode(val) {
@@ -1621,6 +1666,41 @@
           } catch {}
         })();
       }
+      // Sync alignment toggles across UI and persist
+      function setAllAcceptTechOnBasicNeutral(on) {
+        try { if (acceptTechOnBasicNeutralToggle) acceptTechOnBasicNeutralToggle.checked = !!on; } catch {}
+        try { if (autoAcceptTechOnBasicNeutralToggle) autoAcceptTechOnBasicNeutralToggle.checked = !!on; } catch {}
+      }
+      function setAllHoldOnTechNeutral(on) {
+        try { if (holdOnTechNeutralToggle) holdOnTechNeutralToggle.checked = !!on; } catch {}
+        try { if (autoHoldOnTechNeutralToggle) autoHoldOnTechNeutralToggle.checked = !!on; } catch {}
+      }
+      function persistAlignmentPrefs() {
+        try { queuePrefUpdate('accept_tech_when_basic_neutral', getAcceptTechWhenBasicNeutral() ? '1' : '0'); } catch {}
+        try { queuePrefUpdate('hold_on_tech_neutral', getHoldOnTechNeutral() ? '1' : '0'); } catch {}
+        try { flushPrefQueue(); } catch {}
+      }
+      ;(() => {
+        const onChangeAccept = () => { setAllAcceptTechOnBasicNeutral(getAcceptTechWhenBasicNeutral()); persistAlignmentPrefs(); };
+        const onChangeHold = () => { setAllHoldOnTechNeutral(getHoldOnTechNeutral()); persistAlignmentPrefs(); };
+        try { if (acceptTechOnBasicNeutralToggle) acceptTechOnBasicNeutralToggle.addEventListener('change', onChangeAccept); } catch {}
+        try { if (autoAcceptTechOnBasicNeutralToggle) autoAcceptTechOnBasicNeutralToggle.addEventListener('change', onChangeAccept); } catch {}
+        try { if (holdOnTechNeutralToggle) holdOnTechNeutralToggle.addEventListener('change', onChangeHold); } catch {}
+        try { if (autoHoldOnTechNeutralToggle) autoHoldOnTechNeutralToggle.addEventListener('change', onChangeHold); } catch {}
+        // Load saved values, default ON if missing
+        (async () => {
+          try {
+            const r = await fetch(`${PREF_ENDPOINT}?keys=accept_tech_when_basic_neutral,hold_on_tech_neutral`, { cache:'no-store' });
+            const js = await r.json().catch(()=>({}));
+            const a = js && js.prefs && js.prefs.accept_tech_when_basic_neutral;
+            const h = js && js.prefs && js.prefs.hold_on_tech_neutral;
+            const aOn = (a == null) ? true : !(String(a).toLowerCase() === '0' || String(a).toLowerCase() === 'false');
+            const hOn = (h == null) ? true : !(String(h).toLowerCase() === '0' || String(h).toLowerCase() === 'false');
+            setAllAcceptTechOnBasicNeutral(aOn);
+            setAllHoldOnTechNeutral(hOn);
+          } catch {}
+        })();
+      })();
       if (autoAiModelSelect) {
         autoAiModelSelect.addEventListener('change', () => {
           const model = autoAiModelSelect.value || 'deepseek-chat';
@@ -6549,8 +6629,9 @@ const ensureLwMacd = () => {
                 if (typeof st === 'string') techSide = String(st).toUpperCase();
                 else if (at && at.scores && typeof at.scores.NET === 'number') techSide = (at.scores.NET > 0 ? 'BUY' : (at.scores.NET < 0 ? 'SELL' : 'NEUTRAL'));
               } catch {}
-              const alignedNow = (basicSide.includes('BUY') && techSide.includes('BUY')) || (basicSide.includes('SELL') && techSide.includes('SELL'));
-              if (alignedNow) { stylePlanPill(planEl, position || basicSide); }
+              const acceptNeutral = (String(basicSide).toUpperCase() === 'NEUTRAL') && getAcceptTechWhenBasicNeutral() && (techSide.includes('BUY') || techSide.includes('SELL'));
+              const alignedNow = acceptNeutral || (basicSide.includes('BUY') && techSide.includes('BUY')) || (basicSide.includes('SELL') && techSide.includes('SELL'));
+              if (alignedNow) { stylePlanPill(planEl, position || (acceptNeutral ? techSide : basicSide)); }
               else { stylePlanPill(planEl, null, 'misaligned'); }
               continue;
             }
@@ -6579,8 +6660,9 @@ const ensureLwMacd = () => {
               if (typeof st === 'string') techSide = String(st).toUpperCase();
               else if (at && at.scores && typeof at.scores.NET === 'number') techSide = (at.scores.NET > 0 ? 'BUY' : (at.scores.NET < 0 ? 'SELL' : 'NEUTRAL'));
             } catch {}
-            const aligned = (basicSide.includes('BUY') && techSide.includes('BUY')) || (basicSide.includes('SELL') && techSide.includes('SELL'));
-            if (withinWindow && aligned) { stylePlanPill(planEl, position || basicSide); }
+            const acceptNeutral2 = (String(basicSide).toUpperCase() === 'NEUTRAL') && getAcceptTechWhenBasicNeutral() && (techSide.includes('BUY') || techSide.includes('SELL'));
+            const aligned = acceptNeutral2 || (basicSide.includes('BUY') && techSide.includes('BUY')) || (basicSide.includes('SELL') && techSide.includes('SELL'));
+            if (withinWindow && aligned) { stylePlanPill(planEl, position || (acceptNeutral2 ? techSide : basicSide)); }
             else if (withinWindow && !aligned) { stylePlanPill(planEl, null, 'misaligned'); }
             else { stylePlanPill(planEl, null, 'none'); }
           } catch { stylePlanPill(planEl, null, 'none'); }
@@ -7032,8 +7114,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               }
             }
           }
-          log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicSide || 'NEUTRAL'} aligned=${basicSide ? (basicSide===side?'YES':'NO') : '—'}`);
-          if (basicSide && basicSide !== side) {
+          const basicStr = (basicSide || 'NEUTRAL');
+          const alignedDirect = basicSide ? (basicSide === side) : false;
+          const neutralAccept = (String(basicStr).toUpperCase() === 'NEUTRAL') && getAcceptTechWhenBasicNeutral();
+          log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicStr} aligned=${alignedDirect ? 'YES' : (neutralAccept ? 'ACCEPT_TECH' : 'NO')}`);
+          if (basicSide && basicSide !== side && !neutralAccept) {
             log('Skip: Tech and Basic not aligned — no trade.', 'warn');
             try { await fetch('/api/auto_trade/log', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ symbol: sym, timeframe: tf, action: side, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || null, steps: (tradeState.autoSteps || []), periodic: true, skipped: true, skip_reason: 'not_aligned' }) }); } catch {}
             // Close all open positions for this symbol across selected accounts on misalignment
@@ -8176,8 +8261,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             }
           }
           if (!side) {
-            status('Tech+AI is neutral — no trade.');
-            appendAutoLog('Skip: Tech+AI neutral — no trade.', 'warn');
+            const hold = getHoldOnTechNeutral();
+            status(hold ? 'Tech+AI neutral — holding positions.' : 'Tech+AI is neutral — no trade.');
+            appendAutoLog(hold ? 'Tech neutral — hold enabled: not closing positions.' : 'Skip: Tech+AI neutral — no trade.', hold ? 'info' : 'warn');
             try {
               const save = await fetch('/api/auto_trade/log', {
                 method:'POST', headers:{'Content-Type':'application/json'},
@@ -8190,23 +8276,25 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
                 await loadAutoHistory(5, 0);
               }
             } catch {}
-            // Close all open positions for this symbol across selected accounts on neutral Tech
-            try {
-              const accountsSel = document.getElementById('autoPeriodicAccountSelect');
-              const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
-              const list = (accounts && accounts.length) ? accounts : [null];
-              for (const acct of list) {
-                if (acct) { appendAutoLog(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
-                try { await logAccountPositionsAll(); } catch {}
-                try { await logAccountPositions(sym); } catch {}
-                const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=both`, { method:'POST', cache:'no-store' });
-                const jc = await rc.json().catch(()=>({}));
-                const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
-                appendAutoLog(`Closed positions due to neutral Tech: ${c}`);
-                try { await logAccountPositionsAll(); } catch {}
-                try { await logAccountPositions(sym); } catch {}
-              }
-            } catch {}
+            if (!hold) {
+              // Close all open positions for this symbol across selected accounts on neutral Tech
+              try {
+                const accountsSel = document.getElementById('autoPeriodicAccountSelect');
+                const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
+                const list = (accounts && accounts.length) ? accounts : [null];
+                for (const acct of list) {
+                  if (acct) { appendAutoLog(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
+                  try { await logAccountPositionsAll(); } catch {}
+                  try { await logAccountPositions(sym); } catch {}
+                  const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=both`, { method:'POST', cache:'no-store' });
+                  const jc = await rc.json().catch(()=>({}));
+                  const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
+                  appendAutoLog(`Closed positions due to neutral Tech: ${c}`);
+                  try { await logAccountPositionsAll(); } catch {}
+                  try { await logAccountPositions(sym); } catch {}
+                }
+              } catch {}
+            }
             return;
           }
           // Check Basic alignment with Tech
@@ -8234,25 +8322,34 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             } catch {}
           }
           // Orientation summary
-          try { appendAutoLog(`[Orientation] Tech=${side || 'NEUTRAL'} Basic=${basicSide || 'NEUTRAL'} aligned=${basicSide ? (basicSide===side?'YES':'NO') : '—'}`); } catch {}
+          try {
+            const bStr = (basicSide || 'NEUTRAL');
+            const alignedDirect = basicSide ? (basicSide === side) : false;
+            const neutralAccept = (String(bStr).toUpperCase() === 'NEUTRAL') && getAcceptTechWhenBasicNeutral();
+            appendAutoLog(`[Orientation] Tech=${side || 'NEUTRAL'} Basic=${bStr} aligned=${alignedDirect ? 'YES' : (neutralAccept ? 'ACCEPT_TECH' : 'NO')}`);
+          } catch {}
           if (!basicSide) {
-            appendAutoLog('Skip: Basic is neutral — not aligned with Tech.', 'warn');
-            status('Basic check neutral — no trade.');
-            try {
-              const save = await fetch('/api/auto_trade/log', {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: null, skipped: true, skip_reason: 'basic_neutral', steps: (tradeState.autoSteps || []) })
-              });
-              const saved = await save.json().catch(()=>({}));
-              if (saved && saved.ok && saved.run_id) {
-                appendAutoLog(`Saved log run id=${saved.run_id}`);
-                autoHistoryOffset = 0;
-                await loadAutoHistory(5, 0);
-              }
-            } catch {}
-            return;
+            if (getAcceptTechWhenBasicNeutral()) {
+              appendAutoLog('Basic is neutral — Accept Tech toggle ON: proceeding with Tech.', 'info');
+            } else {
+              appendAutoLog('Skip: Basic is neutral — not aligned with Tech.', 'warn');
+              status('Basic check neutral — no trade.');
+              try {
+                const save = await fetch('/api/auto_trade/log', {
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({ symbol: sym, timeframe: tf, action: null, basic_run_id: basicId || null, tech_run_id: (latest && latest.id) || techId || null, plan_run_id: null, skipped: true, skip_reason: 'basic_neutral', steps: (tradeState.autoSteps || []) })
+                });
+                const saved = await save.json().catch(()=>({}));
+                if (saved && saved.ok && saved.run_id) {
+                  appendAutoLog(`Saved log run id=${saved.run_id}`);
+                  autoHistoryOffset = 0;
+                  await loadAutoHistory(5, 0);
+                }
+              } catch {}
+              return;
+            }
           }
-          if (basicSide !== side) {
+          if (basicSide && basicSide !== side && !((String(basicSide).toUpperCase()==='NEUTRAL') && getAcceptTechWhenBasicNeutral())) {
             appendAutoLog(`Skip: Tech (${side}) and Basic (${basicSide}) not aligned.`, 'warn');
             status('Tech and Basic not aligned — no trade.');
             try {
