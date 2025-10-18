@@ -3672,12 +3672,29 @@ const ensureLwMacd = () => {
               return `<div style=\"padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--bg); margin-bottom:6px;\"><div style=\"font-weight:600;\">Q${esc(String(id))}</div>${explLine}${posLine}</div>`;
             }).join('');
             const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Last periodic Tech+AI — ${esc(lastTech.created_at || '')}</div><div>${esc(String(ans.signal || ''))}</div></div><div style=\"color:var(--muted); font-size:12px; margin-top:4px;\">Latest periodic technical AI report (10 questions). Each item shows the decision and the strongest evidence. Reference only — answers should rely on the latest data.</div>`;
+            const _cat = (() => {
+              try {
+                if (Array.isArray(thresholds) && thresholds.length) {
+                  for (const t of thresholds) {
+                    const minv = Number(t && t.min);
+                    const maxv = Number(t && t.max);
+                    if (Number.isFinite(minv) && Number.isFinite(maxv) && net >= minv && net <= maxv) {
+                      const lbl = String(t.signal || t.label || '');
+                      if (lbl) return lbl;
+                    }
+                  }
+                }
+                if (typeof ans.signal === 'string') return String(ans.signal).toUpperCase();
+              } catch {}
+              return '';
+            })();
             const scoreBox = buildKV([
               ['Symbol', meta.symbol || symbol],
               ['Timeframe', meta.timeframe || tf],
               ['BUY', String(buy)],
               ['SELL', String(sell)],
               ['Score (NET)', String(net)],
+              ['Category', _cat || '—'],
             ]);
             // Render order: explanations first, then ranges, then score summary
             sections.push(`<div>${header}${qaHtml}${rangeHtml}${scoreBox}</div>`);
