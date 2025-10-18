@@ -3111,7 +3111,7 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
             last_periodic_tech = None
             last_three_plans = []
 
-        # Open positions + latest tick
+        # Open positions + latest tick + account
         try:
             positions = mt5_client.list_positions(symbol)
         except Exception:
@@ -3120,6 +3120,11 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
             tick = mt5_client.get_tick(symbol)
         except Exception:
             tick = None
+        # Account info (current session)
+        try:
+            acct = mt5_client.account_info()
+        except Exception:
+            acct = None
 
         # Size the plans list to match open orders count when present; otherwise show last 3
         try:
@@ -3233,6 +3238,7 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
                     "last_three_plans": last_three_plans,
                     "order_plan_links": order_plan_links,
                     "positions": positions,
+                    "account": acct,
                     "tick": tick,
                 }
             )
