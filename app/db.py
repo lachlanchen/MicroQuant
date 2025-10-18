@@ -927,3 +927,63 @@ async def list_signal_trades(
         # result is JSON already
         out.append(item)
     return out
+
+
+# --- Order ↔ Plan links ---
+async def upsert_order_plan_link(
+    pool: asyncpg.pool.Pool,
+    *,
+    ticket: int,
+    symbol: str,
+    timeframe: str | None,
+    plan_run_id: int | None,
+    tag: str | None,
+    method: str | None = None,
+) -> int:
+    q = (
+        """
+        INSERT INTO order_plan_links (ticket, symbol, timeframe, plan_run_id, tag, method)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (ticket) DO UPDATE SET
+            symbol = EXCLUDED.symbol,
+            timeframe = EXCLUDED.timeframe,
+            plan_run_id = EXCLUDED.plan_run_id,
+            tag = EXCLUDED.tag,
+            method = EXCLUDED.method
+        """
+    )
+    async with pool.acquire() as conn:
+        await conn.execute(q, int(ticket), str(symbol), (str(timeframe) if timeframe else None), (int(plan_run_id) if plan_run_id is not None else None), (str(tag) if tag else None), (str(method) if method else None))
+    return 1
+
+
+async def list_order_plan_links(
+    pool: asyncpg.pool.Pool,
+    *,
+    symbol: str | None = None,
+    timeframe: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    base = "SELECT ticket, symbol, timeframe, plan_run_id, tag, method, created_at FROM order_plan_links"
+    where = []
+    args: list = []
+    if symbol:
+        where.append("symbol=$%d" % (len(args) + 1))
+        args.append(symbol)
+    if timeframe:
+        where.append("timeframe=$%d" % (len(args) + 1))
+        args.append(timeframe)
+    if where:
+        base += " WHERE " + " AND ".join(where)
+    base += " ORDER BY created_at DESC LIMIT $%d" % (len(args) + 1)
+    args.append(int(limit))
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(base, *args)
+    out: list[dict] = []
+    for r in rows:
+        item = {k: r[k] for k in r.keys()}
+        ts = item.get("created_at")
+        if hasattr(ts, "isoformat"):
+            item["created_at"] = ts.isoformat()
+        out.append(item)
+    return out

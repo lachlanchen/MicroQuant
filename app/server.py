@@ -50,6 +50,8 @@ from app.db import (
     latest_balance_before,
     insert_signal_trade,
     list_signal_trades,
+    upsert_order_plan_link,
+    list_order_plan_links,
 )
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
@@ -3181,11 +3183,13 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
                 match = tag_re.search(comment)
                 linked = None
                 method = None
+                tag_text = None
                 if match:
                     try:
                         rid = int(match.group(1))
                         linked = plan_by_id.get(rid)
                         method = "tag"
+                        tag_text = f"r{rid}x{match.group(2)}"
                     except Exception:
                         linked = None
                 # 2) Nearest-by-time fallback
@@ -3216,6 +3220,20 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
                             method = "nearest"
                 entry = {"ticket": ticket, "method": method, "plan": linked}
                 order_plan_links.append(entry)
+                # Persist mapping for future quick lookups
+                try:
+                    if GLOBAL_POOL is not None and ticket and linked and isinstance(linked, dict):
+                        await upsert_order_plan_link(
+                            GLOBAL_POOL,
+                            ticket=int(ticket),
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            plan_run_id=int(linked.get("id")),
+                            tag=tag_text,
+                            method=method,
+                        )
+                except Exception:
+                    pass
         except Exception:
             order_plan_links = []
         # Keep number of plans equal to number of open orders when possible

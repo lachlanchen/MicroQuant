@@ -143,3 +143,17 @@ CREATE TABLE IF NOT EXISTS signal_trades (
 
 CREATE INDEX IF NOT EXISTS idx_signal_trades_sym_tf_ts
     ON signal_trades(symbol, COALESCE(timeframe, ''), ts DESC);
+
+-- Mapping of broker order/position ticket to AI trade plan runs and tag
+CREATE TABLE IF NOT EXISTS order_plan_links (
+    ticket       BIGINT      PRIMARY KEY,
+    symbol       TEXT        NOT NULL,
+    timeframe    TEXT,
+    plan_run_id  BIGINT,
+    tag          TEXT,
+    method       TEXT,                      -- 'tag' | 'nearest' | other
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_plan_symbol_tf
+    ON order_plan_links(symbol, COALESCE(timeframe, ''), created_at DESC);
