@@ -478,6 +478,13 @@
                   <option value="deepseek-reasoner">deepseek-reasoner</option>
                 </select>
               </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:120px; text-align:right;">Tech report</span>
+                <select id="techSnapshotModeSelect" style="min-width:220px; padding:4px 6px;">
+                  <option value="snapshot_plus_history" selected>Snapshot + History (new)</option>
+                  <option value="snapshot">Tech Snapshot (classic)</option>
+                </select>
+              </label>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <button class="btn" id="btnAiBuySell" style="padding:6px 12px; color:#fff; font-weight:600; background:linear-gradient(90deg, #2ecc71, #e74c3c); border:none; box-shadow:0 2px 8px rgba(0,0,0,0.18);">AI Buy/Sell</button>
@@ -559,6 +566,15 @@
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
           <span style="min-width:110px; color:var(--muted);">Account</span>
           <select id="autoPeriodicAccountSelect" class="blue-select" multiple size="4" style="min-width:220px; flex:1;"></select>
+        </div>
+        <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="min-width:110px; color:var(--muted);">Tech report</span>
+            <select id="autoPeriodicTechSnapshotModeSelect" style="min-width:160px;">
+              <option value="snapshot_plus_history" selected>Snapshot + History (new)</option>
+              <option value="snapshot">Tech Snapshot (classic)</option>
+            </select>
+          </label>
         </div>
         <!-- Selected-accounts weighted lots helper -->
         <div class="row" style="gap:10px; align-items:center; margin-top:6px;">
@@ -932,6 +948,13 @@
               <option value="gpt-4o-mini">gpt-4o-mini</option>
               <option value="deepseek-chat" selected>deepseek-chat (default)</option>
               <option value="deepseek-reasoner">deepseek-reasoner</option>
+            </select>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:12px; color:var(--muted);">Tech report</span>
+            <select id="autoTechSnapshotModeSelect" style="min-width:200px; padding:4px 6px;">
+              <option value="snapshot_plus_history" selected>Snapshot + History (new)</option>
+              <option value="snapshot">Tech Snapshot (classic)</option>
             </select>
           </label>
         </div>
@@ -1536,6 +1559,10 @@
       const aiModelSelect = el('aiModelSelect');
       const autoAiModelSelect = el('autoAiModelSelect');
       const autoPeriodicModelSelect = el('autoPeriodicModelSelect');
+      // Tech snapshot mode (classic vs history)
+      const techSnapshotModeSelect = el('techSnapshotModeSelect');
+      const autoTechSnapshotModeSelect = el('autoTechSnapshotModeSelect');
+      const autoPeriodicTechSnapshotModeSelect = el('autoPeriodicTechSnapshotModeSelect');
       function setAllTradeModel(val) {
         try { if (aiModelSelect) aiModelSelect.value = val; } catch {}
         try { if (autoAiModelSelect) autoAiModelSelect.value = val; } catch {}
@@ -1549,6 +1576,29 @@
         const v3 = autoPeriodicModelSelect && autoPeriodicModelSelect.value ? autoPeriodicModelSelect.value.trim() : '';
         return v3 || 'deepseek-chat';
       };
+      // Tech snapshot mode — mirror across selectors and persist
+      function setAllTechSnapshotMode(val) {
+        const v = (val || '').trim() || 'snapshot_plus_history';
+        try { if (techSnapshotModeSelect) techSnapshotModeSelect.value = v; } catch {}
+        try { if (autoTechSnapshotModeSelect) autoTechSnapshotModeSelect.value = v; } catch {}
+        try { if (autoPeriodicTechSnapshotModeSelect) autoPeriodicTechSnapshotModeSelect.value = v; } catch {}
+      }
+      const getTechSnapshotMode = () => {
+        const v1 = techSnapshotModeSelect && techSnapshotModeSelect.value ? techSnapshotModeSelect.value.trim() : '';
+        if (v1) return v1;
+        const v2 = autoTechSnapshotModeSelect && autoTechSnapshotModeSelect.value ? autoTechSnapshotModeSelect.value.trim() : '';
+        if (v2) return v2;
+        const v3 = autoPeriodicTechSnapshotModeSelect && autoPeriodicTechSnapshotModeSelect.value ? autoPeriodicTechSnapshotModeSelect.value.trim() : '';
+        return v3 || 'snapshot_plus_history';
+      };
+      if (techSnapshotModeSelect) {
+        techSnapshotModeSelect.addEventListener('change', () => {
+          const mode = getTechSnapshotMode();
+          setAllTechSnapshotMode(mode);
+          try { queuePrefUpdate('tech_snapshot_mode', mode); flushPrefQueue(); } catch {}
+        });
+        (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=tech_snapshot_mode`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.tech_snapshot_mode; if (saved) setAllTechSnapshotMode(saved); } catch {} })();
+      }
       if (aiModelSelect) {
         aiModelSelect.value = 'deepseek-chat';
         aiModelSelect.addEventListener('change', () => {
@@ -1575,6 +1625,14 @@
         // Initialize from saved pref
         (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=trade_ai_model`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.trade_ai_model; if (saved) setAllTradeModel(saved); } catch {} })();
       }
+      if (autoTechSnapshotModeSelect) {
+        autoTechSnapshotModeSelect.addEventListener('change', () => {
+          const mode = autoTechSnapshotModeSelect.value || 'snapshot_plus_history';
+          setAllTechSnapshotMode(mode);
+          try { queuePrefUpdate('tech_snapshot_mode', mode); flushPrefQueue(); } catch {}
+        });
+        (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=tech_snapshot_mode`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.tech_snapshot_mode; if (saved) setAllTechSnapshotMode(saved); } catch {} })();
+      }
       if (autoPeriodicModelSelect) {
         autoPeriodicModelSelect.addEventListener('change', () => {
           const model = autoPeriodicModelSelect.value || 'deepseek-chat';
@@ -1583,6 +1641,14 @@
         });
         // Initialize from saved pref
         (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=trade_ai_model`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.trade_ai_model; if (saved) setAllTradeModel(saved); } catch {} })();
+      }
+      if (autoPeriodicTechSnapshotModeSelect) {
+        autoPeriodicTechSnapshotModeSelect.addEventListener('change', () => {
+          const mode = autoPeriodicTechSnapshotModeSelect.value || 'snapshot_plus_history';
+          setAllTechSnapshotMode(mode);
+          try { queuePrefUpdate('tech_snapshot_mode', mode); flushPrefQueue(); } catch {}
+        });
+        (async () => { try { const r = await fetch(`${PREF_ENDPOINT}?keys=tech_snapshot_mode`, { cache:'no-store' }); const js = await r.json().catch(()=>({})); const saved = js && js.prefs && js.prefs.tech_snapshot_mode; if (saved) setAllTechSnapshotMode(saved); } catch {} })();
       }
 
       // Basic AI model preference
@@ -5558,7 +5624,7 @@ const ensureLwMacd = () => {
         const tf = currentTf();
         try {
           // Build snapshot for the exact symbol/timeframe
-          const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+          const snapshot = await buildSelectedTechSnapshot(sym, tf);
           const techSelEl = document.getElementById('techAiStrategy');
           const techStratSel = (techSelEl && techSelEl.value) ? techSelEl.value : 'tech_snapshot_10q_position.json';
           const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStratSel };
@@ -6563,7 +6629,7 @@ const ensureLwMacd = () => {
       const btnRerunAllChecks = document.getElementById('btnRerunAllChecks');
       async function newTechRunForSymbol(sym, tf) {
         try {
-          const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+          const snapshot = await buildSelectedTechSnapshot(sym, tf);
           const techSel = document.getElementById('techAiStrategy');
           const techStrat = (techSel && techSel.value) ? techSel.value : 'tech_snapshot_10q_position.json';
           const body = { symbol: sym, timeframe: tf, tech_snapshot: snapshot, strategy: techStrat };
@@ -6978,7 +7044,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         // Draft plan via server using snapshot for this symbol
         let planRunId = null, plan = null;
         try {
-          const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+          const snapshot = await buildSelectedTechSnapshot(sym, tf);
           try { setPeriodicStatus(`[${sym}] Drafting plan…`, true); } catch {}
           const lev = getLeverageValue();
           const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
@@ -7069,6 +7135,101 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         } catch (e) {
           return `${sym} • TF ${tf} • N=${resolveTechWindow()}\n(no snapshot)`;
         }
+      }
+
+      // Build combined Tech Snapshot + History as a plain-text block suitable for AI prompts/logs
+      async function buildTechSnapshotHistoryText(sym, tf) {
+        try {
+          const p = new URLSearchParams({ symbol: sym, tf });
+          const r = await fetch(`/api/tech/snapshot_plus_history?${p.toString()}`, { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const lines = [];
+          lines.push(`${sym} • TF ${tf}`);
+          // Last periodic Tech+AI
+          const lastTech = js && js.last_periodic_tech;
+          if (lastTech && lastTech.answers) {
+            const created = lastTech.created_at || '';
+            const ans = lastTech.answers || {};
+            const scores = ans.scores || ans.SCORES || {};
+            const buy = Number(scores.BUY || 0);
+            const sell = Number(scores.SELL || 0);
+            const net = Number(scores.NET != null ? scores.NET : (buy - sell));
+            const signal = String(lastTech.signal || ans.signal || (net>2? 'BUY' : net<-2? 'SELL':'NEUTRAL')).toUpperCase();
+            lines.push(`Last periodic Tech+AI — ${created}`);
+            lines.push(signal);
+            // Questions explanations first
+            const qs = Array.isArray(ans.questions) ? ans.questions : [];
+            for (const q of qs) {
+              const qid = String(q.id || '').trim();
+              const label = qid ? qid : 'Q';
+              const explanation = (q.explanation || '').toString();
+              const answer = String(q.answer || '').toUpperCase();
+              lines.push(`${label}`);
+              if (explanation) lines.push(explanation);
+              if (answer) lines.push(`Position: ${answer}`);
+            }
+            // Score ranges table, if available
+            const thresholds = Array.isArray(lastTech.thresholds) ? lastTech.thresholds : [];
+            if (thresholds.length) {
+              lines.push('Score ranges');
+              lines.push('Min\tMax\tCategory');
+              for (const t of thresholds) {
+                const minv = Number(t.min);
+                const maxv = Number(t.max);
+                const cat = String(t.signal || '');
+                lines.push(`${minv}\t${maxv}\t${cat}`);
+              }
+            }
+            // Final score summary
+            lines.push('Score (NET)');
+            lines.push(String(net));
+          }
+          // Plans (equal to open orders when possible)
+          const plans = Array.isArray(js && js.last_three_plans) ? js.last_three_plans : [];
+          if (plans.length) {
+            lines.push(`Last ${plans.length} periodic AI Trade Plan${plans.length>1?'s':''}`);
+            let idx = 1;
+            for (const pr of plans) {
+              const a = pr && pr.answers ? pr.answers : {};
+              const pos = a.position || (a.plan && a.plan.position) || '';
+              const sl = a.stop_loss ?? (a.plan && a.plan.stop_loss);
+              const tp = a.take_profit ?? (a.plan && a.plan.take_profit);
+              const expl = a.explanation || (a.plan && a.plan.explanation) || '';
+              const created = pr && pr.created_at ? pr.created_at : '';
+              lines.push(`#${idx}`);
+              lines.push(`Created\t${created}`);
+              if (pos) lines.push(`Position\t${pos}`);
+              if (sl != null) lines.push(`SL\t${sl}`);
+              if (tp != null) lines.push(`TP\t${tp}`);
+              if (expl) lines.push(expl.toString());
+              idx += 1;
+            }
+          }
+          // Open positions
+          const pos = Array.isArray(js && js.positions) ? js.positions : [];
+          if (pos.length) {
+            lines.push('Open Positions');
+            lines.push('Ticket\tSide\tLots\tOpen\tSL\tTP\tPnL');
+            for (const p2 of pos) {
+              const side = (Number(p2.type) === 0) ? 'BUY' : 'SELL';
+              lines.push(`${p2.ticket}\t${side}\t${p2.volume}\t${p2.price_open}\t${p2.sl}\t${p2.tp}\t${p2.profit}`);
+            }
+          }
+          // Append current technical snapshot text
+          const snap = await buildTechSnapshotForSymbol(sym, tf);
+          if (snap) {
+            lines.push('Current Technical Snapshot');
+            lines.push(snap);
+          }
+          return lines.join('\n');
+        } catch { return ''; }
+      }
+
+      // Choose snapshot text based on preference
+      async function buildSelectedTechSnapshot(sym, tf) {
+        const mode = getTechSnapshotMode();
+        if (mode === 'snapshot') return await buildTechSnapshotForSymbol(sym, tf);
+        return await buildTechSnapshotHistoryText(sym, tf);
       }
 
       async function executePlanForSymbol(sym, tf, side, planObj, planRunId, latestTechRun, basicId, techId, logFn, acctOverride) {
@@ -8110,8 +8271,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           appendAutoLog(`Drafting ${side} plan…`);
           const planResp = await (async ()=>{
             const lev = getLeverageValue();
-            // Build per-symbol snapshot for the plan as well
-            const snapshot = await buildTechSnapshotForSymbol(sym, tf);
+            // Build per-symbol snapshot for the plan as well (respect selected mode)
+            const snapshot = await buildSelectedTechSnapshot(sym, tf);
             const body = { symbol: sym, timeframe: tf, action: side, leverage: lev, tech_snapshot: snapshot, model: getTradeAiModel() };
             try { if (Number.isFinite(Number(basicId))) body.basic_run_id = Number(basicId); } catch {}
             try {

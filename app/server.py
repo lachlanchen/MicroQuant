@@ -1157,12 +1157,15 @@ PREF_KEYS = [
     "last_fast",
     "last_slow",
     "chart_shift",
+    # Unified model + tech snapshot output preferences (mirrored in UI)
     "trade_ai_model",
     "basic_ai_model",
     "tech_ai_model",
     "deep_ai_model",
     "deep_strategy",
     "deep_news_count",
+    # New: choose classic Tech Snapshot vs Snapshot + History
+    "tech_snapshot_mode",
     "balance_poll_min",
     "closed_orders_poll_min",
 ]
