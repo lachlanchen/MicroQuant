@@ -3736,7 +3736,7 @@ const ensureLwMacd = () => {
               const tp = a.take_profit ?? (a.plan && a.plan.take_profit);
               const expl = a.explanation || (a.plan && a.plan.explanation) || '';
               const created = plan && plan.created_at ? plan.created_at : '—';
-              const kv = buildKV([[ 'Ticket', t ], [ 'Matched plan', created ], [ 'Position', pos || '—' ], [ 'SL', sl != null ? String(sl) : '—' ], [ 'TP', tp != null ? String(tp) : '—' ], [ 'Method', method ]]);
+              const kv = buildKV([[ 'Ticket', t ], [ 'Matched plan', created ], [ 'Position', pos || '—' ], [ 'SL', sl != null ? String(sl) : '—' ], [ 'TP', tp != null ? String(tp) : '—' ]]);
               const exHtml = expl ? `<div style=\"margin-top:6px;\"><em>${esc(expl)}</em></div>` : '';
               return `<div style=\"margin-bottom:8px;\">${kv}${exHtml}</div>`;
             }).join('');
