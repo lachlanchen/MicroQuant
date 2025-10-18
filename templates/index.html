@@ -8257,6 +8257,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const execBody = { symbol: sym, side: sideLower, volume: vol, tf, sl_enabled: !!slEnabled };
           if (slEnabled && finalSL != null) execBody.sl = finalSL;
           if (p.take_profit != null) execBody.tp = p.take_profit;
+          if (Number.isFinite(Number(planRunId))) execBody.plan_run_id = Number(planRunId);
           const tr = await fetch('/api/trade/execute_plan', { method:'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(execBody), cache: 'no-store' });
           const tj = await tr.json().catch(()=>({}));
           const ok = tr.ok && tj && (tj.ok === true) && (tj.order_result && tj.order_result.ok === true);

@@ -1,4 +1,5 @@
 import os
+import hashlib
 import json
 import logging
 import asyncio
@@ -2622,6 +2623,12 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
         plan_tp = payload.get("tp")
         sl_enabled = bool(payload.get("sl_enabled") or False)
 
+        # Optional plan run id for traceability
+        try:
+            plan_run_id = int(payload.get("plan_run_id")) if payload.get("plan_run_id") is not None else None
+        except Exception:
+            plan_run_id = None
+
         # 1) Close opposite direction positions for this symbol
         opp = "short" if side == "buy" else "long"
         try:
@@ -2845,7 +2852,22 @@ class ExecutePlanHandler(tornado.web.RequestHandler):
         except Exception:
             pass
         try:
-            res = mt5_client.place_market(symbol, side, volume, sl=sl_val, tp=tp_val)
+            # Prepare a compact comment that tags the order with the originating plan (if provided)
+            # and a short hash so we can correlate later from positions → plan.
+            com = "auto-quant"
+            try:
+                base = f"{symbol}|{side}|{timeframe or ''}|{sl_val or ''}|{tp_val or ''}|{plan_run_id or ''}"
+                h = hashlib.sha1(base.encode("utf-8")).hexdigest()[:6]
+                if plan_run_id is not None:
+                    com = f"aq:pl=r{plan_run_id}x{h}"
+                else:
+                    com = f"aq:pl=x{h}"
+                # MT5 retail comment limit ~31 chars; ensure we are short
+                if len(com) > 28:
+                    com = com[:28]
+            except Exception:
+                pass
+            res = mt5_client.place_market(symbol, side, volume, sl=sl_val, tp=tp_val, comment=com)
         except Exception as e:
             self.set_status(500)
             self.set_header("Content-Type", "application/json")
@@ -3074,8 +3096,7 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
                         plan_ids.append(int(pid))
                 except Exception:
                     continue
-                if len(plan_ids) >= 3:
-                    break
+                # no fixed cap here; we will slice later based on open orders count
             for pid in plan_ids:
                 try:
                     pr = await get_health_run_by_id(self.pool, pid)
@@ -3098,6 +3119,13 @@ class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
             tick = mt5_client.get_tick(symbol)
         except Exception:
             tick = None
+        # Keep number of plans equal to number of open orders when possible
+        try:
+            want = len(positions) if isinstance(positions, list) else 0
+            if want > 0:
+                last_three_plans = last_three_plans[:want]
+        except Exception:
+            pass
 
         self.set_header("Content-Type", "application/json")
         self.set_header("Cache-Control", "no-store")
