@@ -7148,16 +7148,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (techNeutral) {
             const hold = getHoldOnTechNeutral();
             if (hold) {
-              if (String(basicStr).toUpperCase() === 'BUY' || String(basicStr).toUpperCase() === 'SELL') {
-                // Hold is ON: if Accept Tech is OFF, still prune opposite to Basic to de-risk
-                if (!getAcceptTechWhenBasicNeutral()) {
-                  await closeOppositeOf(basicStr);
-                } else {
-                  log('Hold: Tech neutral; keep positions.');
-                }
-              } else {
-                log('Hold: Tech neutral; Basic neutral; keep positions.');
-              }
+              // Close opposite to Basic side when Basic has direction
+              const bU = String(basicStr).toUpperCase();
+              if (bU === 'BUY') { await closeOppositeOf('BUY'); }
+              else if (bU === 'SELL') { await closeOppositeOf('SELL'); }
+              else { log('Hold: Tech neutral; Basic neutral; keep positions.'); }
             } else {
               // Hold OFF → close all on Tech neutral
               await closeForAccounts('both');
@@ -8348,10 +8343,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               if (!hold) {
                 await closeFor('both');
               } else {
+                // Close opposite to Basic side when Basic has direction (regardless of Accept Tech)
                 if (bSide === 'BUY') {
-                  if (!acceptTech) await closeFor('short');
+                  await closeFor('short');
                 } else if (bSide === 'SELL') {
-                  if (!acceptTech) await closeFor('long');
+                  await closeFor('long');
                 } else {
                   appendAutoLog('Hold ON and Basic neutral — no close');
                 }
