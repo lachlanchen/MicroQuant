@@ -435,14 +435,18 @@
                 <input id="techHealthBars" type="number" min="1" max="500" style="width:72px;" />
               </label>
             </div>
-            <!-- Tech Snapshot buttons moved below Bars -->
+            <!-- Tech Snapshot controls each on its own row -->
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+              <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Snapshot</button>
+            </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <label class="switch" title="Hide the last Tech+AI check report block in the History modal" style="gap:6px;">
                 <input type="checkbox" id="hideLastTechToggle" class="toggle-input" checked />
                 <span class="toggle"></span>
                 <span>Hide last Tech report</span>
               </label>
-              <button class="btn secondary" id="btnTechHealth" style="padding:6px 10px;">Tech Snapshot</button>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
               <button class="btn secondary" id="btnTechHealthHistory" style="padding:6px 10px;">Tech Snapshot + History</button>
             </div>
             <!-- Moved here: Tech report mode selector sits directly under Bars -->
