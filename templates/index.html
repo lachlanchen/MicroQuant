@@ -7004,6 +7004,29 @@ if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () 
         });
       }
 
+      // Resolve periodic symbols independently of the main Symbol select
+      async function resolvePeriodicSymbolsList() {
+        // Prefer saved pref list to avoid depending on current UI selection/state
+        try {
+          const key = 'auto_trade_symbols:global';
+          const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(key)}`, { cache: 'no-store' });
+          const js = await r.json().catch(()=>({}));
+          const raw = js && (js.prefs || js)[key];
+          if (raw) {
+            try { const arr = JSON.parse(raw); if (Array.isArray(arr) && arr.length) return arr.map(s=>String(s).toUpperCase()); } catch {}
+          }
+        } catch {}
+        // Fallback to UI multi-select if present
+        try {
+          const sel = document.getElementById('autoPeriodicSymbols');
+          const chosen = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>String(o.value||'').toUpperCase());
+          if (chosen && chosen.length) return chosen;
+        } catch {}
+        // Last resort: configured symbols list (avoid hard dependency on currentSymbol)
+        try { if (Array.isArray(APP_SYMBOLS) && APP_SYMBOLS.length) return APP_SYMBOLS.slice(0, Math.min(5, APP_SYMBOLS.length)); } catch {}
+        return [currentSymbol()];
+      }
+
       // Danger trigger: run periodic batch immediately
       const btnPeriodicTrigger = document.getElementById('btnPeriodicTrigger');
       const periodicStatusLine = document.getElementById('periodicStatusLine');
@@ -7014,9 +7037,8 @@ if (btnPeriodicHistoryOpen) btnPeriodicHistoryOpen.addEventListener('click', () 
 
       if (btnPeriodicTrigger) btnPeriodicTrigger.addEventListener('click', async ()=>{
         try {
-          const sel = document.getElementById('autoPeriodicSymbols');
           const tf = currentTf();
-          const syms = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value);
+          const syms = await resolvePeriodicSymbolsList();
           const accountsSel = document.getElementById('autoPeriodicAccountSelect');
           const accts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
           const msg = `Run periodic batch now?
@@ -7044,11 +7066,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       }
       // Execute periodic batch across selected symbols (parallel by symbol)
       async function runPeriodicAutoTrades() {
-        const sel = document.getElementById('autoPeriodicSymbols');
         const tf = currentTf();
-        let symbols = [];
-        try { symbols = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>o.value); } catch {}
-        if (!Array.isArray(symbols) || symbols.length === 0) symbols = [currentSymbol()];
+        let symbols = await resolvePeriodicSymbolsList();
         appendAutoLog(`[Periodic] Running Auto AI Trade for ${symbols.length} symbol(s) on ${tf}`);
         try {
           const accountsSel0 = document.getElementById('autoPeriodicAccountSelect');
