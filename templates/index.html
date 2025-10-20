@@ -3671,6 +3671,21 @@ const ensureLwMacd = () => {
         box.innerHTML = '<div style="padding:8px; color:var(--muted);">Loading history…</div>';
         snapPre.textContent = 'Building technical snapshot…';
         modal.style.display = 'flex';
+        // Ensure Deep Research freshness first (run if missing/stale)
+        try {
+          const pf = new URLSearchParams({ symbol, strategy: 'deep_research.json' });
+          const fres = await fetch(`/api/health/freshness?${pf.toString()}`, { cache: 'no-store' });
+          const fj = await fres.json().catch(()=>({}));
+          const status = String((fj && fj.status) || 'unknown').toLowerCase();
+          const needRun = (status === 'unknown') || (status === 'stale') || !(fj && fj.last_run_at);
+          if (needRun) {
+            const payload = { symbol, timeframe: tf, strategy: 'deep_research.json' };
+            try { const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100))); payload.news_count = n; } catch {}
+            try { const barsN = Math.max(10, Math.min(500, Number(resolveTechWindow && resolveTechWindow() || 50))); payload.n_bars = barsN; } catch {}
+            try { const tline = latestTickSummary(symbol); if (tline) payload.latest_tick_line = tline; } catch {}
+            await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), cache:'no-store' });
+          }
+        } catch {}
         // Fetch combined history from server
         let history = null;
         try {
@@ -3679,6 +3694,33 @@ const ensureLwMacd = () => {
           history = await r.json().catch(()=>null);
         } catch {}
         const sections = [];
+        // Deep Research (latest) — show above Tech, with advisory note
+        try {
+          const p = new URLSearchParams();
+          if (isFxPair(symbol)) { const pq = splitPair(symbol); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
+          else { p.set('kind','stock'); p.set('symbol', symbol); }
+          p.set('group','deep'); p.set('strategy','deep_research.json'); p.set('limit','1'); p.set('offset','0');
+          const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          const j = await r.json().catch(()=>({}));
+          const arr = Array.isArray(j && j.runs) ? j.runs : [];
+          if (arr.length) {
+            const run = arr[0];
+            const ans = (run && (run.answers || run.answers_json)) || {};
+            const qs = Array.isArray(ans.questions) ? ans.questions : [];
+            let drText = '';
+            let posText = '';
+            if (qs.length) {
+              const a = qs[0] && (qs[0].answer || qs[0].Answer || qs[0].ANSWER) || {};
+              try { drText = String((a && a.deep_research) || '').trim(); } catch {}
+              try { const pdir = (a && (a.position || a.POSITION)) ? String(a.position || a.POSITION).toUpperCase() : ''; if (pdir) posText = pdir; } catch {}
+            }
+            const created = run.created_at || '';
+            const header = `<div class=\"row\" style=\"justify-content:space-between; align-items:center;\"><div style=\"font-weight:700;\">Deep Research (latest) — ${esc(created)}</div><div>${esc(posText || '')}</div></div>`;
+            const body = drText ? `<div style=\"margin-top:6px; white-space:pre-wrap;\">${esc(drText)}</div>` : `<div style=\"margin-top:6px; color:var(--muted);\"><em>No recent Deep Research text.</em></div>`;
+            const note = `<div style=\"margin-top:8px; color:var(--muted); font-size:12px;\">The Deep Research report of past news is for reference. It can be inaccurate, and even when accurate, technical trends can continue or reverse. Make your decision mainly on the technical snapshot.</div>`;
+            sections.push(`<div>${header}${body}${note}</div>`);
+          }
+        } catch {}
         const HIDE_LAST = (typeof getHideLastTechReport === 'function') ? getHideLastTechReport() : true;
         const buildKV = (rows) => `<div style="border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel);">${rows.map(([k,v])=>`<div class=\"row\" style=\"justify-content:space-between; gap:8px; margin:2px 0;\"><span style=\"color:var(--muted)\">${esc(k)}</span><span>${esc(v)}</span></div>`).join('')}</div>`;
         // 0) Full last periodic Tech+AI report (if any)
@@ -7179,6 +7221,17 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             if (js && js.ok && js.run_id) { basicId = js.run_id; log(`Basic run id=${basicId}`); }
           } catch {}
         }
+        if (needDeep) {
+          try {
+            const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
+            const model = getPeriodicAiModel();
+            const body = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategy };
+            if (model) body.model = model;
+            const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+            const js = await res.json().catch(()=>({}));
+            if (js && js.ok && js.run_id) { deepId = js.run_id; log(`Deep run id=${deepId}`); }
+          } catch (e) { log(`Deep run error: ${e && e.message || e}`, 'error'); }
+        }
         if (needTech) {
           try {
             // Build snapshot for this symbol/timeframe, not the current chart
@@ -7191,17 +7244,6 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             const js = await res.json().catch(()=>({}));
             if (js && js.ok && js.run_id) { techId = js.run_id; log(`Tech run id=${techId}`); }
           } catch (e) { log(`Tech run error: ${e && e.message || e}`, 'error'); }
-        }
-        if (needDeep) {
-          try {
-            const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
-            const model = getPeriodicAiModel();
-            const body = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategy };
-            if (model) body.model = model;
-            const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
-            const js = await res.json().catch(()=>({}));
-            if (js && js.ok && js.run_id) { deepId = js.run_id; log(`Deep run id=${deepId}`); }
-          } catch (e) { log(`Deep run error: ${e && e.message || e}`, 'error'); }
         }
         // Determine latest tech signal for side — prefer latest run for the selected Tech strategy
         let side = null, latest = null;
@@ -7433,6 +7475,33 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           const js = await r.json().catch(()=>({}));
           const lines = [];
           lines.push(`${sym} • TF ${tf}`);
+          // Deep Research (latest)
+          try {
+            const pd = new URLSearchParams();
+            if (isFxPair(sym)) { const pq = splitPair(sym); pd.set('kind','forex_pair'); pd.set('base', pq.base); pd.set('quote', pq.quote); }
+            else { pd.set('kind','stock'); pd.set('symbol', sym); }
+            pd.set('group','deep'); pd.set('strategy','deep_research.json'); pd.set('limit','1');
+            const rd = await fetch(`/api/health/runs?${pd.toString()}`, { cache:'no-store' });
+            const jd = await rd.json().catch(()=>({}));
+            const darr = Array.isArray(jd && jd.runs) ? jd.runs : [];
+            if (darr.length) {
+              const run = darr[0];
+              const ans = (run && (run.answers || run.answers_json)) || {};
+              const qs = Array.isArray(ans.questions) ? ans.questions : [];
+              let dr = '';
+              let dpos = '';
+              if (qs.length) {
+                const a = qs[0] && (qs[0].answer || qs[0].Answer || qs[0].ANSWER) || {};
+                try { dr = String((a && a.deep_research) || '').trim(); } catch {}
+                try { dpos = String((a && (a.position || a.POSITION)) || '').toUpperCase(); } catch {}
+              }
+              lines.push('Deep Research (latest)');
+              if (dpos) lines.push(dpos);
+              if (dr) lines.push(dr);
+              lines.push('Note');
+              lines.push('The Deep Research report of past news is for reference. It can be inaccurate, and even when accurate, technical trends can continue or reverse. Make your decision mainly on the technical snapshot.');
+            }
+          } catch {}
           // Last periodic Tech+AI
           const lastTech = js && js.last_periodic_tech;
           // Respect UI preference: hide last Tech report when toggle is ON
@@ -8379,7 +8448,6 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (runDeep) appendAutoLog((dfj && dfj.status === 'unknown') ? 'No recent Deep Research — running new research…' : 'Outdated: Deep — running new research…'); else appendAutoLog('Deep is fresh — using latest research.');
           let basicId = null, techId = null, deepId = null;
           if (runBasic) basicId = await newBasicCheckForTrade();
-          if (runTech) techId = await newTechCheckForTrade();
           if (runDeep) {
             try {
               const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
@@ -8393,6 +8461,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               if (r.ok && js && js.ok && Number.isFinite(Number(js.run_id))) { deepId = Number(js.run_id); appendAutoLog(`Deep run id=${deepId}`); }
             } catch {}
           }
+          if (runTech) techId = await newTechCheckForTrade();
           // If not run, pick latest for mirrors/alignment
           if (!basicId) {
             try {
