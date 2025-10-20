@@ -4048,6 +4048,13 @@ const ensureLwMacd = () => {
                 } catch { return true; }
               });
             }
+            // Extra guard: if not viewing Deep, remove Deep Research strategies explicitly
+            const viewingDeep = wanted === 'deep';
+            if (!viewingDeep) {
+              runs = runs.filter((r) => {
+                try { const s = String(((r && (r.answers || r.answers_json)) || {}).strategy || '').toLowerCase(); return !s.includes('deep_research'); } catch { return true; }
+              });
+            }
           } catch {}
           if ((healthState.offset||0) === 0) { box.innerHTML = ''; }
           if (!Array.isArray(healthState.runs)) healthState.runs = [];
