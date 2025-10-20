@@ -7068,13 +7068,31 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
       async function runPeriodicAutoTrades() {
         const tf = currentTf();
         let symbols = await resolvePeriodicSymbolsList();
+        // Filter by session — run only open ones this cycle
+        let openSyms = [];
+        let closedSyms = [];
+        try {
+          for (const s of symbols) {
+            const st = tradingSessionStatus(s);
+            if (st && st.open) openSyms.push(s); else closedSyms.push(s);
+          }
+        } catch { openSyms = symbols.slice(); closedSyms = []; }
         appendAutoLog(`[Periodic] Running Auto AI Trade for ${symbols.length} symbol(s) on ${tf}`);
         try {
           const accountsSel0 = document.getElementById('autoPeriodicAccountSelect');
           const accounts0 = Array.from(accountsSel0 && accountsSel0.selectedOptions ? accountsSel0.selectedOptions : []).map(o=>o.value);
-          setPeriodicStatus(`[Periodic] Running ${symbols.join(', ')} on ${tf}${accounts0.length? ` • accounts ${accounts0.join(', ')}`:''}`, true);
+          const listStr = (openSyms.length? openSyms : symbols).join(', ');
+          setPeriodicStatus(`[Periodic] Running ${listStr} on ${tf}${accounts0.length? ` • accounts ${accounts0.join(', ')}`:''}`, true);
         } catch {}
-        const tasks = symbols.map(sym => autoAiTradeForSymbol(sym, tf).catch(e => appendAutoLog(`[${sym}] error: ${e && e.message || e}`, 'error')));
+        if (!openSyms.length) {
+          appendAutoLog('[Periodic] All selected symbols are currently closed — skipping this cycle');
+          setPeriodicStatus('', false);
+          return;
+        }
+        if (closedSyms.length) {
+          appendAutoLog(`[Periodic] Skipping closed symbols this cycle: ${closedSyms.join(', ')}`);
+        }
+        const tasks = openSyms.map(sym => autoAiTradeForSymbol(sym, tf).catch(e => appendAutoLog(`[${sym}] error: ${e && e.message || e}`, 'error')));
         await Promise.allSettled(tasks);
         appendAutoLog('[Periodic] Batch complete');
         setPeriodicStatus('', false);
@@ -8014,14 +8032,29 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
         }
         if (force) clearAutoPeriodicTimer();
         if (!autoPeriodicToggle || !autoPeriodicToggle.checked) return;
-        // Respect market hours — pause when closed
+        // Respect market hours per symbol — proceed if ANY periodic symbol is open
         try {
-          const sym = currentSymbol();
-          const ts = tradingSessionStatus(sym);
-          updateTradingStatusUI(ts);
-          if (!ts.open) {
-            setPeriodicStatePill('Paused — market closed', 'off');
-            const wait = Math.max(60_000, Number(ts.msUntilOpen||0));
+          let gateSyms = [];
+          try {
+            const sel = document.getElementById('autoPeriodicSymbols');
+            gateSyms = Array.from(sel && sel.selectedOptions ? sel.selectedOptions : []).map(o=>String(o.value||'').toUpperCase());
+          } catch {}
+          if (!gateSyms.length) {
+            try { if (Array.isArray(APP_SYMBOLS) && APP_SYMBOLS.length) gateSyms = APP_SYMBOLS.slice(0, Math.min(5, APP_SYMBOLS.length)); } catch {}
+          }
+          let anyOpen = false;
+          let minWait = Infinity;
+          for (const s of gateSyms) {
+            const st = tradingSessionStatus(s);
+            if (st && st.open) { anyOpen = true; }
+            else if (st && Number.isFinite(Number(st.msUntilOpen))) {
+              const w = Number(st.msUntilOpen);
+              if (w > 0 && w < minWait) minWait = w;
+            }
+          }
+          if (!anyOpen) {
+            const wait = Math.max(60_000, Number.isFinite(minWait) ? minWait : 60_000);
+            setPeriodicStatePill('Paused — all periodic symbols closed', 'off');
             autoPeriodicNextAtMs = Date.now() + wait;
             startPeriodicUiCountdown();
             autoPeriodicTimeout = setTimeout(() => { try { ensureAutoPeriodicTimer(true); } catch {} }, wait + 1000);
