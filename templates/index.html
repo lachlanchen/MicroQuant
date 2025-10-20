@@ -3814,6 +3814,9 @@ const ensureLwMacd = () => {
           const acctLine = acct && acct.login != null ? `<div style=\"color:var(--muted); font-size:12px; margin-bottom:6px;\">Account ${String(acct.login)}${acct.currency ? ' • '+String(acct.currency) : ''}</div>` : '<div style=\"color:var(--muted); font-size:12px; margin-bottom:6px;\">Currently open positions for this symbol with PnL.</div>';
           const table = `<div style=\"font-weight:600; margin-bottom:6px;\">Open Positions</div>${acctLine}${buildTechTable('Open Positions', head, rows)}`;
           sections.push(table);
+          // Advisory note below Open Positions (popup)
+          const refNote = `<div style=\"color:var(--muted); font-size:12px; margin-top:6px;\">the past trade plan and open position is just for your reference to scrutinize your decision. the short term loss and profit can be temporary. if it's loss, the trend might continue or rebound. if profit, it Will also continue or rebound. so make your decisions based on current situation. don't let past history influence your decision on giving up or insisting on your decision.</div>`;
+          sections.push(refNote);
         }
         catch {}
         box.innerHTML = sections.join('');
@@ -7429,6 +7432,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const side = (Number(p2.type) === 0) ? 'BUY' : 'SELL';
               lines.push(`${p2.ticket}\t${side}\t${p2.volume}\t${p2.price_open}\t${p2.sl}\t${p2.tp}\t${p2.profit}`);
             }
+            // Advisory note below Open Positions (periodic text)
+            lines.push('Note: the past trade plan and open position is just for your reference to scrutinize your decision. the short term loss and profit can be temporary. if it\'s loss, the trend might continue or rebound. if profit, it Will also continue or rebound. so make your decisions based on current situation. don\'t let past history influence your decision on giving up or insisting on your decision.');
           }
           // Append current technical snapshot text
           const snap = await buildTechSnapshotForSymbol(sym, tf);
