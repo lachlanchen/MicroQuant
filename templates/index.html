@@ -3700,9 +3700,26 @@ const ensureLwMacd = () => {
           if (isFxPair(symbol)) { const pq = splitPair(symbol); p.set('kind','forex_pair'); p.set('base', pq.base); p.set('quote', pq.quote); }
           else { p.set('kind','stock'); p.set('symbol', symbol); }
           p.set('group','deep'); p.set('strategy','deep_research.json'); p.set('limit','1'); p.set('offset','0');
-          const r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
-          const j = await r.json().catch(()=>({}));
-          const arr = Array.isArray(j && j.runs) ? j.runs : [];
+          let r = await fetch(`/api/health/runs?${p.toString()}`, { cache:'no-store' });
+          let j = await r.json().catch(()=>({}));
+          let arr = Array.isArray(j && j.runs) ? j.runs : [];
+          // Fallbacks: if grouped query returns nothing, retry with strategy only, then without any filter
+          if (!arr.length) {
+            const p2 = new URLSearchParams(p);
+            p2.delete('group');
+            r = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
+            j = await r.json().catch(()=>({}));
+            arr = Array.isArray(j && j.runs) ? j.runs : [];
+          }
+          if (!arr.length) {
+            const p3 = new URLSearchParams();
+            if (isFxPair(symbol)) { const pq = splitPair(symbol); p3.set('kind','forex_pair'); p3.set('base', pq.base); p3.set('quote', pq.quote); }
+            else { p3.set('kind','stock'); p3.set('symbol', symbol); }
+            p3.set('limit','1');
+            r = await fetch(`/api/health/runs?${p3.toString()}`, { cache:'no-store' });
+            j = await r.json().catch(()=>({}));
+            arr = Array.isArray(j && j.runs) ? j.runs : [];
+          }
           if (arr.length) {
             const run = arr[0];
             const ans = (run && (run.answers || run.answers_json)) || {};
@@ -7481,14 +7498,20 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             if (isFxPair(sym)) { const pq = splitPair(sym); pd.set('kind','forex_pair'); pd.set('base', pq.base); pd.set('quote', pq.quote); }
             else { pd.set('kind','stock'); pd.set('symbol', sym); }
             pd.set('group','deep'); pd.set('strategy','deep_research.json'); pd.set('limit','1');
-            const rd = await fetch(`/api/health/runs?${pd.toString()}`, { cache:'no-store' });
-            const jd = await rd.json().catch(()=>({}));
-            const darr = Array.isArray(jd && jd.runs) ? jd.runs : [];
-            if (darr.length) {
-              const run = darr[0];
-              const ans = (run && (run.answers || run.answers_json)) || {};
-              const qs = Array.isArray(ans.questions) ? ans.questions : [];
-              let dr = '';
+            let rd = await fetch(`/api/health/runs?${pd.toString()}`, { cache:'no-store' });
+            let jd = await rd.json().catch(()=>({}));
+            let darr = Array.isArray(jd && jd.runs) ? jd.runs : [];
+            if (!darr.length) {
+              const p2 = new URLSearchParams(pd); p2.delete('group');
+              rd = await fetch(`/api/health/runs?${p2.toString()}`, { cache:'no-store' });
+              jd = await rd.json().catch(()=>({}));
+              darr = Array.isArray(jd && jd.runs) ? jd.runs : [];
+            }
+          if (darr.length) {
+            const run = darr[0];
+            const ans = (run && (run.answers || run.answers_json)) || {};
+            const qs = Array.isArray(ans.questions) ? ans.questions : [];
+            let dr = '';
               let dpos = '';
               if (qs.length) {
                 const a = qs[0] && (qs[0].answer || qs[0].Answer || qs[0].ANSWER) || {};
