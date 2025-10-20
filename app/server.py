@@ -2377,6 +2377,7 @@ async def make_app():
             (r"/api/close", CloseHandler),
             (r"/api/positions", PositionsHandler),
             (r"/api/positions/all", PositionsAllHandler),
+            (r"/api/close_tickets", CloseTicketsHandler),
             (r"/api/tick", TickHandler),
             (r"/api/health/freshness", HealthFreshnessHandler, dict(pool=pool)),
             (r"/api/tech/freshness", TechFreshnessHandler, dict(pool=pool)),
@@ -3007,6 +3008,79 @@ class CloseHandler(tornado.web.RequestHandler):
     async def post(self):
         return await self.get()
 
+
+class CloseTicketsHandler(tornado.web.RequestHandler):
+    async def post(self):
+        # Allow subset closures regardless of TRADING_ENABLED
+        try:
+            payload = json.loads(self.request.body or b"{}")
+        except Exception:
+            payload = {}
+        symbol = str(payload.get("symbol") or "").upper()
+        tickets = payload.get("tickets") or []
+        reason = payload.get("reason")
+        side = str(payload.get("side") or "").lower()
+        if not isinstance(tickets, list) or not tickets:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "tickets array required"}))
+            return
+        # Fetch raw positions from MT5 for this symbol (fall back to all when symbol empty)
+        try:
+            raw = mt5_client.positions_for(symbol) if symbol else (getattr(mt5_client.mt5, 'positions_get')() or [])
+        except Exception:
+            raw = []
+        # Index by ticket and filter by optional side
+        idx = {}
+        try:
+            buy_t = getattr(mt5_client.mt5, "POSITION_TYPE_BUY", 0) if hasattr(mt5_client, 'mt5') else 0
+            sell_t = getattr(mt5_client.mt5, "POSITION_TYPE_SELL", 1) if hasattr(mt5_client, 'mt5') else 1
+        except Exception:
+            buy_t, sell_t = 0, 1
+        for p in raw:
+            try:
+                t = int(getattr(p, "ticket", 0))
+                if not t:
+                    continue
+                if side == "long" and int(getattr(p, "type", -1)) != buy_t:
+                    continue
+                if side == "short" and int(getattr(p, "type", -1)) != sell_t:
+                    continue
+                idx[t] = p
+            except Exception:
+                continue
+        # Close the requested tickets in order provided
+        closed: list[dict] = []
+        for t in tickets:
+            try:
+                ti = int(t)
+            except Exception:
+                continue
+            p = idx.get(ti)
+            if not p:
+                continue
+            try:
+                res = mt5_client.close_position(p)
+            except Exception as exc:
+                res = {"ok": False, "ticket": ti, "error": str(exc)}
+            try:
+                res["ticket"] = ti
+            except Exception:
+                pass
+            closed.append(res)
+        # Logging summary
+        try:
+            codes = [int(x.get("retcode", -1)) for x in (closed or []) if isinstance(x, dict)]
+            ok = sum(1 for c in codes if c == getattr(mt5_client.mt5, "TRADE_RETCODE_DONE", 10009)) if hasattr(mt5_client, 'mt5') else sum(1 for c in codes if c == 10009)
+            if reason:
+                logger.info("/api/close_tickets symbol=%s reason=%s requested=%d closed=%d ok=%d/%d", symbol or '*', reason, len(tickets), len(closed), ok, len(codes))
+            else:
+                logger.info("/api/close_tickets symbol=%s requested=%d closed=%d ok=%d/%d", symbol or '*', len(tickets), len(closed), ok, len(codes))
+        except Exception:
+            pass
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "closed": closed, "closed_count": len(closed)}))
 
 class PositionsHandler(tornado.web.RequestHandler):
     async def get(self):
