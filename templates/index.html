@@ -580,6 +580,10 @@
             <span class="toggle"></span>
             <span>Tech Neutral → Hold</span>
           </label>
+          <label style="display:flex; align-items:center; gap:6px;" title="Fraction of positions to close when pruning (0–1). Sorted by PnL ascending.">
+            <span style="min-width:120px; color:var(--muted);">Close fraction</span>
+            <input id="autoPeriodicCloseFracInput" type="number" min="0" max="1" step="0.05" value="0.25" style="width:110px;" />
+          </label>
         </div>
         <!-- Moved: Auto volume and Safe max directly under AI model -->
         <div class="row" style="gap:10px; align-items:center; margin-top:4px;">
@@ -7341,14 +7345,38 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const accountsSel = document.getElementById('autoPeriodicAccountSelect');
               const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
               const list = (accounts && accounts.length) ? accounts : [null];
+              const fracEl = document.getElementById('autoPeriodicCloseFracInput');
+              const fracVal = Number(fracEl && fracEl.value ? fracEl.value : '1');
+              const frac = Number.isFinite(fracVal) ? Math.max(0, Math.min(1, fracVal)) : 1;
               for (const acct of list) {
                 if (acct) { log(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
                 try { await logAccountPositionsAll(log); } catch {}
                 try { await logAccountPositions(sym, log); } catch {}
-                const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=${encodeURIComponent(closeSide)}${why?`&reason=${encodeURIComponent(why)}`:''}` , { method:'POST', cache:'no-store' });
-                const jc = await rc.json().catch(()=>({}));
-                const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
-                log(`Closed positions (${closeSide}) [${why||'—'}]: ${c}`);
+                if (frac >= 0.999) {
+                  const rc = await fetch(`/api/close?symbol=${encodeURIComponent(sym)}&side=${encodeURIComponent(closeSide)}${why?`&reason=${encodeURIComponent(why)}`:''}` , { method:'POST', cache:'no-store' });
+                  const jc = await rc.json().catch(()=>({}));
+                  const c = (jc && (jc.closed_count != null)) ? Number(jc.closed_count) : (Array.isArray(jc.closed) ? jc.closed.length : 0);
+                  log(`Closed positions (${closeSide}) [${why||'—'}]: ${c}`);
+                } else {
+                  const pr = await fetch(`/api/positions?symbol=${encodeURIComponent(sym)}`, { cache:'no-store' });
+                  const pj = await pr.json().catch(()=>({}));
+                  let arr = Array.isArray(pj && pj.positions) ? pj.positions : [];
+                  const want = (s) => s === 'both' ? () => true : (s === 'long' ? (p)=>Number(p.type)===0 : (p)=>Number(p.type)===1);
+                  const f = want(closeSide);
+                  arr = arr.filter(p => f(p));
+                  arr.sort((a,b) => Number(a.profit||0) - Number(b.profit||0));
+                  const n = Math.max(1, Math.ceil(arr.length * frac));
+                  const pick = arr.slice(0, n).map(p => Number(p.ticket)).filter(t => Number.isFinite(t));
+                  if (pick.length) {
+                    const body = { symbol: sym, tickets: pick, side: (closeSide==='both'? undefined : closeSide), reason: (why||'partial_close') };
+                    const rc = await fetch('/api/close_tickets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
+                    const jc = await rc.json().catch(()=>({}));
+                    const c = (jc && jc.closed_count != null) ? Number(jc.closed_count) : (Array.isArray(jc && jc.closed) ? jc.closed.length : 0);
+                    log(`Closed ${c}/${pick.length} positions (fraction ${frac}) [${why||'—'}]`);
+                  } else {
+                    log('No positions eligible for partial close');
+                  }
+                }
                 try { await logAccountPositionsAll(log); } catch {}
                 try { await logAccountPositions(sym, log); } catch {}
               }
