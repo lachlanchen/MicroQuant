@@ -4535,6 +4535,9 @@ const ensureLwMacd = () => {
         const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
         const model = document.getElementById('deepAiModel')?.value || '';
         const payload = { symbol: sym, timeframe: tf, news_count: n, strategy: deepStrategyName() };
+        // Include latest N bars + latest tick context (mirror Basic behavior)
+        try { const barsN = Math.max(10, Math.min(500, Number(resolveTechWindow && resolveTechWindow() || 50))); payload.n_bars = barsN; } catch {}
+        try { const tline = latestTickSummary(sym); if (tline) payload.latest_tick_line = tline; } catch {}
         deepLog(`payload symbol=${sym} tf=${tf} news=${n} strategy=${payload.strategy} model=${model||'(default)'} `);
         if (model) payload.model = model;
         const detail = document.getElementById('deepResearchDetail');
@@ -5848,6 +5851,8 @@ const ensureLwMacd = () => {
           const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
           const model = document.getElementById('deepAiModel')?.value || '';
           const body = { symbol: sym, timeframe: tf, news_count: n, strategy: (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json') };
+          try { const barsN = Math.max(10, Math.min(500, Number(resolveTechWindow && resolveTechWindow() || 50))); body.n_bars = barsN; } catch {}
+          try { const tline = latestTickSummary(sym); if (tline) body.latest_tick_line = tline; } catch {}
           if (model) body.model = model;
           const res = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body), cache:'no-store' });
           const js = await res.json().catch(()=>({}));
@@ -8319,6 +8324,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const n = Math.max(1, Math.min(500, Number(document.getElementById('deepNewsCount')?.value || 100)));
               const model = document.getElementById('deepAiModel')?.value || '';
               const payload = { symbol: sym, timeframe: tf, news_count: n, strategy: (typeof deepStrategyName === 'function' ? deepStrategyName() : 'deep_research.json') };
+              try { const barsN = Math.max(10, Math.min(500, Number(resolveTechWindow && resolveTechWindow() || 50))); payload.n_bars = barsN; } catch {}
+              try { const tline = latestTickSummary(sym); if (tline) payload.latest_tick_line = tline; } catch {}
               if (model) payload.model = model;
               const r = await fetch('/api/health/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), cache:'no-store' });
               const js = await r.json().catch(()=>({}));
