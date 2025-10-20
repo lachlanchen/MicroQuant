@@ -4938,6 +4938,9 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 if grp:
                     return grp
                 strat = str((ans.get("strategy") or "")).lower()
+                # Deep research strategies should be isolated from 'basic' history
+                if strat.startswith("deep") or strat.endswith("deep_research.json") or "deep_research" in strat:
+                    return "deep"
                 if strat in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json"}:
                     return "tech"
                 if strat == "ai_trade_plan":
