@@ -7228,16 +7228,25 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             // Prefer explicit signal classification
             if (typeof ans.signal === 'string') {
               const sig = ans.signal.toUpperCase();
-              if (sig.includes('BUY')) side = 'BUY'; else if (sig.includes('SELL')) side = 'SELL'; else side = 'NEUTRAL';
+              if (sig.includes('BUY')) side = 'BUY';
+              else if (sig.includes('SELL')) side = 'SELL';
+              else side = '';
             } else {
               const scores = ans.scores || {};
-              if (typeof scores.NET === 'number') { if (scores.NET > 0) side = 'BUY'; else if (scores.NET < 0) side = 'SELL'; else side = 'NEUTRAL'; }
-              else if (ans && typeof ans.position === 'object' && typeof ans.position.position === 'string') { side = String(ans.position.position).toUpperCase(); }
+              if (typeof scores.NET === 'number') {
+                if (scores.NET > 0) side = 'BUY';
+                else if (scores.NET < 0) side = 'SELL';
+                else side = '';
+              } else if (ans && typeof ans.position === 'object' && typeof ans.position.position === 'string') {
+                side = String(ans.position.position).toUpperCase();
+              } else {
+                side = '';
+              }
             }
           }
         } catch {}
       let techNeutral = false;
-      if (!side) { log('Tech+AI is neutral'); techNeutral = true; }
+      if (!side || String(side).toUpperCase() === 'NEUTRAL') { log('Tech+AI is neutral'); techNeutral = true; }
       if (side) log(`Signal: ${side}`);
       // Determine Basic orientation for logging (no behavior change)
         try {
@@ -8463,10 +8472,16 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
             if (typeof scores.NET === 'number') {
               if (scores.NET > 0) side = 'BUY';
               else if (scores.NET < 0) side = 'SELL';
+              else side = '';
             } else if (typeof ans.signal === 'string') {
               const sig = ans.signal.toUpperCase();
               if (sig.includes('BUY')) side = 'BUY';
               else if (sig.includes('SELL')) side = 'SELL';
+              else side = '';
+            } else if (ans && typeof ans.position === 'object' && typeof ans.position.position === 'string') {
+              side = String(ans.position.position).toUpperCase();
+            } else {
+              side = '';
             }
           }
           if (!side) {
