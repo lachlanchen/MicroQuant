@@ -3815,7 +3815,7 @@ const ensureLwMacd = () => {
           const table = `<div style=\"font-weight:600; margin-bottom:6px;\">Open Positions</div>${acctLine}${buildTechTable('Open Positions', head, rows)}`;
           sections.push(table);
           // Advisory note below Open Positions (popup)
-          const refNote = `<div style=\"color:var(--muted); font-size:12px; margin-top:6px;\">the past trade plan and open position is just for your reference to scrutinize your decision. the short term loss and profit can be temporary. if it's loss, the trend might continue or rebound. if profit, it Will also continue or rebound. so make your decisions based on current situation. don't let past history influence your decision on giving up or insisting on your decision.</div>`;
+          const refNote = `<div style=\"color:var(--muted); font-size:12px; margin-top:6px;\">The past trade plans and open positions are just for your reference to scrutinize your decision. Short-term losses and profits can be temporary. If it’s a loss, the trend might continue or rebound; if it’s a profit, it may also continue or reverse. Make your decisions based on the current situation. Don’t let past history influence whether you give up or insist on your decision.</div>`;
           sections.push(refNote);
         }
         catch {}
@@ -7433,7 +7433,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               lines.push(`${p2.ticket}\t${side}\t${p2.volume}\t${p2.price_open}\t${p2.sl}\t${p2.tp}\t${p2.profit}`);
             }
             // Advisory note below Open Positions (periodic text)
-            lines.push('Note: the past trade plan and open position is just for your reference to scrutinize your decision. the short term loss and profit can be temporary. if it\'s loss, the trend might continue or rebound. if profit, it Will also continue or rebound. so make your decisions based on current situation. don\'t let past history influence your decision on giving up or insisting on your decision.');
+            lines.push('The past trade plans and open positions are just for your reference to scrutinize your decision. Short-term losses and profits can be temporary. If it’s a loss, the trend might continue or rebound; if it’s a profit, it may also continue or reverse. Make your decisions based on the current situation. Don’t let past history influence whether you give up or insist on your decision.');
           }
           // Append current technical snapshot text
           const snap = await buildTechSnapshotForSymbol(sym, tf);
