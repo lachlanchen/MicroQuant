@@ -4025,7 +4025,30 @@ const ensureLwMacd = () => {
         try {
           const res = await fetch(`/api/health/runs?${params.toString()}`);
           const data = await res.json();
-          const runs = (data && data.runs) || [];
+          let runs = (data && data.runs) || [];
+          // Defensive client-side grouping to avoid leakage when server grouping isn't active yet
+          try {
+            const wanted = (healthState && healthState.group) ? String(healthState.group).toLowerCase() : '';
+            if (wanted) {
+              runs = runs.filter((r) => {
+                try {
+                  const ans = (r && (r.answers || r.answers_json)) || {};
+                  const meta = ans.meta || {};
+                  const strat = String(ans.strategy || '').toLowerCase();
+                  const grp = String(ans.group || '').toLowerCase();
+                  let g = grp || '';
+                  if (!g) {
+                    if (strat.startsWith('deep') || strat.includes('deep_research')) g = 'deep';
+                    else if (strat.startsWith('tech_snapshot_10q')) g = 'tech';
+                    else if (strat === 'ai_trade_plan') g = 'plan';
+                    else if (strat === 'auto_ai_trade' || meta.periodic === true) g = 'auto';
+                    else g = 'basic';
+                  }
+                  return g === wanted;
+                } catch { return true; }
+              });
+            }
+          } catch {}
           if ((healthState.offset||0) === 0) { box.innerHTML = ''; }
           if (!Array.isArray(healthState.runs)) healthState.runs = [];
           const startIdx = healthState.runs.length;
