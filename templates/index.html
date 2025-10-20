@@ -3824,10 +3824,29 @@ const ensureLwMacd = () => {
           const hdr = el('techHistSnapshotHeader');
           if (hdr) {
             hdr.textContent = 'Current Technical Snapshot';
-            const expl = document.createElement('div');
-            expl.style.cssText = 'color:var(--muted); font-size:12px; margin-top:4px;';
-            expl.textContent = 'Live snapshot used by Tech+AI runs for technical analysis.';
-            hdr.insertAdjacentElement('afterend', expl);
+            // Ensure we only ever render one explanatory note under the header
+            try {
+              const PHRASE = 'Live snapshot used by Tech+AI runs for technical analysis.';
+              const maybeNote = hdr.nextElementSibling;
+              if (maybeNote && maybeNote.textContent && maybeNote.textContent.trim() === PHRASE) {
+                // normalize the node to our class for future checks
+                try { maybeNote.classList.add('techHistExpl'); } catch {}
+              } else {
+                const oldNotes = [];
+                // collect any accidental duplicates immediately after header
+                let sib = hdr.nextElementSibling;
+                while (sib && sib !== el('techHistSnapshotText') && sib !== hdr) {
+                  if (sib.textContent && sib.textContent.trim() === PHRASE) oldNotes.push(sib);
+                  sib = sib.nextElementSibling;
+                }
+                for (const n of oldNotes) { try { n.remove(); } catch {} }
+                const expl = document.createElement('div');
+                expl.className = 'techHistExpl';
+                expl.style.cssText = 'color:var(--muted); font-size:12px; margin-top:4px;';
+                expl.textContent = PHRASE;
+                hdr.insertAdjacentElement('afterend', expl);
+              }
+            } catch {}
           }
           snapPre.textContent = String(txt || '').trim() || '(no snapshot)';
         } catch (err) {
@@ -7332,7 +7351,9 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           lines.push(`${sym} • TF ${tf}`);
           // Last periodic Tech+AI
           const lastTech = js && js.last_periodic_tech;
-          if (lastTech && lastTech.answers) {
+          // Respect UI preference: hide last Tech report when toggle is ON
+          const HIDE_LAST = (typeof getHideLastTechReport === 'function') ? getHideLastTechReport() : true;
+          if (!HIDE_LAST && lastTech && lastTech.answers) {
             const created = lastTech.created_at || '';
             const ans = lastTech.answers || {};
             const scores = ans.scores || ans.SCORES || {};
@@ -7348,7 +7369,16 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const qid = String(q.id || '').trim();
               const label = qid ? qid : 'Q';
               const explanation = (q.explanation || '').toString();
-              const answer = String(q.answer || '').toUpperCase();
+              // Robustly derive a position label; q.answer may be an object
+              let answer = '';
+              try {
+                const raw = (q && (q.answer || q.Answer || q.ANSWER)) || '';
+                if (typeof raw === 'string') answer = raw.toUpperCase();
+                else if (raw && typeof raw === 'object') {
+                  const p = raw.position || raw.POSITION || '';
+                  answer = String(p || '').toUpperCase();
+                }
+              } catch {}
               lines.push(`${label}`);
               if (explanation) lines.push(explanation);
               if (answer) lines.push(`Position: ${answer}`);
