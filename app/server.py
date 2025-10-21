@@ -1170,6 +1170,8 @@ PREF_KEYS = [
     # Alignment policy toggles (default ON in UI)
     "accept_tech_when_basic_neutral",
     "hold_on_tech_neutral",
+    # Periodic: ignore Basic signal when deciding trades (default ON)
+    "ignore_basics",
     # Hide the last Tech+AI report section in history modal (default ON)
     "hide_last_tech_report",
     "balance_poll_min",

@@ -584,6 +584,11 @@
             <span class="toggle"></span>
             <span>Tech Neutral → Hold</span>
           </label>
+          <label class="switch" title="Ignore Basic signal during periodic auto — trade on Tech only (Basics still run for freshness/history)" style="gap:6px;">
+            <input type="checkbox" id="ignoreBasicsTogglePeriodic" class="toggle-input" checked />
+            <span class="toggle"></span>
+            <span>Ignore Basics</span>
+          </label>
           <label style="display:flex; align-items:center; gap:6px;" title="Fraction of positions to close when pruning (0–1). Sorted by PnL ascending.">
             <span style="min-width:120px; color:var(--muted);">Close fraction</span>
             <input id="autoPeriodicCloseFracInput" type="text" inputmode="decimal" placeholder="0–1" value="1" style="width:110px;" />
@@ -1640,6 +1645,7 @@
       // Alignment policy toggles
       const acceptTechOnBasicNeutralToggle = el('acceptTechOnBasicNeutral');
       const holdOnTechNeutralToggle = el('holdOnTechNeutral');
+      const ignoreBasicsTogglePeriodic = el('ignoreBasicsTogglePeriodic');
       const autoAcceptTechOnBasicNeutralToggle = el('autoAcceptTechOnBasicNeutral');
       const autoHoldOnTechNeutralToggle = el('autoHoldOnTechNeutral');
       // Tech snapshot mode (classic vs history)
@@ -1702,6 +1708,11 @@
         } catch {}
         return true;
       };
+      // Ignore Basics during periodic (default ON)
+      const getIgnoreBasics = () => {
+        try { if (ignoreBasicsTogglePeriodic) return !!ignoreBasicsTogglePeriodic.checked; } catch {}
+        return true;
+      };
       // Tech snapshot mode — mirror across selectors and persist
       function setAllTechSnapshotMode(val) {
         const v = (val || '').trim() || 'snapshot_plus_history';
@@ -1754,26 +1765,32 @@
       function persistAlignmentPrefs() {
         try { queuePrefUpdate('accept_tech_when_basic_neutral', getAcceptTechWhenBasicNeutral() ? '1' : '0'); } catch {}
         try { queuePrefUpdate('hold_on_tech_neutral', getHoldOnTechNeutral() ? '1' : '0'); } catch {}
+        try { queuePrefUpdate('ignore_basics', getIgnoreBasics() ? '1' : '0'); } catch {}
         try { flushPrefQueue(); } catch {}
       }
       ;(() => {
         const onChangeAccept = () => { setAllAcceptTechOnBasicNeutral(getAcceptTechWhenBasicNeutral()); persistAlignmentPrefs(); };
         const onChangeHold = () => { setAllHoldOnTechNeutral(getHoldOnTechNeutral()); persistAlignmentPrefs(); };
+        const onChangeIgnore = () => { persistAlignmentPrefs(); };
         try { if (acceptTechOnBasicNeutralToggle) acceptTechOnBasicNeutralToggle.addEventListener('change', onChangeAccept); } catch {}
         try { if (autoAcceptTechOnBasicNeutralToggle) autoAcceptTechOnBasicNeutralToggle.addEventListener('change', onChangeAccept); } catch {}
         try { if (holdOnTechNeutralToggle) holdOnTechNeutralToggle.addEventListener('change', onChangeHold); } catch {}
         try { if (autoHoldOnTechNeutralToggle) autoHoldOnTechNeutralToggle.addEventListener('change', onChangeHold); } catch {}
+        try { if (ignoreBasicsTogglePeriodic) ignoreBasicsTogglePeriodic.addEventListener('change', onChangeIgnore); } catch {}
         // Load saved values, default ON if missing
         (async () => {
           try {
-            const r = await fetch(`${PREF_ENDPOINT}?keys=accept_tech_when_basic_neutral,hold_on_tech_neutral`, { cache:'no-store' });
+            const r = await fetch(`${PREF_ENDPOINT}?keys=accept_tech_when_basic_neutral,hold_on_tech_neutral,ignore_basics`, { cache:'no-store' });
             const js = await r.json().catch(()=>({}));
             const a = js && js.prefs && js.prefs.accept_tech_when_basic_neutral;
             const h = js && js.prefs && js.prefs.hold_on_tech_neutral;
+            const ig = js && js.prefs && js.prefs.ignore_basics;
             const aOn = (a == null) ? true : !(String(a).toLowerCase() === '0' || String(a).toLowerCase() === 'false');
             const hOn = (h == null) ? true : !(String(h).toLowerCase() === '0' || String(h).toLowerCase() === 'false');
+            const iOn = (ig == null) ? true : !(String(ig).toLowerCase() === '0' || String(ig).toLowerCase() === 'false');
             setAllAcceptTechOnBasicNeutral(aOn);
             setAllHoldOnTechNeutral(hOn);
+            try { if (ignoreBasicsTogglePeriodic) ignoreBasicsTogglePeriodic.checked = !!iOn; } catch {}
           } catch {}
         })();
       })();
@@ -6689,6 +6706,7 @@ const ensureLwMacd = () => {
           `safe_max_lots:global`,
           `auto_sl_enabled:global`,
           `close_fraction:global`,
+          `ignore_basics`,
         ];
         try {
           const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(keys.join(','))}`, { cache: 'no-store' });
@@ -6719,6 +6737,13 @@ const ensureLwMacd = () => {
             const saved = map[`close_fraction:global`];
             const val = parseCloseFraction(saved);
             if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.value = String(val ?? 1);
+          } catch {}
+          // Ignore Basics (default ON)
+          try {
+            const ig = map[`ignore_basics`];
+            const on = (ig == null) ? true : !(String(ig).toLowerCase()==='0' || String(ig).toLowerCase()==='false');
+            const elToggle = document.getElementById('ignoreBasicsTogglePeriodic');
+            if (elToggle) elToggle.checked = !!on;
           } catch {}
         } catch {}
       }
@@ -7540,11 +7565,19 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               }
             }
           }
-          const basicStr = (basicSide || 'NEUTRAL');
-          const alignedDirect = basicSide ? (basicSide === side) : false;
-          const neutralAccept = (String(basicStr).toUpperCase() === 'NEUTRAL') && getAcceptTechWhenBasicNeutral();
-          log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicStr} aligned=${alignedDirect ? 'YES' : (neutralAccept ? 'ACCEPT_TECH' : 'NO')}`);
-          log(`Policy: AcceptTech=${getAcceptTechWhenBasicNeutral() ? 'ON' : 'OFF'} HoldNeutral=${getHoldOnTechNeutral() ? 'ON' : 'OFF'}`);
+          let basicStr = (basicSide || 'NEUTRAL');
+          let alignedDirect = basicSide ? (basicSide === side) : false;
+          let neutralAccept = (String(basicStr).toUpperCase() === 'NEUTRAL') && getAcceptTechWhenBasicNeutral();
+          const ignore = getIgnoreBasics();
+          if (ignore && side) {
+            // Elegantly ignore Basics by treating it as Tech — keeps logic simple
+            basicSide = side;
+            basicStr = side;
+            alignedDirect = true;
+            neutralAccept = true;
+          }
+          log(`Orientation: Tech=${side || 'NEUTRAL'} Basic=${basicStr} aligned=${alignedDirect ? 'YES' : (neutralAccept ? 'ACCEPT_TECH' : 'NO')} IgnoreBasics=${ignore?'ON':'OFF'}`);
+          log(`Policy: AcceptTech=${getAcceptTechWhenBasicNeutral() ? 'ON' : 'OFF'} HoldNeutral=${getHoldOnTechNeutral() ? 'ON' : 'OFF'} IgnoreBasics=${ignore?'ON':'OFF'}`);
           // Helper: close positions across selected accounts
           async function closeForAccounts(closeSide /* 'both' | 'long' | 'short' */, why) {
             try {
