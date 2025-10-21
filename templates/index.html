@@ -3394,7 +3394,12 @@ const ensureLwMacd = () => {
           aiSignalOverlayAll = overlays;
           applyAllMarkers();
           try { drawAiSignalOverlay(); } catch {}
-        } catch { signalMarkersAll = []; aiSignalOverlayAll = []; applyAllMarkers(); try { drawAiSignalOverlay(); } catch {} }
+        } catch {
+          // Keep prior overlay letters on fetch error; just refresh LWC markers to none
+          signalMarkersAll = [];
+          applyAllMarkers();
+          try { drawAiSignalOverlay(); } catch {}
+        }
       }
 
       function drawAiSignalOverlay() {
@@ -3553,6 +3558,7 @@ const ensureLwMacd = () => {
             if (curType === 'candlestick') {
               redrawPeriodLines();
               applyAllMarkers();
+              try { drawAiSignalOverlay(); } catch {}
             }
           } else {
             currentTimeRange = null;
@@ -3563,6 +3569,7 @@ const ensureLwMacd = () => {
             if (curType === 'candlestick') {
               redrawPeriodLines();
               applyAllMarkers();
+              try { drawAiSignalOverlay(); } catch {}
             }
           }
         });
@@ -10688,6 +10695,7 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           status(`Loaded ${rows.length} bars for ${symbol} ${tf}`);
           await refreshStlOverlay({});
           syncStlOverlayVisibility();
+          try { drawAiSignalOverlay(); } catch {}
         } catch (err) {
           console.error('Refresh failed', err);
           status('Refresh failed');
