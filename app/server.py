@@ -3421,9 +3421,10 @@ class AccountBalanceHandler(tornado.web.RequestHandler):
             except Exception:
                 account_id = 0
         if account_id == 0:
-            self.set_status(503)
+            # Graceful: return 200 with ok=false so UI can continue without console errors
             self.set_header("Content-Type", "application/json")
-            self.finish(json.dumps({"ok": False, "error": "account unavailable"}))
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": "account unavailable", "user": user, "account": None, "rows": []}))
             return
         if refresh_flag:
             try:
@@ -6651,14 +6652,15 @@ class AccountLoginHandler(tornado.web.RequestHandler):
             try:
                 ok = mt5_client.login(int(login_raw), password=pw, server=srv)
             except Exception as exc:
-                self.set_status(502)
+                # Graceful: do not raise 502; return ok=false so UI can retry without network errors
                 self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
                 self.finish(json.dumps({"ok": False, "error": f"login failed: {exc}"}))
                 return
             if not ok:
                 code, msg = mt5_client.last_login_error or (None, "login failed")
-                self.set_status(502)
                 self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
                 self.finish(json.dumps({"ok": False, "error": f"login failed: {code} {msg}"}))
                 return
             await set_pref(self.pool, "last_account", login_raw)
