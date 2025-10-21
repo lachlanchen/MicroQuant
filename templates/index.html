@@ -586,7 +586,7 @@
           </label>
           <label style="display:flex; align-items:center; gap:6px;" title="Fraction of positions to close when pruning (0–1). Sorted by PnL ascending.">
             <span style="min-width:120px; color:var(--muted);">Close fraction</span>
-            <input id="autoPeriodicCloseFracInput" type="number" min="0" max="1" step="0.05" value="0.25" style="width:110px;" />
+            <input id="autoPeriodicCloseFracInput" type="number" min="0" max="1" step="0.05" value="1" style="width:110px;" />
           </label>
         </div>
         <!-- Moved: Auto volume and Safe max directly under AI model -->
@@ -6707,7 +6707,7 @@ const ensureLwMacd = () => {
           // Close fraction (default 0.25)
           try {
             const cf = Number(map[`close_fraction:global`] ?? NaN);
-            const val = Number.isFinite(cf) ? Math.max(0, Math.min(1, cf)) : 0.25;
+            const val = Number.isFinite(cf) ? Math.max(0, Math.min(1, cf)) : 1;
             if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.value = String(val);
           } catch {}
         } catch {}
@@ -6742,7 +6742,7 @@ const ensureLwMacd = () => {
       if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.addEventListener('change', ()=>{
         try {
           const raw = Number(autoPeriodicCloseFracInput.value);
-          const val = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0.25;
+          const val = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 1;
           autoPeriodicCloseFracInput.value = String(val);
           queuePrefUpdate(`close_fraction:global`, String(val));
           flushPrefQueue();
