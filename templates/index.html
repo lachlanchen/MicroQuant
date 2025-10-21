@@ -3349,6 +3349,25 @@ const ensureLwMacd = () => {
               overlays.push({ time: t, kind: (pos === 'BUY' ? 'B' : 'S') });
             } catch {}
           }
+          // If no plan overlays, fall back to signal_trades log for visibility
+          try {
+            if (!overlays.length) {
+              const qt = new URLSearchParams({ symbol: sym, tf, limit: '200' });
+              const rt = await fetch(`/api/trades/signal?${qt.toString()}`, { cache:'no-store' });
+              const jt = await rt.json().catch(()=>({}));
+              const rows = (jt && Array.isArray(jt.rows)) ? jt.rows : [];
+              for (const row of rows) {
+                try {
+                  const pos = String(row.action || '').toUpperCase();
+                  if (pos !== 'BUY' && pos !== 'SELL') continue;
+                  const ts = row.ts ? Math.floor(new Date(row.ts).getTime()/1000) : null;
+                  const t = ts ? findNearestBarTime(ts) : null;
+                  if (!t) continue;
+                  overlays.push({ time: t, kind: (pos === 'BUY' ? 'B' : 'S') });
+                } catch {}
+              }
+            }
+          } catch {}
           // Optional: basic/tech misalignment warning (best-effort)
           try {
             const qTech = new URLSearchParams({ symbol: sym, tf, group: 'tech', limit: '1' });
@@ -3398,6 +3417,23 @@ const ensureLwMacd = () => {
         ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        const drawRoundRect = (cx, cy, w, h, r, fill, stroke) => {
+          const x = cx - w/2, y = cy - h/2;
+          const rr = Math.max(2, Math.min(r, Math.min(w, h) / 2));
+          ctx.beginPath();
+          ctx.moveTo(x + rr, y);
+          ctx.lineTo(x + w - rr, y);
+          ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+          ctx.lineTo(x + w, y + h - rr);
+          ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+          ctx.lineTo(x + rr, y + h);
+          ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+          ctx.lineTo(x, y + rr);
+          ctx.quadraticCurveTo(x, y, x + rr, y);
+          ctx.closePath();
+          if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+          if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+        };
         for (const item of data) {
           const x = lwChart.timeScale().timeToCoordinate(item.time);
           if (x == null || !Number.isFinite(x)) continue;
@@ -3424,16 +3460,15 @@ const ensureLwMacd = () => {
             }
           }
           if (y == null) y = 20;
-          // Shadow/outline
-          ctx.fillStyle = color;
+          // Background pill with shadow
+          const bgW = 16, bgH = 16, rad = 4;
           ctx.shadowColor = 'rgba(0,0,0,0.35)';
-          ctx.shadowBlur = 3;
-          ctx.fillText(ch, x, y);
+          ctx.shadowBlur = 4;
+          drawRoundRect(x, y, bgW, bgH, rad, color, 'rgba(255,255,255,0.9)');
           ctx.shadowBlur = 0;
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-          // Hollow-style outline effect around glyph
-          ctx.strokeText(ch, x, y);
+          // Letter in white for contrast
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(ch, x, y + 0.5);
         }
         ctx.restore();
       }
