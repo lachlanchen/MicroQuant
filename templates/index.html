@@ -586,7 +586,7 @@
           </label>
           <label style="display:flex; align-items:center; gap:6px;" title="Fraction of positions to close when pruning (0–1). Sorted by PnL ascending.">
             <span style="min-width:120px; color:var(--muted);">Close fraction</span>
-            <input id="autoPeriodicCloseFracInput" type="number" min="0" max="1" step="0.05" value="1" style="width:110px;" />
+            <input id="autoPeriodicCloseFracInput" type="text" inputmode="decimal" placeholder="0–1" value="1" style="width:110px;" />
           </label>
         </div>
         <!-- Moved: Auto volume and Safe max directly under AI model -->
@@ -6445,6 +6445,16 @@ const ensureLwMacd = () => {
       // Periodic auto-trade inline controls
       const autoPeriodicAccountSelect = document.getElementById('autoPeriodicAccountSelect');
       const autoPeriodicCloseFracInput = document.getElementById('autoPeriodicCloseFracInput');
+      function parseCloseFraction(raw) {
+        try {
+          let s = String(raw ?? '').trim();
+          if (!s) return null;
+          s = s.replace(',', '.');
+          const v = parseFloat(s);
+          if (!Number.isFinite(v)) return null;
+          return Math.max(0, Math.min(1, v));
+        } catch { return null; }
+      }
       const autoPeriodicToggle = document.getElementById('autoPeriodicToggle');
       const autoPeriodicPeriod = document.getElementById('autoPeriodicPeriod');
       const autoPeriodicVolumeInput = document.getElementById('autoPeriodicVolumeInput');
@@ -6706,9 +6716,9 @@ const ensureLwMacd = () => {
           if (autoPeriodicSlToggle) autoPeriodicSlToggle.checked = String(sl||'0') === '1';
           // Close fraction (default 0.25)
           try {
-            const cf = Number(map[`close_fraction:global`] ?? NaN);
-            const val = Number.isFinite(cf) ? Math.max(0, Math.min(1, cf)) : 1;
-            if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.value = String(val);
+            const saved = map[`close_fraction:global`];
+            const val = parseCloseFraction(saved);
+            if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.value = String(val ?? 1);
           } catch {}
         } catch {}
       }
@@ -6741,10 +6751,10 @@ const ensureLwMacd = () => {
       });
       if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.addEventListener('change', ()=>{
         try {
-          const raw = Number(autoPeriodicCloseFracInput.value);
-          const val = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 1;
-          autoPeriodicCloseFracInput.value = String(val);
-          queuePrefUpdate(`close_fraction:global`, String(val));
+          const val = parseCloseFraction(autoPeriodicCloseFracInput.value);
+          const out = (val == null ? 1 : val);
+          autoPeriodicCloseFracInput.value = String(out);
+          queuePrefUpdate(`close_fraction:global`, String(out));
           flushPrefQueue();
         } catch {}
       });
@@ -7544,14 +7554,15 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               let frac = 1;
               try {
                 const fracEl = document.getElementById('autoPeriodicCloseFracInput');
-                const fracVal = Number(fracEl && fracEl.value ? fracEl.value : '');
-                if (Number.isFinite(fracVal)) frac = Math.max(0, Math.min(1, fracVal));
-                if (!Number.isFinite(fracVal)) {
+                const parsed = parseCloseFraction(fracEl && fracEl.value);
+                if (parsed != null) {
+                  frac = parsed;
+                } else {
                   const pref = await fetch(`/api/preferences?keys=${encodeURIComponent('close_fraction:global')}`, { cache: 'no-store' });
                   const js = await pref.json().catch(()=>({}));
                   const v = js && js.prefs && js.prefs['close_fraction:global'];
-                  const pv = Number(v);
-                  if (Number.isFinite(pv)) frac = Math.max(0, Math.min(1, pv));
+                  const pv = parseCloseFraction(v);
+                  if (pv != null) frac = pv;
                 }
               } catch {}
               for (const acct of list) {
