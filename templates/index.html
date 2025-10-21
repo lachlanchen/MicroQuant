@@ -1332,6 +1332,8 @@
       let aiSignalsOn = !!(aiSignalsInput && aiSignalsInput.checked);
       let periodMarkersAll = [];
       let signalMarkersAll = [];
+      let aiSignalOverlayAll = [];
+      let lwTimeToIdx = null;
       function applyAllMarkers() {
         try {
           if (!lwSeries || typeof lwSeries.setMarkers !== 'function') return;
@@ -2975,6 +2977,7 @@ const ensureLwMacd = () => {
           lwOverlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
         redrawPeriodLines();
+        try { drawAiSignalOverlay(); } catch {}
       };
 
       const clearLwOverlay = () => {
@@ -3019,8 +3022,9 @@ const ensureLwMacd = () => {
         }
         ctx.restore();
         ctx.restore();
-        // Draw chips after period lines
+        // Draw chips and AI letters after period lines
         drawSignalChips();
+        try { drawAiSignalOverlay(); } catch {}
       };
 
       const redrawPeriodLines = () => {
@@ -3293,11 +3297,8 @@ const ensureLwMacd = () => {
         } catch { return null; }
       }
       function composeSignalMarkers(t, pos) {
-        const isBuy = (pos === 'BUY');
-        const basePos = isBuy ? 'belowBar' : 'aboveBar';
-        const color = isBuy ? '#2ecc71' : '#e74c3c';
-        // Single, simple letter marker (no icon layering)
-        return [ { time: t, position: basePos, shape: 'square', color, text: (isBuy ? 'B' : 'S') } ];
+        // No LWC shape; we draw letters on overlay canvas. Keep array for compatibility with callers.
+        return [ { time: t, pos: pos } ];
       }
       async function refreshAiSignalMarkers() {
         try {
@@ -3314,6 +3315,7 @@ const ensureLwMacd = () => {
             if (r.ok && js && Array.isArray(js.runs)) runs = js.runs;
           } catch {}
           const marks = [];
+          const overlays = [];
           const used = new Set();
           for (const run of runs) {
             try {
@@ -3325,8 +3327,9 @@ const ensureLwMacd = () => {
               const t = tsSec ? findNearestBarTime(tsSec) : null;
               if (!t || used.has(t)) continue;
               used.add(t);
-              const triplet = composeSignalMarkers(t, pos);
-              marks.push(...triplet);
+              const arr = composeSignalMarkers(t, pos);
+              marks.push(...arr.filter(Boolean));
+              overlays.push({ time: t, kind: (pos === 'BUY' ? 'B' : 'S') });
             } catch {}
           }
           // Optional: basic/tech misalignment warning (best-effort)
@@ -3347,12 +3350,75 @@ const ensureLwMacd = () => {
             const basicPos = (rb && Array.isArray(rb.runs) && rb.runs[0]) ? toPos(rb.runs[0]) : '';
             if (techPos && basicPos && techPos !== basicPos) {
               const tLast = (lwLastBarCache && lwLastBarCache.time) || (lwLastTimes[lwLastTimes.length - 1] || null);
-              if (tLast) marks.push({ time: tLast, position: 'inBar', color: '#f1c40f', shape: 'square', text: 'M' });
+              if (tLast) { marks.push({ time: tLast }); overlays.push({ time: tLast, kind: 'M' }); }
             }
           } catch {}
-          signalMarkersAll = marks;
+          signalMarkersAll = []; // no LWC markers for AI signals (we draw on overlay instead)
+          aiSignalOverlayAll = overlays;
           applyAllMarkers();
-        } catch { signalMarkersAll = []; applyAllMarkers(); }
+          try { drawAiSignalOverlay(); } catch {}
+        } catch { signalMarkersAll = []; aiSignalOverlayAll = []; applyAllMarkers(); try { drawAiSignalOverlay(); } catch {} }
+      }
+
+      function drawAiSignalOverlay() {
+        if (!aiSignalsOn || !lwChart || !lwOverlay || !lwOverlayCtx) return;
+        const vr = lwChart.timeScale().getVisibleRange();
+        if (!vr || vr.from == null || vr.to == null) return;
+        const fromSec = vr.from, toSec = vr.to;
+        const dpr = lwOverlayDpr || (window.devicePixelRatio || 1);
+        const ctx = lwOverlayCtx;
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // Do not clear whole overlay; overlay is already cleared in redrawPeriodLines(). We overlay letters after period lines.
+        const inView = (t)=> t>=fromSec && t<=toSec;
+        const data = Array.isArray(aiSignalOverlayAll) ? aiSignalOverlayAll.filter(x=>x && inView(x.time)) : [];
+        if (!data.length) { ctx.restore(); return; }
+        // Build time->index mapping if missing
+        if (!lwTimeToIdx || !(lwTimeToIdx instanceof Map) || lwTimeToIdx.size !== lwLastTimes.length) {
+          lwTimeToIdx = new Map();
+          for (let i=0;i<lwLastTimes.length;i++) lwTimeToIdx.set(lwLastTimes[i], i);
+        }
+        ctx.font = 'bold 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (const item of data) {
+          const x = lwChart.timeScale().timeToCoordinate(item.time);
+          if (x == null || !Number.isFinite(x)) continue;
+          let y = null;
+          let ch = String(item.kind||'').toUpperCase();
+          let color = '#f1c40f'; // default M
+          if (ch === 'B') color = '#2ecc71';
+          else if (ch === 'S') color = '#e74c3c';
+          const idx = lwTimeToIdx.get(item.time);
+          if (Number.isInteger(idx) && lastPriceRows[idx]) {
+            const row = lastPriceRows[idx];
+            if (ch === 'B') {
+              const low = Number(row.low);
+              const yd = lwSeries && Number.isFinite(low) ? lwSeries.priceToCoordinate(low) : null;
+              y = (yd != null ? yd : (lwOverlay.height / dpr) - 14) - 10;
+            } else if (ch === 'S') {
+              const high = Number(row.high);
+              const yu = lwSeries && Number.isFinite(high) ? lwSeries.priceToCoordinate(high) : null;
+              y = (yu != null ? yu : 14) + 10;
+            } else {
+              const mid = (Number(row.high)+Number(row.low))/2;
+              const ym = lwSeries && Number.isFinite(mid) ? lwSeries.priceToCoordinate(mid) : null;
+              y = (ym != null ? ym : 20);
+            }
+          }
+          if (y == null) y = 20;
+          // Shadow/outline
+          ctx.fillStyle = color;
+          ctx.shadowColor = 'rgba(0,0,0,0.35)';
+          ctx.shadowBlur = 3;
+          ctx.fillText(ch, x, y);
+          ctx.shadowBlur = 0;
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          // Hollow-style outline effect around glyph
+          ctx.strokeText(ch, x, y);
+        }
+        ctx.restore();
       }
 
       const rangeAlmostEqual = (x, y) => Math.abs((x || 0) - (y || 0)) < 1e-4;
