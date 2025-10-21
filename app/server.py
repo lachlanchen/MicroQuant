@@ -1174,6 +1174,8 @@ PREF_KEYS = [
     "hide_last_tech_report",
     "balance_poll_min",
     "closed_orders_poll_min",
+    # Periodic auto-trade partial close fraction (global)
+    "close_fraction:global",
 ]
 
 def _default_backfill_days(tf: str) -> int:
@@ -4277,6 +4279,13 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     key.startswith("risk_percent:") or
                     key.startswith("stop_distance:") or
                     key.startswith("stop_unit:")
+                ):
+                    allowed = True
+                # Allow global or scoped close fraction key for partial-close behavior
+                elif isinstance(key, str) and (
+                    key == "close_fraction" or
+                    key == "close_fraction:global" or
+                    key.startswith("close_fraction:")
                 ):
                     allowed = True
                 # Allow symbol/kind weighting + custom symbol list
