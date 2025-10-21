@@ -6444,6 +6444,7 @@ const ensureLwMacd = () => {
       const tradeAccountSelectInline = document.getElementById('tradeAccountSelectInline');
       // Periodic auto-trade inline controls
       const autoPeriodicAccountSelect = document.getElementById('autoPeriodicAccountSelect');
+      const autoPeriodicCloseFracInput = document.getElementById('autoPeriodicCloseFracInput');
       const autoPeriodicToggle = document.getElementById('autoPeriodicToggle');
       const autoPeriodicPeriod = document.getElementById('autoPeriodicPeriod');
       const autoPeriodicVolumeInput = document.getElementById('autoPeriodicVolumeInput');
@@ -6677,6 +6678,7 @@ const ensureLwMacd = () => {
           `auto_volume:global`,
           `safe_max_lots:global`,
           `auto_sl_enabled:global`,
+          `close_fraction:global`,
         ];
         try {
           const r = await fetch(`${PREF_ENDPOINT}?keys=${encodeURIComponent(keys.join(','))}`, { cache: 'no-store' });
@@ -6702,6 +6704,12 @@ const ensureLwMacd = () => {
           }
           const sl = map[`auto_sl_enabled:global`];
           if (autoPeriodicSlToggle) autoPeriodicSlToggle.checked = String(sl||'0') === '1';
+          // Close fraction (default 0.25)
+          try {
+            const cf = Number(map[`close_fraction:global`] ?? NaN);
+            const val = Number.isFinite(cf) ? Math.max(0, Math.min(1, cf)) : 0.25;
+            if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.value = String(val);
+          } catch {}
         } catch {}
       }
       if (autoPeriodicToggle) autoPeriodicToggle.addEventListener('change', ()=>{
@@ -6730,6 +6738,15 @@ const ensureLwMacd = () => {
         try { const t = document.getElementById('autoSlToggle'); if (t) t.checked = (val === '1'); } catch {}
         queuePrefUpdate(`auto_sl_enabled:global`, val);
         try { flushPrefQueue(); } catch {}
+      });
+      if (autoPeriodicCloseFracInput) autoPeriodicCloseFracInput.addEventListener('change', ()=>{
+        try {
+          const raw = Number(autoPeriodicCloseFracInput.value);
+          const val = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0.25;
+          autoPeriodicCloseFracInput.value = String(val);
+          queuePrefUpdate(`close_fraction:global`, String(val));
+          flushPrefQueue();
+        } catch {}
       });
       // Auto symbols persist globally (unified)
       async function loadAutoPeriodicSymbols() {
@@ -7524,9 +7541,19 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const accountsSel = document.getElementById('autoPeriodicAccountSelect');
               const accounts = Array.from(accountsSel && accountsSel.selectedOptions ? accountsSel.selectedOptions : []).map(o=>o.value);
               const list = (accounts && accounts.length) ? accounts : [null];
-              const fracEl = document.getElementById('autoPeriodicCloseFracInput');
-              const fracVal = Number(fracEl && fracEl.value ? fracEl.value : '1');
-              const frac = Number.isFinite(fracVal) ? Math.max(0, Math.min(1, fracVal)) : 1;
+              let frac = 1;
+              try {
+                const fracEl = document.getElementById('autoPeriodicCloseFracInput');
+                const fracVal = Number(fracEl && fracEl.value ? fracEl.value : '');
+                if (Number.isFinite(fracVal)) frac = Math.max(0, Math.min(1, fracVal));
+                if (!Number.isFinite(fracVal)) {
+                  const pref = await fetch(`/api/preferences?keys=${encodeURIComponent('close_fraction:global')}`, { cache: 'no-store' });
+                  const js = await pref.json().catch(()=>({}));
+                  const v = js && js.prefs && js.prefs['close_fraction:global'];
+                  const pv = Number(v);
+                  if (Number.isFinite(pv)) frac = Math.max(0, Math.min(1, pv));
+                }
+              } catch {}
               for (const acct of list) {
                 if (acct) { log(`Switch account → ${acct}`); await fetch('/api/account/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ login: acct }), cache:'no-store' }).catch(()=>{}); }
                 try { await logAccountPositionsAll(log); } catch {}
