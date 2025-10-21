@@ -12179,22 +12179,6 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
     </script>
   </body>
   </html>
-      const symbolWeightsBox = document.getElementById('symbolWeightsBox');
-      const kindWeightForex = document.getElementById('kindWeightForex');
-      const kindWeightMetal = document.getElementById('kindWeightMetal');
-      const kindWeightStock = document.getElementById('kindWeightStock');
-      function openManageSymbols() {
-        if (!manageSymbolsModal) return;
-        try {
-          if (manageSymbolsModal.parentElement !== document.body) {
-            document.body.appendChild(manageSymbolsModal);
-          }
-        } catch {}
-        manageSymbolsModal.style.display = 'flex';
-        manageSymbolsModal.style.zIndex = '9999';
-        manageSymbolsModal.setAttribute('aria-hidden','false');
-        loadManageSymbols();
-      }
       function closeManageSymbols() { if (manageSymbolsModal) { manageSymbolsModal.style.display='none'; manageSymbolsModal.setAttribute('aria-hidden','true'); } }
       async function loadManageSymbols() {
         try {
