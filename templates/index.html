@@ -243,7 +243,7 @@
           <span>Chart shift</span>
         </label>
         <label class="switch" title="Show final AI trade plan signals on chart">
-          <input type="checkbox" id="chkAiSignals" />
+          <input type="checkbox" id="chkAiSignals" checked />
           <span>AI signals</span>
         </label>
       </div>
@@ -1330,14 +1330,25 @@
       const getRightOffset = () => (chartShiftOn ? 20 : 0);
       const aiSignalsInput = el('chkAiSignals');
       let aiSignalsOn = !!(aiSignalsInput && aiSignalsInput.checked);
-      let periodMarkers = [];
-      let signalMarkers = [];
+      let periodMarkersAll = [];
+      let signalMarkersAll = [];
       function applyAllMarkers() {
         try {
           if (!lwSeries || typeof lwSeries.setMarkers !== 'function') return;
+          // Filter to visible time range if available
+          let visFrom = null, visTo = null;
+          try {
+            const vr = lwChart && lwChart.timeScale().getVisibleRange();
+            if (vr && vr.from != null && vr.to != null) { visFrom = vr.from; visTo = vr.to; }
+          } catch {}
+          const inView = (m) => {
+            if (visFrom == null || visTo == null) return true;
+            const t = m && m.time; if (t == null) return false;
+            return t >= visFrom && t <= visTo;
+          };
           const merged = [];
-          if (Array.isArray(periodMarkers) && periodMarkers.length) merged.push(...periodMarkers);
-          if (Array.isArray(signalMarkers) && signalMarkers.length) merged.push(...signalMarkers);
+          if (Array.isArray(periodMarkersAll) && periodMarkersAll.length) merged.push(...periodMarkersAll.filter(inView));
+          if (Array.isArray(signalMarkersAll) && signalMarkersAll.length) merged.push(...signalMarkersAll.filter(inView));
           lwSeries.setMarkers(merged);
         } catch {}
       }
@@ -3208,7 +3219,7 @@ const ensureLwMacd = () => {
           return;
         }
         if (!showPeriodLines || !period || period < 1 || !Array.isArray(periodBoundaryTimes)) {
-          periodMarkers = [];
+          periodMarkersAll = [];
           applyAllMarkers();
           clearLwOverlay();
           return;
@@ -3220,7 +3231,7 @@ const ensureLwMacd = () => {
           color: '#d84315',
           text: 'P',
         }));
-        periodMarkers = markers;
+        periodMarkersAll = markers;
         applyAllMarkers();
         clearLwOverlay();
       };
@@ -3247,7 +3258,7 @@ const ensureLwMacd = () => {
       const updatePeriodOverlays = (period) => {
         if (!period || period < 1 || !lastPriceRows.length) {
           chartPeriodWindows = [];
-          periodMarkers = [];
+          periodMarkersAll = [];
           applyAllMarkers();
           clearLwOverlay();
           if (chart && curType === 'line') chart.update('none');
@@ -3264,35 +3275,65 @@ const ensureLwMacd = () => {
         applyLightweightPeriodOverlay(lastPriceRows, eff);
       };
 
+      function findNearestBarTime(tsSec) {
+        try {
+          if (!Array.isArray(lwLastTimes) || !lwLastTimes.length) return null;
+          let lo = 0, hi = lwLastTimes.length - 1;
+          if (tsSec <= lwLastTimes[0]) return lwLastTimes[0];
+          if (tsSec >= lwLastTimes[hi]) return lwLastTimes[hi];
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            const v = lwLastTimes[mid];
+            if (v === tsSec) return v;
+            if (v < tsSec) lo = mid + 1; else hi = mid - 1;
+          }
+          const a = lwLastTimes[Math.max(0, hi)];
+          const b = lwLastTimes[Math.min(lwLastTimes.length - 1, lo)];
+          return (Math.abs(a - tsSec) <= Math.abs(b - tsSec)) ? a : b;
+        } catch { return null; }
+      }
+      function composeSignalMarkers(t, pos) {
+        const isBuy = (pos === 'BUY');
+        const basePos = isBuy ? 'belowBar' : 'aboveBar';
+        const color = isBuy ? '#2ecc71' : '#e74c3c';
+        const outline = '#1565c0';
+        const shadow = '#263238';
+        // Three layers: shadow (largest), outline (blue), fill (green/red with letter)
+        return [
+          { time: t, position: basePos, shape: 'circle', color: shadow, text: '', size: 3 },
+          { time: t, position: basePos, shape: 'square', color: outline, text: '', size: 2 },
+          { time: t, position: basePos, shape: 'circle', color, text: (isBuy ? 'B' : 'S'), size: 1 },
+        ];
+      }
       async function refreshAiSignalMarkers() {
         try {
-          if (!aiSignalsOn) { signalMarkers = []; applyAllMarkers(); return; }
-          if (!lwSeries || !lwLastTimes.length) { signalMarkers = []; applyAllMarkers(); return; }
+          if (!aiSignalsOn) { signalMarkersAll = []; applyAllMarkers(); return; }
+          if (!lwSeries || !lwLastTimes.length) { signalMarkersAll = []; applyAllMarkers(); return; }
           const sym = currentSymbol();
           const tf = currentTf();
-          const t = (lwLastBarCache && lwLastBarCache.time) || (lwLastTimes[lwLastTimes.length - 1] || null);
-          if (!t) { signalMarkers = []; applyAllMarkers(); return; }
-          // Fetch latest final AI trade plan decision
-          const q = new URLSearchParams({ symbol: sym, tf, group: 'plan', limit: '1' });
-          let pos = '';
+          // Fetch history of final AI trade plan decisions
+          const q = new URLSearchParams({ symbol: sym, tf, group: 'plan', limit: '200' });
+          let runs = [];
           try {
             const r = await fetch(`/api/health/runs?${q.toString()}`, { cache: 'no-store' });
             const js = await r.json().catch(()=>({}));
-            if (r.ok && js && Array.isArray(js.runs) && js.runs.length) {
-              const ans = (js.runs[0] && js.runs[0].answers) || {};
-              pos = String(((ans.plan||{}).position) || ((ans.meta||{}).action) || '').toUpperCase();
-            }
+            if (r.ok && js && Array.isArray(js.runs)) runs = js.runs;
           } catch {}
           const marks = [];
-          if (pos === 'BUY' || pos === 'SELL') {
-            const isBuy = (pos === 'BUY');
-            marks.push({
-              time: t,
-              position: isBuy ? 'belowBar' : 'aboveBar',
-              color: isBuy ? '#2ecc71' : '#e74c3c',
-              shape: 'circle',
-              text: isBuy ? 'B' : 'S',
-            });
+          const used = new Set();
+          for (const run of runs) {
+            try {
+              const ans = (run && run.answers) || {};
+              const pos = String(((ans.plan||{}).position) || ((ans.meta||{}).action) || '').toUpperCase();
+              if (pos !== 'BUY' && pos !== 'SELL') continue;
+              const ca = run.created_at || ans.created_at;
+              const tsSec = ca ? Math.floor(new Date(ca).getTime() / 1000) : null;
+              const t = tsSec ? findNearestBarTime(tsSec) : null;
+              if (!t || used.has(t)) continue;
+              used.add(t);
+              const triplet = composeSignalMarkers(t, pos);
+              marks.push(...triplet);
+            } catch {}
           }
           // Optional: basic/tech misalignment warning (best-effort)
           try {
@@ -3311,12 +3352,13 @@ const ensureLwMacd = () => {
             const techPos = (rt && Array.isArray(rt.runs) && rt.runs[0]) ? toPos(rt.runs[0]) : '';
             const basicPos = (rb && Array.isArray(rb.runs) && rb.runs[0]) ? toPos(rb.runs[0]) : '';
             if (techPos && basicPos && techPos !== basicPos) {
-              marks.push({ time: t, position: 'inBar', color: '#f1c40f', shape: 'square', text: '⚠' });
+              const tLast = (lwLastBarCache && lwLastBarCache.time) || (lwLastTimes[lwLastTimes.length - 1] || null);
+              if (tLast) marks.push({ time: tLast, position: 'inBar', color: '#f1c40f', shape: 'square', text: '⚠', size: 2 });
             }
           } catch {}
-          signalMarkers = marks;
+          signalMarkersAll = marks;
           applyAllMarkers();
-        } catch { signalMarkers = []; applyAllMarkers(); }
+        } catch { signalMarkersAll = []; applyAllMarkers(); }
       }
 
       const rangeAlmostEqual = (x, y) => Math.abs((x || 0) - (y || 0)) < 1e-4;
@@ -3397,6 +3439,7 @@ const ensureLwMacd = () => {
             }
             if (curType === 'candlestick') {
               redrawPeriodLines();
+              applyAllMarkers();
             }
           } else {
             currentTimeRange = null;
@@ -3406,6 +3449,7 @@ const ensureLwMacd = () => {
             }
             if (curType === 'candlestick') {
               redrawPeriodLines();
+              applyAllMarkers();
             }
           }
         });
