@@ -10618,6 +10618,17 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               lwSyncing = false;
               lwInitialFitted = true;
               lwSubscriptionsEnabled = true;
+              // Re-apply chart shift right offset after fit to ensure gap at right edge
+              try {
+                const ro = getRightOffset();
+                if (lwChart) lwChart.applyOptions({ timeScale: { rightOffset: ro } });
+                if (lwVolChart) lwVolChart.applyOptions({ timeScale: { rightOffset: ro } });
+                if (lwRsiChart) lwRsiChart.applyOptions({ timeScale: { rightOffset: ro } });
+                if (lwMacdChart) lwMacdChart.applyOptions({ timeScale: { rightOffset: ro } });
+                if (lwDerivChart) lwDerivChart.applyOptions({ timeScale: { rightOffset: ro } });
+                if (lwAtrChart) lwAtrChart.applyOptions({ timeScale: { rightOffset: ro } });
+                if (lwAdxChart) lwAdxChart.applyOptions({ timeScale: { rightOffset: ro } });
+              } catch {}
               // On mobile, zoom out further to ensure thin bars
               try { if (isMobile()) applyMobileChartTuning(); } catch {}
             } else {
@@ -10625,6 +10636,11 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
               const visibleLogical = lwChart.timeScale().getVisibleLogicalRange();
               currentLogicalRange = visibleLogical || currentLogicalRange || null;
               lwSubscriptionsEnabled = true;
+              // Ensure the configured right offset remains applied when preserving range
+              try {
+                const ro = getRightOffset();
+                if (lwChart) lwChart.applyOptions({ timeScale: { rightOffset: ro } });
+              } catch {}
             }
           }
           updateIndicatorCharts(rows);
