@@ -3296,14 +3296,8 @@ const ensureLwMacd = () => {
         const isBuy = (pos === 'BUY');
         const basePos = isBuy ? 'belowBar' : 'aboveBar';
         const color = isBuy ? '#2ecc71' : '#e74c3c';
-        const outline = '#1565c0';
-        const shadow = '#263238';
-        // Three layers: shadow (largest), outline (blue), fill (green/red with letter)
-        return [
-          { time: t, position: basePos, shape: 'circle', color: shadow, text: '', size: 3 },
-          { time: t, position: basePos, shape: 'square', color: outline, text: '', size: 2 },
-          { time: t, position: basePos, shape: 'circle', color, text: (isBuy ? 'B' : 'S'), size: 1 },
-        ];
+        // Single, simple letter marker (no icon layering)
+        return [ { time: t, position: basePos, shape: 'square', color, text: (isBuy ? 'B' : 'S') } ];
       }
       async function refreshAiSignalMarkers() {
         try {
@@ -3353,7 +3347,7 @@ const ensureLwMacd = () => {
             const basicPos = (rb && Array.isArray(rb.runs) && rb.runs[0]) ? toPos(rb.runs[0]) : '';
             if (techPos && basicPos && techPos !== basicPos) {
               const tLast = (lwLastBarCache && lwLastBarCache.time) || (lwLastTimes[lwLastTimes.length - 1] || null);
-              if (tLast) marks.push({ time: tLast, position: 'inBar', color: '#f1c40f', shape: 'square', text: '⚠', size: 2 });
+              if (tLast) marks.push({ time: tLast, position: 'inBar', color: '#f1c40f', shape: 'square', text: 'M' });
             }
           } catch {}
           signalMarkersAll = marks;
