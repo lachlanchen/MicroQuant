@@ -3005,8 +3005,9 @@ const ensureLwMacd = () => {
       const drawLwPeriodLines = (period) => {
         if (!showPeriodLines || !usePeriodGrid || !lwChart || !lwOverlayCtx || !lastPriceRows.length || !period || period < 1) {
           clearLwOverlay();
-          // Still draw chips even when lines disabled
-          drawSignalChips();
+          // Still draw chips and AI letters even when lines disabled
+          try { drawSignalChips(); } catch {}
+          try { drawAiSignalOverlay(); } catch {}
           return;
         }
         const vis = lwChart.timeScale().getVisibleRange();
@@ -10317,6 +10318,8 @@ Accounts: ${(accts && accts.length)? accts.join(', ') : 'current'}`;
           if (box) box.textContent = message;
         }
         syncStlOverlayVisibility();
+        // Redraw AI signal overlay so markers persist even when STL overlay is cleared
+        try { drawAiSignalOverlay(); } catch {}
       }
       async function refreshStlOverlay(options = {}) {
         const { runId = stlSelectedRunId, autoCompute: autoComputeOverride } = options || {};
