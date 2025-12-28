@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="figs/banner.png" alt="LazyingArt banner" />
+</p>
+
 # MT5 Tornado Starter (Gold Data)
 
 A minimal Tornado + Postgres app that fetches OHLC bars from MetaTrader 5 (via the official Python package) and serves a simple chart UI. Default symbol is `XAUUSD` (gold vs USD).
