@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Quant by Lazying.art — Micro Quant App</title>
+    <title>MicroQuant by Lazying.art — Micro Quant App</title>
     <meta
       name="description"
-      content="Quant by Lazying.art is a Micro Quant App that uses LLM reasoning, real-time market data, and risk-aware execution to automate trading research and deployment."
+      content="MicroQuant by Lazying.art is a Micro Quant App that uses LLM reasoning, real-time market data, and risk-aware execution to automate trading research and deployment."
     />
-    <meta property="og:title" content="Quant by Lazying.art — Micro Quant App" />
+    <meta property="og:title" content="MicroQuant by Lazying.art — Micro Quant App" />
     <meta
       property="og:description"
       content="LLM-guided research, signal synthesis, and execution for modern quantitative trading."
@@ -97,6 +97,8 @@
         font-family: "Space Grotesk", sans-serif;
         font-weight: 700;
         letter-spacing: -0.02em;
+        color: inherit;
+        text-decoration: none;
       }
 
       .logo-mark {
@@ -106,9 +108,27 @@
         background: linear-gradient(135deg, var(--night), var(--jade));
         display: grid;
         place-items: center;
-        color: #fff;
-        font-size: 18px;
         box-shadow: 0 10px 18px rgba(16, 24, 32, 0.35);
+        overflow: hidden;
+      }
+
+      .logo-mark img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+
+      .logo-title {
+        font-size: 1.25rem;
+      }
+
+      .logo-subtitle {
+        font-size: 0.85rem;
+        display: block;
+        color: rgba(15, 18, 23, 0.7);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
       }
 
       .nav-links {
@@ -404,13 +424,20 @@
   <body>
     <header>
       <nav class="nav">
-        <div class="logo">
-          <div class="logo-mark">MQ</div>
-          <div>
-            <div>Quant by Lazying.art</div>
-            <small style="font-weight: 500; color: #47515a;">Micro Quant App</small>
-          </div>
+      <a
+        class="logo"
+        href="https://lazying.art"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <div class="logo-mark">
+          <img src="https://lazying.art/logo-w-text.svg" alt="Lazying.art" />
         </div>
+        <div>
+          <div class="logo-title">MicroQuant</div>
+          <small class="logo-subtitle">by Lazying.art</small>
+        </div>
+      </a>
         <div class="nav-links">
           <a href="#app">App</a>
           <a href="#llm">LLM Loop</a>
@@ -426,7 +453,7 @@
         <div>
           <h1>LLM-powered micro quant workflows for gold, FX, and index strategies.</h1>
           <p>
-            Quant by Lazying.art pairs market microstructure data with reasoning models to
+            MicroQuant by Lazying.art pairs market microstructure data with reasoning models to
             synthesize signals, stress test them, and execute with risk-aware controls. It is a
             Micro Quant App built for fast experimentation and production deployment.
           </p>
@@ -570,7 +597,7 @@
             <div>
               <h3>Build the next Micro Quant release</h3>
               <p>
-                Quant by Lazying.art is in active development. Join the early access group to
+                MicroQuant by Lazying.art is in active development. Join the early access group to
                 shape the LLM tooling and the gold strategy research pipeline.
               </p>
             </div>
@@ -582,7 +609,7 @@
 
     <footer>
       <div class="footer-inner">
-        <div>Quant by Lazying.art — Micro Quant App</div>
+        <div>MicroQuant by Lazying.art — Micro Quant App</div>
         <div>quant.lazying.art</div>
       </div>
     </footer>
