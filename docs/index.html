@@ -93,42 +93,42 @@
       .logo {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
         font-family: "Space Grotesk", sans-serif;
         font-weight: 700;
-        letter-spacing: -0.02em;
         color: inherit;
         text-decoration: none;
       }
 
       .logo-mark {
-        width: 44px;
-        height: 44px;
-        border-radius: 14px;
-        background: linear-gradient(135deg, var(--night), var(--jade));
+        width: 180px;
+        height: auto;
+        border-radius: 18px;
+        box-shadow: 0 14px 32px rgba(16, 24, 32, 0.2);
+        background: #fff;
+        padding: 8px;
         display: grid;
         place-items: center;
-        box-shadow: 0 10px 18px rgba(16, 24, 32, 0.35);
-        overflow: hidden;
       }
 
       .logo-mark img {
         width: 100%;
-        height: 100%;
-        object-fit: contain;
+        height: auto;
         display: block;
       }
 
-      .logo-title {
-        font-size: 1.25rem;
+      .logo-caption {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
       }
 
-      .logo-subtitle {
-        font-size: 0.85rem;
-        display: block;
-        color: rgba(15, 18, 23, 0.7);
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
+      .logo-caption span {
+        font-size: 0.95rem;
+      }
+
+      .logo-caption strong {
+        font-size: 1.35rem;
       }
 
       .nav-links {
@@ -431,11 +431,11 @@
         rel="noopener noreferrer"
       >
         <div class="logo-mark">
-          <img src="https://lazying.art/logo-w-text.svg" alt="Lazying.art" />
+          <img src="https://lazying.art/logos/logo-w-text.svg" alt="Lazying.art" />
         </div>
-        <div>
-          <div class="logo-title">MicroQuant</div>
-          <small class="logo-subtitle">by Lazying.art</small>
+        <div class="logo-caption">
+          <strong>MicroQuant</strong>
+          <span>by Lazying.art</span>
         </div>
       </a>
         <div class="nav-links">
