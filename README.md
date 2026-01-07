@@ -2,6 +2,9 @@
 
 A minimal Tornado + Postgres app that fetches OHLC bars from MetaTrader 5 (via the official Python package) and serves a simple chart UI. Default symbol is `XAUUSD` (gold vs USD).
 
+## Screenshot
+![Micro Quant UI](figures/demos/micro-quant-ui.png)
+
 ## Features
 - Fetch bars from MT5: `/api/fetch?symbol=XAUUSD&tf=H1&count=500`
 - Persist OHLC into Postgres (`ohlc_bars` table)
