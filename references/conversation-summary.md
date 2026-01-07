@@ -13,7 +13,7 @@ This document captures our recent work, outcomes, and artifacts.
 - Prompt: `prompts/agent_prompt.py` composes a day-specific system prompt with positions, prices, and STOP signal.
 - State/Data: positions under `data/agent_data/<signature>/position/position.jsonl`, logs under `.../log/<date>/log.jsonl`, prices in `data/merged.jsonl`.
 - Config: `configs/default_config.json` controls date range, models, and agent settings.
-- Artifact created: `docs/ai-trader-overview.md` (created under home: `/home/lachlan/docs/ai-trader-overview.md`) summarizing architecture, tools, prompt, and run steps.
+- Artifact created: `references/ai-trader-overview.md` (created under home: `/home/lachlan/references/ai-trader-overview.md`) summarizing architecture, tools, prompt, and run steps.
 
 ## Intelligent-Trading-Bot — Logic Analysis
 - Modes:
@@ -58,9 +58,8 @@ This document captures our recent work, outcomes, and artifacts.
 
 ## Artifacts Created
 - SSH: `~/.ssh/id_codex_cli`, `~/.ssh/id_codex_cli.pub`, `~/.ssh/config:1` (GitHub host entry)
-- AI-Trader doc: `/home/lachlan/docs/ai-trader-overview.md:1`
+- AI-Trader doc: `/home/lachlan/references/ai-trader-overview.md:1`
 - Trend detection doc: `intelligent-trading-bot/docs/trend-detection.md:1`
 
 ## Next Options
 - Want a ready‑to‑paste config block for: (a) jump detection, or (b) trend classification? I can draft it with thresholds tuned for your bar size.
-

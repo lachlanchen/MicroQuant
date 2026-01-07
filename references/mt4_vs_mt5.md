@@ -35,7 +35,7 @@ Summary: Choose MT5 for new quantitative development on Ubuntu. Keep MT4 only if
 
 ```
 metatrader_qt/
-  docs/
+  references/
     mt4_vs_mt5.md
     mt5_python_setup_ubuntu.md
   research/
@@ -44,4 +44,3 @@ metatrader_qt/
     mql5/
     python/
 ```
-

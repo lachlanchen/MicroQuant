@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quant by Lazying.art — Micro Quant App</title>
+    <meta
+      name="description"
+      content="Quant by Lazying.art is a Micro Quant App that uses LLM reasoning, real-time market data, and risk-aware execution to automate trading research and deployment."
+    />
+    <meta property="og:title" content="Quant by Lazying.art — Micro Quant App" />
+    <meta
+      property="og:description"
+      content="LLM-guided research, signal synthesis, and execution for modern quantitative trading."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://quant.lazying.art" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --ink: #0f1217;
+        --night: #101820;
+        --jade: #1b7f79;
+        --copper: #d16f4e;
+        --sand: #f4efe8;
+        --fog: #e7ecef;
+        --gold: #f2c94c;
+        --glow: rgba(210, 111, 78, 0.25);
+        --card: rgba(255, 255, 255, 0.88);
+        --grid: rgba(15, 18, 23, 0.08);
+        --border: rgba(15, 18, 23, 0.14);
+        --shadow: 0 18px 38px rgba(15, 18, 23, 0.18);
+        --radius: 22px;
+        --max: 1200px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: "Newsreader", "Times New Roman", serif;
+        background:
+          radial-gradient(circle at 20% 10%, rgba(27, 127, 121, 0.25), transparent 50%),
+          radial-gradient(circle at 80% 0%, rgba(210, 111, 78, 0.3), transparent 45%),
+          linear-gradient(140deg, #f6f3ee 0%, #f0f5f7 50%, #eef2f0 100%);
+        color: var(--ink);
+        min-height: 100vh;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(var(--grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+        background-size: 48px 48px;
+        opacity: 0.45;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      header,
+      section,
+      footer {
+        position: relative;
+        z-index: 1;
+      }
+
+      header {
+        padding: 28px 24px;
+      }
+
+      .nav {
+        max-width: var(--max);
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .logo-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, var(--night), var(--jade));
+        display: grid;
+        place-items: center;
+        color: #fff;
+        font-size: 18px;
+        box-shadow: 0 10px 18px rgba(16, 24, 32, 0.35);
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 18px;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 500;
+        font-size: 15px;
+      }
+
+      .nav-links a {
+        text-decoration: none;
+        color: var(--night);
+      }
+
+      .nav-cta {
+        padding: 10px 18px;
+        border-radius: 999px;
+        background: var(--night);
+        color: #fff;
+        font-family: "Space Grotesk", sans-serif;
+        text-decoration: none;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+      }
+
+      .hero {
+        max-width: var(--max);
+        margin: 24px auto 0;
+        padding: 40px 24px 60px;
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 36px;
+        align-items: center;
+      }
+
+      .hero h1 {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: clamp(2.8rem, 4vw, 4.2rem);
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+        margin-bottom: 16px;
+      }
+
+      .hero p {
+        font-size: 1.1rem;
+        line-height: 1.6;
+        max-width: 520px;
+        color: #1e2730;
+        margin-bottom: 24px;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .btn {
+        padding: 12px 20px;
+        border-radius: 14px;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .btn-primary {
+        background: var(--copper);
+        color: #fff;
+        box-shadow: 0 12px 24px var(--glow);
+      }
+
+      .btn-outline {
+        border: 1px solid var(--border);
+        color: var(--night);
+        background: rgba(255, 255, 255, 0.7);
+      }
+
+      .hero-card {
+        background: var(--card);
+        border-radius: var(--radius);
+        padding: 24px;
+        box-shadow: var(--shadow);
+        border: 1px solid var(--border);
+      }
+
+      .hero-card h3 {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 18px;
+        margin-bottom: 12px;
+      }
+
+      .hero-card .metric {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px dashed var(--border);
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .hero-card .metric:last-child {
+        border-bottom: 0;
+      }
+
+      .signal-chart {
+        margin-top: 18px;
+        background: #fff;
+        border-radius: 14px;
+        padding: 14px;
+        border: 1px solid var(--border);
+      }
+
+      .signal-chart svg {
+        width: 100%;
+        height: 140px;
+        display: block;
+      }
+
+      section {
+        padding: 70px 24px;
+      }
+
+      .section-inner {
+        max-width: var(--max);
+        margin: 0 auto;
+      }
+
+      .section-title {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 2rem;
+        margin-bottom: 12px;
+      }
+
+      .section-subtitle {
+        max-width: 640px;
+        line-height: 1.6;
+        color: #26313a;
+      }
+
+      .grid-3 {
+        margin-top: 32px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 22px;
+        box-shadow: 0 14px 26px rgba(15, 18, 23, 0.12);
+      }
+
+      .card h4 {
+        font-family: "Space Grotesk", sans-serif;
+        margin-bottom: 10px;
+      }
+
+      .flow {
+        margin-top: 36px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+
+      .flow-step {
+        background: rgba(16, 24, 32, 0.9);
+        color: #fff;
+        border-radius: 18px;
+        padding: 18px;
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .flow-step span {
+        display: block;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin-bottom: 8px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .app-section {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr;
+        gap: 32px;
+        align-items: center;
+      }
+
+      .app-visual img {
+        width: 100%;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        box-shadow: 0 16px 30px rgba(15, 18, 23, 0.16);
+      }
+
+      .stack {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .tag {
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(27, 127, 121, 0.12);
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 13px;
+      }
+
+      .cta {
+        background: linear-gradient(135deg, #11212b, #1c3a36);
+        color: #fff;
+        border-radius: 26px;
+        padding: 40px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .cta h3 {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 1.9rem;
+        margin-bottom: 6px;
+      }
+
+      .cta p {
+        max-width: 520px;
+        color: rgba(255, 255, 255, 0.8);
+        line-height: 1.6;
+      }
+
+      footer {
+        padding: 36px 24px 50px;
+        font-family: "Space Grotesk", sans-serif;
+        color: #2b343d;
+      }
+
+      .footer-inner {
+        max-width: var(--max);
+        margin: 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .reveal {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: all 0.6s ease;
+      }
+
+      .reveal.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @media (max-width: 980px) {
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .app-section {
+          grid-template-columns: 1fr;
+        }
+
+        .grid-3 {
+          grid-template-columns: 1fr;
+        }
+
+        .flow {
+          grid-template-columns: 1fr;
+        }
+
+        .nav-links {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav class="nav">
+        <div class="logo">
+          <div class="logo-mark">MQ</div>
+          <div>
+            <div>Quant by Lazying.art</div>
+            <small style="font-weight: 500; color: #47515a;">Micro Quant App</small>
+          </div>
+        </div>
+        <div class="nav-links">
+          <a href="#app">App</a>
+          <a href="#llm">LLM Loop</a>
+          <a href="#stack">Stack</a>
+          <a href="#contact">Contact</a>
+        </div>
+        <a class="nav-cta" href="#contact">Request access</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <h1>LLM-powered micro quant workflows for gold, FX, and index strategies.</h1>
+          <p>
+            Quant by Lazying.art pairs market microstructure data with reasoning models to
+            synthesize signals, stress test them, and execute with risk-aware controls. It is a
+            Micro Quant App built for fast experimentation and production deployment.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="#app">See the app view</a>
+            <a class="btn btn-outline" href="#llm">Explore the LLM loop</a>
+          </div>
+        </div>
+        <div class="hero-card reveal">
+          <h3>Live signal snapshot</h3>
+          <div class="metric">
+            <span>Gold trend bias</span>
+            <strong>+0.62</strong>
+          </div>
+          <div class="metric">
+            <span>LLM reasoning score</span>
+            <strong>0.81</strong>
+          </div>
+          <div class="metric">
+            <span>Risk budget used</span>
+            <strong>38%</strong>
+          </div>
+          <div class="signal-chart">
+            <svg viewBox="0 0 300 140" fill="none">
+              <path
+                d="M0 110 C 30 90, 60 120, 90 100 C 120 80, 150 70, 180 60 C 210 50, 240 70, 270 40 C 285 20, 295 30, 300 20"
+                stroke="#1b7f79"
+                stroke-width="3"
+                stroke-linecap="round"
+              />
+              <path
+                d="M0 125 L300 125"
+                stroke="#d4d8dc"
+                stroke-width="1"
+                stroke-dasharray="6 6"
+              />
+            </svg>
+          </div>
+        </div>
+      </section>
+
+      <section id="app">
+        <div class="section-inner app-section">
+          <div>
+            <h2 class="section-title">Micro Quant App view</h2>
+            <p class="section-subtitle">
+              A compact, operator-first interface for strategy design, LLM commentary, and
+              execution readiness. Track hypothesis, backtest results, and real-time signal
+              confidence on one screen.
+            </p>
+            <div class="stack">
+              <span class="tag">Signal workbench</span>
+              <span class="tag">LLM insight ledger</span>
+              <span class="tag">Risk guardrails</span>
+              <span class="tag">MT5 execution</span>
+            </div>
+          </div>
+          <div class="app-visual reveal">
+            <img
+              src="references/figures-demo/micro-quant-ui.png"
+              alt="Micro Quant App UI demo"
+              loading="lazy"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section id="llm">
+        <div class="section-inner">
+          <h2 class="section-title">LLM-driven trading loop</h2>
+          <p class="section-subtitle">
+            The system routes market context through a structured reasoning stack. Every action
+            is logged, audited, and paired with a quantitative guardrail before execution.
+          </p>
+          <div class="grid-3">
+            <div class="card reveal">
+              <h4>Sense</h4>
+              <p>Ingest multi-timeframe OHLC, volume profiles, macro releases, and sentiment.</p>
+            </div>
+            <div class="card reveal">
+              <h4>Think</h4>
+              <p>LLM generates scenario trees, risk-adjusted hypotheses, and promptable notes.</p>
+            </div>
+            <div class="card reveal">
+              <h4>Act</h4>
+              <p>Signals are scored, filtered by risk engine, and routed to MT5 execution.</p>
+            </div>
+          </div>
+          <div class="flow">
+            <div class="flow-step reveal">
+              <span>01</span>
+              <strong>Context pack</strong>
+              <p>Build a structured prompt from market snapshots and news.</p>
+            </div>
+            <div class="flow-step reveal">
+              <span>02</span>
+              <strong>LLM reasoning</strong>
+              <p>Generate trade plans with confidence bands and trade triggers.</p>
+            </div>
+            <div class="flow-step reveal">
+              <span>03</span>
+              <strong>Quant guardrail</strong>
+              <p>Filter with regime checks, variance caps, and exposure limits.</p>
+            </div>
+            <div class="flow-step reveal">
+              <span>04</span>
+              <strong>Execution</strong>
+              <p>Route to MT5 and monitor PnL with automated stop logic.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="stack">
+        <div class="section-inner">
+          <h2 class="section-title">Data, research, and deployment stack</h2>
+          <p class="section-subtitle">
+            Built to move from research notebook to live execution with a minimal operational
+            footprint. Everything is modular, and the LLM layer is swappable.
+          </p>
+          <div class="grid-3">
+            <div class="card reveal">
+              <h4>Data & storage</h4>
+              <p>Postgres OHLC store, feature snapshots, and prompt artifacts for traceability.</p>
+            </div>
+            <div class="card reveal">
+              <h4>Modeling</h4>
+              <p>LLM analysis, lightweight ML filters, and regime classification modules.</p>
+            </div>
+            <div class="card reveal">
+              <h4>Execution</h4>
+              <p>MT5 terminal bridge, risk controls, and alerting across channels.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="contact">
+        <div class="section-inner">
+          <div class="cta reveal">
+            <div>
+              <h3>Build the next Micro Quant release</h3>
+              <p>
+                Quant by Lazying.art is in active development. Join the early access group to
+                shape the LLM tooling and the gold strategy research pipeline.
+              </p>
+            </div>
+            <a class="btn btn-primary" href="mailto:hello@lazying.art">Talk to the team</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-inner">
+        <div>Quant by Lazying.art — Micro Quant App</div>
+        <div>quant.lazying.art</div>
+      </div>
+    </footer>
+
+    <script>
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+            }
+          });
+        },
+        { threshold: 0.15 }
+      );
+
+      document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
+    </script>
+  </body>
+</html>

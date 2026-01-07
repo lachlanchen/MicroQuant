@@ -4,7 +4,7 @@
 - `app/` — Python backend (e.g., `server.py`, `mt5_client.py`, `strategy.py`, `news_fetcher.py`, `db.py`).
 - `templates/index.html` — Frontend UI (Lightweight Charts + Chart.js).
 - `scripts/` — Utilities and smoke tests (e.g., `test_mixed_ai.py`, `test_fmp.py`).
-- `docs/` — Documentation and setup notes.
+- `references/` — Documentation and setup notes.
 - `sql/schema.sql` — Database schema.
 
 ## Build, Test, and Development Commands
@@ -16,7 +16,7 @@
 ## Coding Style & Naming Conventions
 - Python: PEP 8, 4‑space indents, type hints where practical, small focused functions.
 - JS/HTML (`templates/index.html`): use `const/let`, camelCase, avoid globals; keep chart logic simple. Use logical‑range sync and a one‑time `fitContent()` per symbol/TF to prevent jitter.
-- Commits: imperative mood with area prefix (e.g., `UI: …`, `Server: …`, `Docs: …`).
+- Commits: imperative mood with area prefix (e.g., `UI: …`, `Server: …`, `References: …`).
 
 ## Testing Guidelines
 - No formal suite yet; rely on smoke tests and manual UI checks (pan/zoom sync, STL overlay, trading actions, news panel fallback).
