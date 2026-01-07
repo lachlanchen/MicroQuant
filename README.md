@@ -2,12 +2,20 @@
   <img src="https://raw.githubusercontent.com/lachlanchen/lachlanchen/main/logos/banner.png" alt="LazyingArt banner" />
 </p>
 
-# MT5 Tornado Starter (Gold Data)
-
-A minimal Tornado + Postgres app that fetches OHLC bars from MetaTrader 5 (via the official Python package) and serves a simple chart UI. Default symbol is `XAUUSD` (gold vs USD).
+<p align="center">
+  <a href="https://my.roboforex.com/en/?a=efx" target="_blank" rel="noopener noreferrer">
+    <button style="padding: 0.65rem 1.25rem; font-weight: 600; border-radius: 999px; border: none; color: white; background: #0060ff; cursor: pointer;">
+      DATA Source
+    </button>
+  </a>
+</p>
 
 ## Screenshot
 ![Micro Quant UI](figures/demos/micro-quant-ui.png)
+
+# MT5 Tornado Starter (Gold Data)
+
+A minimal Tornado + Postgres app that fetches OHLC bars from MetaTrader 5 (via the official Python package) and serves a simple chart UI. Default symbol is `XAUUSD` (gold vs USD).
 
 ## Features
 - Fetch bars from MT5: `/api/fetch?symbol=XAUUSD&tf=H1&count=500`
