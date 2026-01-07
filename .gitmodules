@@ -1,0 +1,3 @@
+[submodule "intelligent-trading-bot"]
+	path = intelligent-trading-bot
+	url = https://github.com/lachlanchen/intelligent-trading-bot
