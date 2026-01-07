@@ -7,3 +7,5 @@ __pycache__/
 *.exe
 wget-log
 cache/
+AI-Trader-local/
+intelligent-trading-bot-local/
