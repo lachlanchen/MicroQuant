@@ -144,6 +144,26 @@
         color: var(--night);
       }
 
+      .nav-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      #langSelect {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 8px 14px;
+        background: var(--card);
+        color: var(--night);
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
       .nav-cta {
         padding: 10px 18px;
         border-radius: 999px;
@@ -424,42 +444,56 @@
   <body>
     <header>
       <nav class="nav">
-      <a
-        class="logo"
-        href="https://lazying.art"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        <div class="logo-mark">
-          <img src="https://lazying.art/logos/logo.png" alt="Lazying.art" />
-        </div>
-        <div class="logo-caption">
-          <strong>MicroQuant</strong>
-          <span>by Lazying.art</span>
-        </div>
-      </a>
+        <a
+          class="logo"
+          href="https://lazying.art"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <div class="logo-mark">
+            <img src="https://lazying.art/logos/logo.png" alt="Lazying.art" />
+          </div>
+          <div class="logo-caption">
+            <strong>MicroQuant</strong>
+            <span>by Lazying.art</span>
+          </div>
+        </a>
         <div class="nav-links">
-          <a href="#app">App</a>
-          <a href="#llm">LLM Loop</a>
-          <a href="#stack">Stack</a>
-          <a href="#contact">Contact</a>
+          <a href="#app" data-i18n="nav_app">App</a>
+          <a href="#llm" data-i18n="nav_llm">LLM Loop</a>
+          <a href="#stack" data-i18n="nav_stack">Stack</a>
+          <a href="#contact" data-i18n="nav_contact">Contact</a>
         </div>
-        <a class="nav-cta" href="#contact">Request access</a>
+        <div class="nav-controls">
+          <select id="langSelect">
+            <option value="auto">Auto</option>
+            <option value="en">English</option>
+            <option value="zh-Hans">简体</option>
+            <option value="zh-Hant">繁體</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+            <option value="vi">Tiếng Việt</option>
+            <option value="ar">العربية</option>
+            <option value="fr">Français</option>
+            <option value="es">Español</option>
+          </select>
+          <a class="nav-cta" href="#contact" data-i18n="nav_request">Request access</a>
+        </div>
       </nav>
     </header>
 
     <main>
       <section class="hero">
         <div>
-          <h1>LLM-powered micro quant workflows for gold, FX, and index strategies.</h1>
-          <p>
+          <h1 data-i18n="hero_title">LLM-powered micro quant workflows for gold, FX, and index strategies.</h1>
+          <p data-i18n="hero_desc">
             MicroQuant by Lazying.art pairs market microstructure data with reasoning models to
             synthesize signals, stress test them, and execute with risk-aware controls. It is a
             Micro Quant App built for fast experimentation and production deployment.
           </p>
           <div class="hero-actions">
-            <a class="btn btn-primary" href="#app">See the app view</a>
-            <a class="btn btn-outline" href="#llm">Explore the LLM loop</a>
+            <a class="btn btn-primary" href="#app" data-i18n="btn_app">See the app view</a>
+            <a class="btn btn-outline" href="#llm" data-i18n="btn_llm">Explore the LLM loop</a>
           </div>
         </div>
         <div class="hero-card reveal">
@@ -498,8 +532,8 @@
       <section id="app">
         <div class="section-inner app-section">
           <div>
-            <h2 class="section-title">Micro Quant App view</h2>
-            <p class="section-subtitle">
+            <h2 class="section-title" data-i18n="section_app_title">Micro Quant App view</h2>
+            <p class="section-subtitle" data-i18n="section_app_subtitle">
               A compact, operator-first interface for strategy design, LLM commentary, and
               execution readiness. Track hypothesis, backtest results, and real-time signal
               confidence on one screen.
@@ -523,8 +557,8 @@
 
       <section id="llm">
         <div class="section-inner">
-          <h2 class="section-title">LLM-driven trading loop</h2>
-          <p class="section-subtitle">
+          <h2 class="section-title" data-i18n="section_llm_title">LLM-driven trading loop</h2>
+          <p class="section-subtitle" data-i18n="section_llm_subtitle">
             The system routes market context through a structured reasoning stack. Every action
             is logged, audited, and paired with a quantitative guardrail before execution.
           </p>
@@ -569,8 +603,8 @@
 
       <section id="stack">
         <div class="section-inner">
-          <h2 class="section-title">Data, research, and deployment stack</h2>
-          <p class="section-subtitle">
+          <h2 class="section-title" data-i18n="section_stack_title">Data, research, and deployment stack</h2>
+          <p class="section-subtitle" data-i18n="section_stack_subtitle">
             Built to move from research notebook to live execution with a minimal operational
             footprint. Everything is modular, and the LLM layer is swappable.
           </p>
@@ -595,13 +629,13 @@
         <div class="section-inner">
           <div class="cta reveal">
             <div>
-              <h3>Build the next Micro Quant release</h3>
-              <p>
+              <h3 data-i18n="cta_title">Build the next Micro Quant release</h3>
+              <p data-i18n="cta_desc">
                 MicroQuant by Lazying.art is in active development. Join the early access group to
                 shape the LLM tooling and the gold strategy research pipeline.
               </p>
             </div>
-            <a class="btn btn-primary" href="mailto:hello@lazying.art">Talk to the team</a>
+            <a class="btn btn-primary" href="mailto:hello@lazying.art" data-i18n="cta_button">Talk to the team</a>
           </div>
         </div>
       </section>
@@ -627,6 +661,263 @@
       );
 
       document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
+    </script>
+    <script>
+      const translations = {
+        en: {
+          nav_app: "App",
+          nav_llm: "LLM Loop",
+          nav_stack: "Stack",
+          nav_contact: "Contact",
+          nav_request: "Request access",
+          hero_title: "LLM-powered micro quant workflows for gold, FX, and index strategies.",
+          hero_desc:
+            "MicroQuant by Lazying.art pairs market microstructure data with reasoning models to synthesize signals, stress test them, and execute with risk-aware controls.",
+          btn_app: "See the app view",
+          btn_llm: "Explore the LLM loop",
+          section_app_title: "Micro Quant App view",
+          section_app_subtitle:
+            "A compact, operator-first interface for strategy design, LLM commentary, and execution readiness.",
+          section_llm_title: "LLM-driven trading loop",
+          section_llm_subtitle:
+            "Structured context + audit trails keep every trading hypothesis grounded.",
+          section_stack_title: "Data, research, and deployment stack",
+          section_stack_subtitle:
+            "Move from research notebook to live execution with a tightly aligned, modular pipeline.",
+          cta_title: "Build the next Micro Quant release",
+          cta_desc:
+            "MicroQuant by Lazying.art is in active development. Join the early access group to shape the LLM tooling and the gold strategy research pipeline.",
+          cta_button: "Talk to the team",
+        },
+        "zh-Hans": {
+          nav_app: "应用",
+          nav_llm: "LLM 循环",
+          nav_stack: "栈",
+          nav_contact: "联系",
+          nav_request: "申请访问",
+          hero_title: "LLM 驱动的黄金、外汇与指数微型量化流程。",
+          hero_desc:
+            "MicroQuant by Lazying.art 将微观市场数据与推理模型结合，生成信号、检验稳定性，并在风险控制下执行策略。",
+          btn_app: "查看应用界面",
+          btn_llm: "探索 LLM 循环",
+          section_app_title: "Micro Quant 应用视图",
+          section_app_subtitle: "面向操作者的策略设计、LLM 注释与执行准备界面。",
+          section_llm_title: "LLM 驱动的交易闭环",
+          section_llm_subtitle: "结构化上下文与审计记录让每次交易假设透明可追溯。",
+          section_stack_title: "数据、研究与部署栈",
+          section_stack_subtitle: "从研究笔记走向实盘执行，模块化流程紧密衔接。",
+          cta_title: "共建下一代 Micro Quant",
+          cta_desc:
+            "MicroQuant by Lazying.art 仍在开发中。加入早期访问组，共同塑造 LLM 工具与黄金策略研究流程。",
+          cta_button: "联系我们",
+        },
+        "zh-Hant": {
+          nav_app: "應用",
+          nav_llm: "LLM 循環",
+          nav_stack: "堆疊",
+          nav_contact: "聯絡",
+          nav_request: "申請存取",
+          hero_title: "LLM 驅動的黃金、外匯與指數微型量化流程。",
+          hero_desc:
+            "MicroQuant by Lazying.art 結合微觀市場資料與推理模型，生成訊號、驗證可靠性，在風險控管下執行策略。",
+          btn_app: "查看應用畫面",
+          btn_llm: "探索 LLM 循環",
+          section_app_title: "Micro Quant 應用視圖",
+          section_app_subtitle: "以操作者為中心的策略設計、LLM 注釋與執行準備介面。",
+          section_llm_title: "LLM 驅動的交易迴圈",
+          section_llm_subtitle: "結構化上下文與稽核紀錄讓每次交易假設透明可追蹤。",
+          section_stack_title: "資料、研究與部署堆疊",
+          section_stack_subtitle: "從研究筆記跨入實盤執行，模組化流程緊密銜接。",
+          cta_title: "共創下一代 Micro Quant",
+          cta_desc:
+            "MicroQuant by Lazying.art 正在持續迭代。加入早期存取組，共同打造 LLM 工具與黃金策略研究鏈路。",
+          cta_button: "聯絡團隊",
+        },
+        ja: {
+          nav_app: "アプリ",
+          nav_llm: "LLM ループ",
+          nav_stack: "スタック",
+          nav_contact: "お問い合わせ",
+          nav_request: "アクセス申請",
+          hero_title: "金・FX・指数向けのLLM駆動マイクロクオンツワークフロー。",
+          hero_desc:
+            "MicroQuant by Lazying.art は、マーケットの微細データを推論モデルに渡し、信号生成、検証、リスク管理された実行まで統合します。",
+          btn_app: "アプリを表示",
+          btn_llm: "LLMループを見る",
+          section_app_title: "Micro Quantアプリビュー",
+          section_app_subtitle: "戦略設計、LLMコメント、実行準備を一画面に。",
+          section_llm_title: "LLM駆動トレーディングループ",
+          section_llm_subtitle: "構造化された文脈と監査ログが仮説を支えます。",
+          section_stack_title: "データ・研究・展開スタック",
+          section_stack_subtitle: "リサーチから実運用までモジュールを連携。",
+          cta_title: "次の Micro Quant を共につくる",
+          cta_desc:
+            "MicroQuant by Lazying.art は現在進行形で拡張中。早期アクセスグループに参加して、LLMツールとゴールド戦略を育てましょう。",
+          cta_button: "チームに連絡",
+        },
+        ko: {
+          nav_app: "앱",
+          nav_llm: "LLM 루프",
+          nav_stack: "스택",
+          nav_contact: "문의",
+          nav_request: "접속 요청",
+          hero_title: "금, FX, 지수 전략을 위한 LLM 기반 마이크로퀀트 워크플로.",
+          hero_desc:
+            "MicroQuant by Lazying.art은 시장 미시 데이터와 추론 모델을 결합하여 시그널 생성, 스트레스 테스트, 리스크 관리된 실행을 하나로 엮습니다.",
+          btn_app: "앱 보기",
+          btn_llm: "LLM 루프 탐색",
+          section_app_title: "Micro Quant 앱 뷰",
+          section_app_subtitle: "전략 설계·LLM 모니터·실행 준비를 한 화면에.",
+          section_llm_title: "LLM 중심 트레이딩 루프",
+          section_llm_subtitle: "구조화된 컨텍스트와 감사 로그로 가설을 단단히 지탱합니다.",
+          section_stack_title: "데이터·연구·배포 스택",
+          section_stack_subtitle: "리서치 노트에서 실전 실행까지 모듈 연계를 유지합니다.",
+          cta_title: "다음 Micro Quant을 함께 제작",
+          cta_desc:
+            "MicroQuant by Lazying.art은 여전히 개발 중입니다. 얼리 액세스 그룹에 참여해 LLM 도구와 골드 전략을 함께 빚어보세요.",
+          cta_button: "팀에 연락",
+        },
+        vi: {
+          nav_app: "Ứng dụng",
+          nav_llm: "Vòng LLM",
+          nav_stack: "Ngăn xếp",
+          nav_contact: "Liên hệ",
+          nav_request: "Yêu cầu truy cập",
+          hero_title: "Luồng micro quant dùng LLM cho vàng, FX và chỉ số.",
+          hero_desc:
+            "MicroQuant by Lazying.art kết nối dữ liệu vi mô thị trường với mô hình suy luận để sinh tín hiệu, kiểm tra và thực hiện trong vùng kiểm soát rủi ro.",
+          btn_app: "Xem giao diện",
+          btn_llm: "Khám phá vòng LLM",
+          section_app_title: "Giao diện Micro Quant",
+          section_app_subtitle: "Không gian cho thiết kế chiến lược, nhận xét LLM và chuẩn bị thực thi.",
+          section_llm_title: "Vòng lặp giao dịch LLM",
+          section_llm_subtitle: "Ngữ cảnh cấu trúc và lịch sử kiểm toán giữ cho giả thuyết vững vàng.",
+          section_stack_title: "Ngăn xếp dữ liệu, nghiên cứu và triển khai",
+          section_stack_subtitle: "Chuyển từ sổ tay nghiên cứu sang thực thi với pipeline module hóa.",
+          cta_title: "Xây Micro Quant tiếp theo cùng nhau",
+          cta_desc:
+            "MicroQuant by Lazying.art đang trong giai đoạn phát triển. Tham gia nhóm truy cập sớm để định hình công cụ LLM và chiến lược vàng.",
+          cta_button: "Liên hệ đội ngũ",
+        },
+        ar: {
+          nav_app: "التطبيق",
+          nav_llm: "دورة LLM",
+          nav_stack: "البنية",
+          nav_contact: "اتصل",
+          nav_request: "طلب وصول",
+          hero_title: "سير عمل مايكرو كوانت مدفوع بالـ LLM للذهب والفوركس والمؤشرات.",
+          hero_desc:
+            "MicroQuant by Lazying.art يربط بيانات السوق الدقيقة بنماذج الاستدلال لتوليد إشارات، اختبارها، وتنفيذها بإشراف رقابة المخاطر.",
+          btn_app: "عرض الواجهة",
+          btn_llm: "استكشف دورة LLM",
+          section_app_title: "واجهة Micro Quant",
+          section_app_subtitle: "مساحة منظمة لتصميم الاستراتيجيات وتعليقات LLM والإعداد للتنفيذ.",
+          section_llm_title: "حلقة تداول LLM",
+          section_llm_subtitle: "السياق المهيكل وسجلات التدقيق تؤمن كل فرضية تداول.",
+          section_stack_title: "بنية البيانات والبحث والنشر",
+          section_stack_subtitle: "ننتقل من دفتر البحث إلى التنفيذ الفعلي بسير عمل معياري.",
+          cta_title: "بناء Micro Quant القادم معًا",
+          cta_desc:
+            "MicroQuant by Lazying.art لا يزال يُطوَّر. انضم إلى مجموعة الوصول المبكر لتشكيل أدوات LLM واستراتيجية الذهب.",
+          cta_button: "تواصل مع الفريق",
+        },
+        fr: {
+          nav_app: "Application",
+          nav_llm: "Boucle LLM",
+          nav_stack: "Pile",
+          nav_contact: "Contact",
+          nav_request: "Demander l'accès",
+          hero_title: "Flux micro quant piloté par LLM pour l’or, le FX et les indices.",
+          hero_desc:
+            "MicroQuant by Lazying.art combine données microstructurales et modèles de raisonnement pour générer des signaux, les tester et exécuter avec des garde-fous.",
+          btn_app: "Voir l'app",
+          btn_llm: "Explorer la boucle LLM",
+          section_app_title: "Vue Micro Quant",
+          section_app_subtitle:
+            "Interface compacte pour concevoir des stratégies, annoter avec LLM et préparer l’exécution.",
+          section_llm_title: "Boucle de trading LLM",
+          section_llm_subtitle:
+            "Contexte structuré et journalisation garantissent la traçabilité des hypothèses.",
+          section_stack_title: "Pile données, recherche et déploiement",
+          section_stack_subtitle: "Du carnet de recherche à la production avec des modules alignés.",
+          cta_title: "Construisez la prochaine version de Micro Quant",
+          cta_desc:
+            "MicroQuant by Lazying.art est en développement. Rejoignez l’accès anticipé pour orienter les outils LLM et les stratégies sur l’or.",
+          cta_button: "Parlez à l'équipe",
+        },
+        es: {
+          nav_app: "App",
+          nav_llm: "Bucle LLM",
+          nav_stack: "Stack",
+          nav_contact: "Contacto",
+          nav_request: "Solicitar acceso",
+          hero_title: "Flujos micro quant con LLM para oro, FX e índices.",
+          hero_desc:
+            "MicroQuant by Lazying.art combina datos de microestructura con modelos de razonamiento para generar señales, probarlas y ejecutarlas con controles de riesgo.",
+          btn_app: "Ver la app",
+          btn_llm: "Explorar la LLM",
+          section_app_title: "Vista Micro Quant",
+          section_app_subtitle:
+            "Interfaz compacta para diseñar estrategias, comentarios LLM y preparación de ejecución.",
+          section_llm_title: "Bucle de trading LLM",
+          section_llm_subtitle:
+            "Contexto estructurado y registros de auditoría sostienen cada hipótesis.",
+          section_stack_title: "Stack de datos, investigación y despliegue",
+          section_stack_subtitle:
+            "Del cuaderno de investigación a la ejecución con son pipelines modulares.",
+          cta_title: "Construye el próximo Micro Quant",
+          cta_desc:
+            "MicroQuant by Lazying.art sigue en desarrollo. Únete al acceso anticipado para darle forma a las herramientas LLM y las estrategias sobre oro.",
+          cta_button: "Habla con el equipo",
+        },
+      };
+
+      const transElements = document.querySelectorAll("[data-i18n]");
+      const langSelect = document.getElementById("langSelect");
+
+      function applyTranslations(lang) {
+        const locale = translations[lang] ? lang : "en";
+        const dictionary = translations[locale];
+        transElements.forEach((el) => {
+          const key = el.dataset.i18n;
+          if (dictionary && dictionary[key]) {
+            el.textContent = dictionary[key];
+          }
+        });
+      }
+
+      function detectLanguage() {
+        const stored = localStorage.getItem("mqLang");
+        if (stored && stored !== "auto") return stored;
+        const navLang = (navigator.language || navigator.userLanguage || "en").toLowerCase();
+        if (navLang.startsWith("zh-hant") || navLang.startsWith("zh-tw") || navLang.startsWith("zh-hk")) {
+          return "zh-Hant";
+        }
+        if (navLang.startsWith("zh")) return "zh-Hans";
+        if (navLang.startsWith("ja")) return "ja";
+        if (navLang.startsWith("ko")) return "ko";
+        if (navLang.startsWith("vi")) return "vi";
+        if (navLang.startsWith("ar")) return "ar";
+        if (navLang.startsWith("fr")) return "fr";
+        if (navLang.startsWith("es")) return "es";
+        return "en";
+      }
+
+      function setLanguage(selection) {
+        const resolved = selection === "auto" ? detectLanguage() : selection;
+        applyTranslations(resolved);
+        localStorage.setItem("mqLang", selection);
+        langSelect.value = selection;
+      }
+
+      langSelect.addEventListener("change", (event) => {
+        setLanguage(event.target.value);
+      });
+
+      // Initialize language on load
+      const storedLang = localStorage.getItem("mqLang") || "auto";
+      langSelect.value = storedLang;
+      setLanguage(storedLang === "auto" ? "auto" : storedLang);
     </script>
   </body>
 </html>
