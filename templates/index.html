@@ -162,6 +162,45 @@
     .control-group { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 
     .btn { min-width: 0; }
+    .source-panel {
+      padding:6px 12px;
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:12px;
+      margin-bottom:12px;
+    }
+    .source-btn {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      width:100%;
+      padding:12px;
+      border:none;
+      border-radius:10px;
+      font-family:"Space Grotesk", sans-serif;
+      font-weight:600;
+      font-size:14px;
+      letter-spacing:0.04em;
+      text-transform:uppercase;
+      color:#fff;
+      text-decoration:none;
+      background:linear-gradient(135deg, var(--accent), var(--accent2));
+      box-shadow:0 12px 30px rgba(15,18,23,0.22);
+      transition:transform .2s ease, box-shadow .2s ease;
+    }
+    .source-btn:hover {
+      transform:translateY(-2px);
+      box-shadow:0 18px 40px rgba(15,18,23,0.35);
+    }
+    .source-badge {
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:700;
+      letter-spacing:0.08em;
+      background:rgba(255,255,255,0.2);
+    }
     /* Mobile helpers */
     .mobile-only { display:none; }
     @media (max-width: 900px) {
@@ -340,13 +379,15 @@
       </div>
       <div id="rightCol">
         <!-- Data Source Provider button at top of right column -->
-        <div style="padding:8px 12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-bottom:12px;">
-          <a href="https://roboforex.com/"
-             class="efx"
-             target="_blank"
-             rel="noopener noreferrer sponsored"
-             style="display:block; width:100%; max-width:100%; box-sizing:border-box; text-align:center; padding:10px 12px; font-size:13px; font-weight:600; color:#fff; text-decoration:none; border-radius:10px; background:linear-gradient(90deg, var(--accent), var(--accent2)); box-shadow:0 6px 18px rgba(0,0,0,0.12); overflow:hidden;">
-            Data Source Provider
+        <div class="source-panel">
+          <a
+            class="source-btn"
+            href="https://roboforex.com/"
+            target="_blank"
+            rel="noopener noreferrer sponsored"
+          >
+            <span>Data Source</span>
+            <span class="source-badge">Live</span>
           </a>
         </div>
         <!-- News panel -->
