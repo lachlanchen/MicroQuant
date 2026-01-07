@@ -1,4 +1,6 @@
 import os
+import hashlib
+import re
 import json
 import logging
 import asyncio
@@ -48,6 +50,8 @@ from app.db import (
     latest_balance_before,
     insert_signal_trade,
     list_signal_trades,
+    upsert_order_plan_link,
+    list_order_plan_links,
 )
 from app.mt5_client import client as mt5_client
 from app.strategy import crossover_strategy
@@ -64,6 +68,79 @@ except Exception:  # pragma: no cover - optional dependency
 
 EXECUTOR = ThreadPoolExecutor(max_workers=2)
 logger = logging.getLogger("mt5app")
+
+# Toggle noisy background/backfill logging without changing overall log level.
+# Controlled by environment var LOG_BACKFILL (default: 0 / off).
+_LOG_BACKFILL = str(os.getenv("LOG_BACKFILL", "0")).strip().lower() in {"1", "true", "yes", "on"}
+
+def _backfill_info(msg: str, *args, **kwargs) -> None:
+    if _LOG_BACKFILL:
+        try:
+            logger.info(msg, *args, **kwargs)
+        except Exception:
+            pass
+
+def _backfill_warn(msg: str, *args, **kwargs) -> None:
+    if _LOG_BACKFILL:
+        try:
+            logger.warning(msg, *args, **kwargs)
+        except Exception:
+            pass
+
+def _backfill_exc(msg: str, *args, **kwargs) -> None:
+    if _LOG_BACKFILL:
+        try:
+            logger.exception(msg, *args, **kwargs)
+        except Exception:
+            pass
+
+# --- Weights and symbol kind helpers (server-side mirror of client logic) ---
+def _symbol_kind(sym: str) -> str:
+    s = str(sym or "").upper()
+    # FX-style symbols are typically 6–7 uppercase letters; metals prefixed by XAU/XAG
+    if len(s) in (6, 7) and s.isalpha():
+        if s.startswith("XAU") or s.startswith("XAG"):
+            return "metal"
+        return "forex"
+    return "stock"
+
+async def _resolve_symbol_weight(symbol: str) -> float:
+    """Resolve per-symbol weight with fallback to kind default.
+
+    Defaults: forex=0.1, metal=1, stock=1 (matches client).
+    Reads preferences: symbol_weight:<SYMBOL>, kind_weight:forex, kind_weight:metal, kind_weight:stock
+    """
+    s = str(symbol or "").upper()
+    # Defaults by kind
+    kind = _symbol_kind(s)
+    default = 0.1 if kind == "forex" else 1.0
+    try:
+        if GLOBAL_POOL is None:
+            return default
+        keys = [f"symbol_weight:{s}", "kind_weight:forex", "kind_weight:metal", "kind_weight:stock"]
+        prefs = await get_prefs(GLOBAL_POOL, keys)
+        # Per-symbol override
+        raw = prefs.get(f"symbol_weight:{s}")
+        if raw is not None and str(raw).strip() != "":
+            try:
+                v = float(raw)
+                if v > 0:
+                    return v
+            except Exception:
+                pass
+        # Kind fallback
+        key = f"kind_weight:{kind}"
+        rawk = prefs.get(key)
+        if rawk is not None and str(rawk).strip() != "":
+            try:
+                v = float(rawk)
+                if v > 0:
+                    return v
+            except Exception:
+                pass
+        return default
+    except Exception:
+        return default
 
 WS_CLIENTS: set = set()
 NEWS_BACKFILL_CB = None
@@ -391,15 +468,17 @@ ALLOWED_STRATEGIES: dict[str, set[str]] = {
         # Metals variants used for XAU/XAG within forex_pair kind
         "metal_pair_compact_10q_position.json",
         "metal_pair_compact_10q.json",
-        # Tech snapshot remains available for Tech+AI flows
-        "tech_snapshot_10q.json",
+        # Tech snapshot (position variant only) remains available for Tech+AI flows
+        # Deep research (single-question, long-form analysis + position)
+        "deep_research.json",
     },
     "stock": {
         # Compact 10Q + Position (default) and plain 10Q
         "stocks_compact_10q_position.json",
         "stocks_compact_10q.json",
-        # Tech snapshot remains available for Tech+AI flows
-        "tech_snapshot_10q.json",
+        # Tech snapshot (position variant only) remains available for Tech+AI flows
+        # Deep research (single-question, long-form analysis + position)
+        "deep_research.json",
     },
 }
 
@@ -452,6 +531,7 @@ def _build_tech_prompt(question_text: str, symbol: str, timeframe: str | None, s
     allowed = ", ".join(options)
     guidance = (
         "You are good at identifying trend and a high-quality rebound with all your knowledge. "
+        "You are good at set reasonable target profit and stop loss. "
         "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean, shfit from the trend). "
     )
     return (
@@ -467,6 +547,7 @@ def _build_tech_position_prompt(question_text: str, symbol: str, timeframe: str 
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     guidance = (
         "You are good at identifying trend and a high-quality rebound with all your knowledge. "
+        "You are good at set reasonable target profit and stop loss. "
         "Consider both the prevailing trend and potential mean-reversion (overbought/oversold, divergence, deviation from the mean, shfit from the trend). "
     )
     return (
@@ -525,7 +606,7 @@ def _build_pair_position_prompt(
     if latest_tick_line:
         tick_tail = f"{latest_tick_line}\n"
     return (
-        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. Return only valid JSON that matches the schema.\n\n"
+        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
@@ -660,7 +741,7 @@ def _build_stock_prompt_position_question(
     if latest_tick_line:
         tick_tail = f"{latest_tick_line}\n"
     return (
-        "You are a precise equity analyst. Return only valid JSON that matches the schema.\n\n"
+        "You are a precise equity analyst. You are good at set reasonable target profit and stop loss. Return only valid JSON that matches the schema.\n\n"
         "Schema: {position: 'BUY'|'SELL', sl: number, tp: number, explanation: string}.\n"
         "Use uppercase BUY/SELL for 'position'. Explanation cites strongest evidence.\n\n"
         f"Ticker: {ticker}\n{tf_line}\n\n"
@@ -672,7 +753,7 @@ def _build_pair_prompt_one_combined(question_text: str, pair_symbol: str, items:
     blk = _articles_to_text(items)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     return (
-        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
+        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Answer strictly with JSON that matches the schema: {answer:boolean, explanation:string}. "
         "Be decisive: choose YES (true) or NO (false). Provide a brief one-sentence explanation citing the most relevant evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
@@ -691,7 +772,7 @@ def _build_pair_prompt_choice_combined(
     allowed = ", ".join(options)
     tf_line = f"Timeframe: {timeframe}" if timeframe else ""
     return (
-        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
+        "You are an FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Answer strictly with JSON that matches the schema: {answer:string, explanation:string}. "
         f"Choose exactly one from: {allowed}. Be decisive and cite the strongest evidence.\n\n"
         f"Pair: {pair_symbol}\n{tf_line}\n\n"
         f"Articles:\n---\n{blk}\n---\n\n"
@@ -709,7 +790,7 @@ async def run_news_backfill(days: int = 7) -> dict:
     stored = 0
     page = 0
     updated_symbols: dict[str, int] = {}
-    logger.info("[news] backfill start days=%d since=%s to=%s", days, since, to)
+    _backfill_info("[news] backfill start days=%d since=%s to=%s", days, since, to)
     while page < 5:
         try:
             items = await tornado.ioloop.IOLoop.current().run_in_executor(
@@ -779,7 +860,7 @@ async def run_news_backfill(days: int = 7) -> dict:
             items=cnt,
             note=f"days={days}",
         )
-    logger.info("[news] backfill complete fetched=%d inserted=%d days=%d symbols=%s", total, stored, days, sorted(updated_symbols))
+    _backfill_info("[news] backfill complete fetched=%d inserted=%d days=%d symbols=%s", total, stored, days, sorted(updated_symbols))
     return {"ok": True, "fetched": total, "inserted": stored, "days": days, "symbols": sorted(updated_symbols)}
 
 
@@ -1076,11 +1157,29 @@ PREF_KEYS = [
     "last_fast",
     "last_slow",
     "chart_shift",
+    # Unified model + tech snapshot output preferences (mirrored in UI)
     "trade_ai_model",
+    "periodic_ai_model",
     "basic_ai_model",
     "tech_ai_model",
+    "deep_ai_model",
+    "deep_strategy",
+    "deep_news_count",
+    # New: choose classic Tech Snapshot vs Snapshot + History
+    "tech_snapshot_mode",
+    # Alignment policy toggles (default ON in UI)
+    "accept_tech_when_basic_neutral",
+    "hold_on_tech_neutral",
+    # UI overlays and toggles
+    "ai_signals_enabled",
+    # Periodic: ignore Basic signal when deciding trades (default ON)
+    "ignore_basics",
+    # Hide the last Tech+AI report section in history modal (default ON)
+    "hide_last_tech_report",
     "balance_poll_min",
     "closed_orders_poll_min",
+    # Periodic auto-trade partial close fraction (global)
+    "close_fraction:global",
 ]
 
 def _default_backfill_days(tf: str) -> int:
@@ -1273,9 +1372,36 @@ async def _maybe_auto_stl(
     try:
         # Only auto-recompute for H1 and higher timeframes
         allowed = {"H1", "H4", "D1", "W1", "MN1", "Y1"}
-        if (timeframe or "").upper() not in allowed:
+        tfu = (timeframe or "").upper()
+        if tfu not in allowed:
             return
         if not isinstance(inserted, int) or inserted <= 0:
+            return
+
+        # Respect UI intent: run lazily only when auto periodic is enabled
+        # and when this symbol×TF is the currently selected pair (persisted via fetch?persist=1)
+        want_auto = False
+        try:
+            prefs = await get_prefs(pool, [
+                "auto_trade_periodic:global",
+                "last_symbol",
+                "last_tf",
+                f"stl_auto_compute:{symbol.upper()}:{tfu}",
+            ])
+            # Explicit per-symbol×TF override can force-enable/disable
+            override = (prefs.get(f"stl_auto_compute:{symbol.upper()}:{tfu}") or "").strip().lower()
+            if override in {"0", "false", "no", "off"}:
+                return
+            if override in {"1", "true", "yes", "on"}:
+                want_auto = True
+            else:
+                auto_enabled = (str(prefs.get("auto_trade_periodic:global") or "0").strip() == "1")
+                last_sym = str(prefs.get("last_symbol") or "").upper()
+                last_tf = str(prefs.get("last_tf") or "").upper()
+                want_auto = auto_enabled and (last_sym == str(symbol or "").upper()) and (last_tf == tfu)
+        except Exception:
+            want_auto = False
+        if not want_auto:
             return
         event_scope = "auto_stl"
         # Announce schedule
@@ -1297,6 +1423,17 @@ async def _maybe_auto_stl(
             end_dt=None,
             max_points=limit_points,
         )
+        # Prune older STL runs for this symbol×TF (keep latest only)
+        try:
+            runs = await list_stl_runs(pool, str(symbol).upper(), tfu)
+            if runs and len(runs) > 1:
+                for old in runs[1:]:
+                    try:
+                        await delete_stl_run(pool, int(old["id"]))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         await emit_stl_event(
             symbol=symbol,
             timeframe=timeframe,
@@ -1413,7 +1550,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
     """Kick off a lightweight background job to enrich history for a symbol across timeframes."""
     tfs = timeframes or ALL_TIMEFRAMES
     loop = tornado.ioloop.IOLoop.current()
-    logger.info("[backfill] scheduling %s across %d timeframes", symbol, len(tfs))
+    _backfill_info("[backfill] scheduling %s across %d timeframes", symbol, len(tfs))
 
     async def _runner():
         now = datetime.now(timezone.utc)
@@ -1431,7 +1568,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                     fetch_mode_name = "since"
                 if bars:
                     inserted = await upsert_ohlc_bars(pool, bars)
-                    logger.info("[backfill] %s %s +%d bars (inserted=%d)", symbol, tf, len(bars), inserted)
+                    _backfill_info("[backfill] %s %s +%d bars (inserted=%d)", symbol, tf, len(bars), inserted)
                     await emit_fetch_event(
                         symbol=symbol,
                         timeframe=tf,
@@ -1463,7 +1600,7 @@ def schedule_symbol_backfill(pool, symbol: str, *, timeframes: list[str] | None 
                         note=f"~{days}d window (no new bars)",
                     )
             except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("[backfill] %s %s failed: %s", symbol, tf, exc)
+                _backfill_warn("[backfill] %s %s failed: %s", symbol, tf, exc)
                 await emit_fetch_event(
                     symbol=symbol,
                     timeframe=tf,
@@ -1556,7 +1693,7 @@ async def _perform_fetch(
                         new_bars = await loop.run_in_executor(EXECUTOR, fetch_fn)
                         if new_bars:
                             await upsert_ohlc_bars(pool, new_bars)
-                            logger.info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
+                            _backfill_info("/api/fetch full_async backfill %s %s: +%d", symbol, timeframe, len(new_bars))
                             await emit_fetch_event(
                                 symbol=symbol,
                                 timeframe=timeframe,
@@ -1583,7 +1720,7 @@ async def _perform_fetch(
                                 note=f"backfill ~{days}d (no new bars)",
                             )
                     except Exception as exc:  # pragma: no cover - logging only
-                        logger.exception("full_async backfill failed for %s %s: %s", symbol, timeframe, exc)
+                        _backfill_exc("full_async backfill failed for %s %s: %s", symbol, timeframe, exc)
                         await emit_fetch_event(
                             symbol=symbol,
                             timeframe=timeframe,
@@ -1812,6 +1949,22 @@ class MainHandler(tornado.web.RequestHandler):
             except Exception:
                 extras = {}
                 logger.debug("no prefs yet for last_symbol/last_tf")
+
+        # Load custom symbols list (comma-separated) to extend supported set
+        try:
+            if pool is not None:
+                custom = await get_pref(pool, "custom_symbols")
+                if isinstance(custom, str) and custom.strip():
+                    extra_syms = []
+                    for item in custom.split(','):
+                        s = item.strip().upper()
+                        if s and s not in SUPPORTED_SYMBOLS and s not in extra_syms:
+                            extra_syms.append(s)
+                    if extra_syms:
+                        # Extend the in-memory list for this process so validation and rendering match
+                        SUPPORTED_SYMBOLS.extend(extra_syms)
+        except Exception:
+            logger.debug("failed to merge custom_symbols preference")
 
         # Determine initial symbol/timeframe
         if pin_defaults:
@@ -2226,9 +2379,11 @@ async def make_app():
             (r"/api/data", DataHandler, dict(pool=pool)),
             (r"/api/strategy/run", StrategyHandler, dict(pool=pool)),
             (r"/api/trade", TradeHandler),
+            (r"/api/trade/execute_plan", ExecutePlanHandler),
             (r"/api/close", CloseHandler),
             (r"/api/positions", PositionsHandler),
             (r"/api/positions/all", PositionsAllHandler),
+            (r"/api/close_tickets", CloseTicketsHandler),
             (r"/api/tick", TickHandler),
             (r"/api/health/freshness", HealthFreshnessHandler, dict(pool=pool)),
             (r"/api/tech/freshness", TechFreshnessHandler, dict(pool=pool)),
@@ -2236,8 +2391,11 @@ async def make_app():
             (r"/api/account/closed_deals_sync", ClosedDealsSyncHandler),
             (r"/api/stl", STLHandler, dict(pool=pool)),
             (r"/api/stl/run/([0-9]+)", STLDeleteHandler, dict(pool=pool)),
+            (r"/api/stl/prune", STLPruneHandler, dict(pool=pool)),
+            (r"/api/stl/prune_all", STLPruneAllHandler, dict(pool=pool)),
             (r"/api/stl/compute", STLComputeHandler, dict(pool=pool)),
             (r"/api/news", NewsHandler, dict(pool=pool)),
+            (r"/api/tech/snapshot_plus_history", TechSnapshotHistoryHandler, dict(pool=pool)),
             (r"/api/account/closed_deals", ClosedDealsHandler),
             # Backfill latest forex + equities news into DB
             (r"/api/news/backfill_forex", NewsBackfillHandler, dict(pool=pool)),
@@ -2275,7 +2433,7 @@ class StrategyHandler(tornado.web.RequestHandler):
         closes = [r["close"] for r in rows if r.get("close") is not None]
         sig = crossover_strategy(closes, fast=fast, slow=slow)
 
-        # SMA strategy trading is disabled: only return the signal; do not place orders here
+        # SMA strategy trading is disabled: return the signal only and never place orders here.
         enabled = False
         trade_result = None
 
@@ -2315,6 +2473,24 @@ class TradeHandler(tornado.web.RequestHandler):
         slow = self.get_argument("slow", default=None)
         reason = self.get_argument("reason", default=None)
         source = self.get_argument("source", default=None)
+
+        # Block trades routed from the SMA helper to avoid accidental fixed-volume
+        # submissions while keeping the UI visible and functional.
+        try:
+            if (strategy or "").lower() == "sma_crossover":
+                logger.info("/api/trade blocked for SMA strategy")
+                self.set_status(403)
+                self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
+                self.finish(json.dumps({
+                    "ok": False,
+                    "error": "sma_trading_disabled",
+                    "strategy": strategy,
+                }))
+                return
+        except Exception:
+            # Continue if param missing
+            pass
         try:
             fast_i = int(fast) if fast not in (None, "") else None
         except Exception:
@@ -2324,7 +2500,7 @@ class TradeHandler(tornado.web.RequestHandler):
         except Exception:
             slow_i = None
         logger.info("/api/trade symbol=%s side=%s volume=%s", symbol, side, volume)
-        # Safe max lots guard (enforcement)
+        # Safe max lots guard (enforcement) — weighted exposure
         try:
             safe_max = None
             use_global = False
@@ -2351,31 +2527,47 @@ class TradeHandler(tornado.web.RequestHandler):
                     except Exception:
                         pass
             if safe_max and safe_max > 0:
-                # Sum open lots globally when global cap; else only for this symbol
+                # Sum weighted exposure:
+                #  - global cap → sum over all symbols: lots_raw × weight(symbol)
+                #  - per-symbol cap → sum lots_raw for this symbol × its weight
                 try:
-                    if use_global:
-                        positions = mt5_client.list_positions_all()
-                    else:
-                        positions = mt5_client.list_positions(symbol)
+                    positions = mt5_client.list_positions_all() if use_global else mt5_client.list_positions(symbol)
                 except Exception:
                     positions = []
-                open_lots = 0.0
+                open_weighted = 0.0
+                weight_details = []
                 try:
                     for p in positions:
-                        v = p.get("volume") if isinstance(p, dict) else None
-                        if v is not None:
-                            open_lots += float(v)
+                        sym_p = str(p.get("symbol") if isinstance(p, dict) else symbol)
+                        lots = float(p.get("volume") or 0.0) if isinstance(p, dict) else 0.0
+                        w = await _resolve_symbol_weight(sym_p)
+                        if not use_global and sym_p.upper() != str(symbol).upper():
+                            continue
+                        contrib = lots * (w if w > 0 else 1.0)
+                        open_weighted += contrib
+                        weight_details.append({"symbol": sym_p, "lots": lots, "weight": w, "contrib": contrib})
                 except Exception:
                     pass
-                # Enforce strict cap: block if already at/over, or if this request would exceed
-                if (open_lots + float(volume)) > safe_max or open_lots >= safe_max:
-                    logger.info("/api/trade skip: safe_max reached (global=%s open=%.3f safe=%.3f)", use_global, open_lots, safe_max)
+                w_req = await _resolve_symbol_weight(symbol)
+                req_weighted = float(volume) * (w_req if w_req > 0 else 1.0)
+                # Enforce strict cap (weighted): block if already at/over, or if this request would exceed
+                if (open_weighted + req_weighted) > safe_max or open_weighted >= safe_max:
+                    logger.info("/api/trade skip: safe_max reached (global=%s open_weighted=%.3f safe=%.3f)", use_global, open_weighted, safe_max)
                     self.set_header("Content-Type", "application/json")
                     self.set_header("Cache-Control", "no-store")
                     self.finish(json.dumps({
                         "ok": False,
                         "error": "safe_max_exceeded",
-                        "result": {"ok": False, "skipped": True, "retcode": "SKIP_SAFE_MAX", "open_lots": open_lots, "req_volume": float(volume), "safe_max": safe_max, "global": use_global},
+                        "result": {
+                            "ok": False,
+                            "skipped": True,
+                            "retcode": "SKIP_SAFE_MAX",
+                            "open_lots_weighted": open_weighted,
+                            "req_volume_weighted": req_weighted,
+                            "safe_max": safe_max,
+                            "global": use_global,
+                            "weights": weight_details,
+                        },
                     }))
                     return
         except Exception:
@@ -2428,6 +2620,329 @@ class TradeHandler(tornado.web.RequestHandler):
         return await self.get()
 
 
+class ExecutePlanHandler(tornado.web.RequestHandler):
+    async def post(self):
+        try:
+            payload = json.loads(self.request.body or b"{}")
+        except Exception:
+            payload = {}
+        enabled = (os.getenv("TRADING_ENABLED", "0").lower() in ("1", "true", "yes"))
+        if not enabled:
+            self.set_status(403)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": "trading_disabled (set TRADING_ENABLED=1)"}))
+            return
+        symbol = str(payload.get("symbol") or default_symbol())
+        side = str(payload.get("side") or "buy").lower()
+        volume = float(payload.get("volume") or 0.01)
+        timeframe = str(payload.get("tf") or "") or None
+        # Plan SL/TP and toggle
+        plan_sl = payload.get("sl")
+        plan_tp = payload.get("tp")
+        sl_enabled = bool(payload.get("sl_enabled") or False)
+
+        # Optional plan run id for traceability
+        try:
+            plan_run_id = int(payload.get("plan_run_id")) if payload.get("plan_run_id") is not None else None
+        except Exception:
+            plan_run_id = None
+        # Begin log
+        try:
+            logger.info(
+                "/api/trade/execute_plan start symbol=%s side=%s tf=%s vol=%.3f sl_enabled=%s plan_run_id=%s",
+                symbol, side, timeframe, volume, sl_enabled, plan_run_id
+            )
+        except Exception:
+            pass
+
+        # 1) Close opposite direction positions for this symbol
+        opp = "short" if side == "buy" else "long"
+        try:
+            closed = mt5_client.close_all_for(symbol, side=opp)
+        except Exception as exc:
+            closed = [{"ok": False, "error": str(exc)}]
+        # Log summary of close step
+        try:
+            closed_count = len(closed) if isinstance(closed, list) else 0
+            codes = [int(x.get("retcode", -1)) for x in (closed or []) if isinstance(x, dict)]
+            ok = sum(1 for c in codes if c == getattr(mt5_client.mt5, "TRADE_RETCODE_DONE", 10009)) if hasattr(mt5_client, 'mt5') else sum(1 for c in codes if c == 10009)
+            logger.info(
+                "/api/trade/execute_plan pre-close opposite symbol=%s proceed_side=%s close_side=%s closed=%d ok=%d/%d codes=%s",
+                symbol, side, opp, closed_count, ok, len(codes), codes[:10]
+            )
+        except Exception:
+            pass
+
+        # 2) Update SL/TP for existing positions in the same direction
+        #    Rule: move both SL and TP to the mean (midpoint) of existing and plan values.
+        #    - SL updates only when sl_enabled and plan SL provided (client applies any nudge before sending).
+        #    - TP updates when plan TP provided.
+        modified: list[dict] = []
+        try:
+            pos = mt5_client.list_positions(symbol)
+            want_type = 0 if side == "buy" else 1
+            for p in pos:
+                if int(p.get("type", -1)) != want_type:
+                    continue
+                ticket = int(p.get("ticket") or 0)
+                if not ticket:
+                    continue
+                old_sl = float(p.get("sl") or 0.0) or None
+                old_tp = float(p.get("tp") or 0.0) or None
+                # Take Profit: compute midpoint and only move closer to price
+                if plan_tp is not None:
+                    try:
+                        plan_tp_f = float(plan_tp)
+                        if old_tp is None or old_tp == 0:
+                            new_tp = plan_tp_f
+                        else:
+                            mid_tp = (old_tp + plan_tp_f) / 2.0
+                            # BUY: closer TP is lower → pick min(mid, old)
+                            # SELL: closer TP is higher → pick max(mid, old)
+                            new_tp = min(mid_tp, old_tp) if side == "buy" else max(mid_tp, old_tp)
+                    except Exception:
+                        new_tp = old_tp
+                else:
+                    new_tp = old_tp
+                # Stop Loss: only when enabled and plan SL provided; compute midpoint and only move further
+                new_sl = old_sl
+                if sl_enabled and (plan_sl is not None):
+                    try:
+                        plan_sl_f = float(plan_sl)
+                        if old_sl is None or old_sl == 0:
+                            new_sl = plan_sl_f
+                        else:
+                            mid_sl = (old_sl + plan_sl_f) / 2.0
+                            # BUY: further SL is lower → pick min(mid, old)
+                            # SELL: further SL is higher → pick max(mid, old)
+                            new_sl = min(mid_sl, old_sl) if side == "buy" else max(mid_sl, old_sl)
+                    except Exception:
+                        new_sl = old_sl
+                # Only send modify if any change
+                if (new_sl != old_sl) or (new_tp != old_tp):
+                    res = mt5_client.modify_position_sltp(symbol, ticket, new_sl, new_tp)
+                    entry = {
+                        "symbol": symbol,
+                        "ticket": ticket,
+                        "side": side,
+                        "old_sl": old_sl,
+                        "old_tp": old_tp,
+                        "new_sl": new_sl,
+                        "new_tp": new_tp,
+                        **({"ok": res.get("ok")} if isinstance(res, dict) else {}),
+                        **({"retcode": res.get("retcode")} if isinstance(res, dict) else {}),
+                        **({"order": res.get("order")} if isinstance(res, dict) else {}),
+                        **({"deal": res.get("deal")} if isinstance(res, dict) else {}),
+                        **({"comment": res.get("comment")} if isinstance(res, dict) else {}),
+                    }
+                    modified.append(entry)
+                    try:
+                        logger.info("/api/trade/execute_plan modify ticket=%s side=%s old_sl=%s old_tp=%s new_sl=%s new_tp=%s ret=%s order=%s",
+                                    ticket, side, old_sl, old_tp, new_sl, new_tp, entry.get("retcode"), entry.get("order"))
+                    except Exception:
+                        pass
+        except Exception as exc:
+            modified.append({"ok": False, "error": f"modify_failed: {exc}"})
+
+        # 3) Enforce safe max lots right before placing order
+        try:
+            safe_max = None
+            use_global = False
+            if GLOBAL_POOL is not None:
+                tf_key = f"safe_max_lots:{symbol}:{timeframe}" if timeframe else None
+                keys = ["safe_max_lots:global"] + ([tf_key] if tf_key else [])
+                prefs = await get_prefs(GLOBAL_POOL, keys)
+                try:
+                    gval = prefs.get("safe_max_lots:global")
+                    if gval is not None and str(gval).strip() != "":
+                        gv = float(gval)  # type: ignore
+                        if gv > 0:
+                            safe_max = gv
+                            use_global = True
+                except Exception:
+                    pass
+                if safe_max is None and tf_key and prefs.get(tf_key) is not None:
+                    try:
+                        v = float(prefs[tf_key])  # type: ignore
+                        if v > 0:
+                            safe_max = v
+                            use_global = False
+                    except Exception:
+                        pass
+            if safe_max and safe_max > 0:
+                try:
+                    positions = mt5_client.list_positions_all() if use_global else mt5_client.list_positions(symbol)
+                except Exception:
+                    positions = []
+                open_weighted = 0.0
+                weight_details = []
+                try:
+                    for p in positions:
+                        sym_p = str(p.get("symbol") if isinstance(p, dict) else symbol)
+                        lots = float(p.get("volume") or 0.0) if isinstance(p, dict) else 0.0
+                        w = await _resolve_symbol_weight(sym_p)
+                        if not use_global and sym_p.upper() != str(symbol).upper():
+                            continue
+                        contrib = lots * (w if w > 0 else 1.0)
+                        open_weighted += contrib
+                        weight_details.append({"symbol": sym_p, "lots": lots, "weight": w, "contrib": contrib})
+                except Exception:
+                    pass
+                w_req = await _resolve_symbol_weight(symbol)
+                req_weighted = float(volume) * (w_req if w_req > 0 else 1.0)
+                if (open_weighted + req_weighted) > safe_max or open_weighted >= safe_max:
+                    try:
+                        logger.info(
+                            "/api/trade/execute_plan safe_max_exceeded symbol=%s side=%s open_w=%.3f req_w=%.3f safe=%.3f scope=%s",
+                            symbol, side, open_weighted, req_weighted, safe_max, 'global' if use_global else 'symbol'
+                        )
+                    except Exception:
+                        pass
+                    self.set_header("Content-Type", "application/json")
+                    self.set_header("Cache-Control", "no-store")
+                    self.finish(json.dumps({
+                        "ok": False,
+                        "error": "safe_max_exceeded_post_plan",
+                        "closed": closed,
+                        "modified": modified,
+                        "open_lots_weighted": open_weighted,
+                        "req_volume_weighted": req_weighted,
+                        "safe_max": safe_max,
+                        "global": use_global,
+                        "weights": weight_details,
+                    }))
+                    return
+        except Exception:
+            pass
+
+        # Place order as requested, with SL if enabled; TP as provided
+        try:
+            sl_val = float(plan_sl) if (sl_enabled and plan_sl is not None) else None
+        except Exception:
+            sl_val = None
+        try:
+            tp_val = float(plan_tp) if (plan_tp is not None) else None
+        except Exception:
+            tp_val = None
+        # Preflight broker stop distance: if TP/SL violate stops_level, skip order entirely
+        try:
+            info = mt5_client.symbol_info(symbol)
+            point = float(getattr(info, "point", 0.0) or 0.0) if info else 0.0
+            stops_lvl = None
+            for k in ("trade_stops_level", "stops_level"):
+                try:
+                    v = getattr(info, k)
+                    if v is not None:
+                        stops_lvl = float(v)
+                        break
+                except Exception:
+                    continue
+            min_dist = (stops_lvl or 0.0) * point
+            # Fetch current price for side
+            px = None
+            try:
+                t = mt5_client.get_tick(symbol)
+                if t:
+                    px = float(t.get("ask") if side == "buy" else t.get("bid"))
+            except Exception:
+                px = None
+            invalid_tp = False
+            invalid_sl = False
+            dist_tp = None
+            dist_sl = None
+            if px is not None and min_dist and min_dist > 0.0:
+                if tp_val is not None:
+                    dist_tp = float((tp_val - px) if side == "buy" else (px - tp_val))
+                    invalid_tp = (dist_tp < float(min_dist))
+                if sl_val is not None:
+                    dist_sl = float((px - sl_val) if side == "buy" else (sl_val - px))
+                    invalid_sl = (dist_sl < float(min_dist))
+            if invalid_tp or invalid_sl:
+                try:
+                    logger.info(
+                        "/api/trade/execute_plan preflight invalid_stops symbol=%s side=%s px=%s min_dist=%s tp=%s dist_tp=%s sl=%s dist_sl=%s stops_level=%s point=%s",
+                        symbol,
+                        side,
+                        f"{px:.10f}" if px is not None else "None",
+                        f"{min_dist:.10f}" if min_dist is not None else "None",
+                        f"{tp_val:.10f}" if tp_val is not None else "None",
+                        f"{dist_tp:.10f}" if dist_tp is not None else "None",
+                        f"{sl_val:.10f}" if sl_val is not None else "None",
+                        f"{dist_sl:.10f}" if dist_sl is not None else "None",
+                        stops_lvl,
+                        point,
+                    )
+                except Exception:
+                    pass
+                self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
+                self.finish(json.dumps({
+                    "ok": False,
+                    "error": "invalid_stops_preflight",
+                    "closed": closed,
+                    "modified": modified,
+                    "details": {
+                        "invalid_tp": bool(invalid_tp),
+                        "invalid_sl": bool(invalid_sl),
+                        "price": px,
+                        "min_distance": min_dist,
+                        "dist_tp": dist_tp,
+                        "dist_sl": dist_sl,
+                        "side": side,
+                        "tp": tp_val,
+                        "sl": sl_val,
+                        "stops_level_points": stops_lvl,
+                        "point": point,
+                    }
+                }))
+                return
+        except Exception:
+            pass
+        try:
+            # Prepare a compact comment that tags the order with the originating plan (if provided)
+            # and a short hash so we can correlate later from positions → plan.
+            com = "auto-quant"
+            try:
+                base = f"{symbol}|{side}|{timeframe or ''}|{sl_val or ''}|{tp_val or ''}|{plan_run_id or ''}"
+                h = hashlib.sha1(base.encode("utf-8")).hexdigest()[:6]
+                if plan_run_id is not None:
+                    com = f"aq:pl=r{plan_run_id}x{h}"
+                else:
+                    com = f"aq:pl=x{h}"
+                # MT5 retail comment limit ~31 chars; ensure we are short
+                if len(com) > 28:
+                    com = com[:28]
+            except Exception:
+                pass
+            res = mt5_client.place_market(symbol, side, volume, sl=sl_val, tp=tp_val, comment=com)
+        except Exception as e:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({
+                "ok": False,
+                "error": str(e),
+                "closed": closed,
+                "modified": modified,
+            }))
+            return
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        try:
+            rc = int(res.get("retcode", -1)) if isinstance(res, dict) else -1
+            oid = (res.get("order") or res.get("deal")) if isinstance(res, dict) else None
+            logger.info("/api/trade/execute_plan order symbol=%s side=%s vol=%.2f retcode=%s id=%s", symbol, side, volume, rc, oid)
+        except Exception:
+            pass
+        self.finish(json.dumps({
+            "ok": bool(res.get("ok")) if isinstance(res, dict) else False,
+            "order_result": res,
+            "closed": closed,
+            "modified": modified,
+        }))
+
+
 class SignalTradesHandler(tornado.web.RequestHandler):
     def initialize(self, pool):
         self.pool = pool
@@ -2456,9 +2971,13 @@ class CloseHandler(tornado.web.RequestHandler):
         scope = self.get_argument("scope", default="current").lower()
         symbol = self.get_argument("symbol", default=default_symbol())
         side = self.get_argument("side", default="both").lower()
+        reason = self.get_argument("reason", default=None)
         if side not in {"both", "long", "short"}:
             side = "both"
-        logger.info("/api/close scope=%s symbol=%s side=%s", scope, symbol, side)
+        if reason:
+            logger.info("/api/close scope=%s symbol=%s side=%s reason=%s", scope, symbol, side, reason)
+        else:
+            logger.info("/api/close scope=%s symbol=%s side=%s", scope, symbol, side)
         try:
             if scope == "all":
                 res = mt5_client.close_all(side=None if side == "both" else side)
@@ -2481,14 +3000,93 @@ class CloseHandler(tornado.web.RequestHandler):
         try:
             codes = [int(x.get("retcode", -1)) for x in (res or []) if isinstance(x, dict)]
             ok = sum(1 for c in codes if c == getattr(mt5_client.mt5, "TRADE_RETCODE_DONE", 10009)) if hasattr(mt5_client, 'mt5') else sum(1 for c in codes if c == 10009)
-            logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d ok=%d/%d codes=%s", scope, symbol, side, closed_count, ok, len(codes), codes[:10])
+            if reason:
+                logger.info("/api/close done scope=%s symbol=%s side=%s reason=%s closed=%d ok=%d/%d codes=%s", scope, symbol, side, reason, closed_count, ok, len(codes), codes[:10])
+            else:
+                logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d ok=%d/%d codes=%s", scope, symbol, side, closed_count, ok, len(codes), codes[:10])
         except Exception:
-            logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d", scope, symbol, side, closed_count)
+            if reason:
+                logger.info("/api/close done scope=%s symbol=%s side=%s reason=%s closed=%d", scope, symbol, side, reason, closed_count)
+            else:
+                logger.info("/api/close done scope=%s symbol=%s side=%s closed=%d", scope, symbol, side, closed_count)
         self.finish(json.dumps({"ok": True, "closed": res, "closed_count": closed_count, "scope": scope, "side": side}))
 
     async def post(self):
         return await self.get()
 
+
+class CloseTicketsHandler(tornado.web.RequestHandler):
+    async def post(self):
+        # Allow subset closures regardless of TRADING_ENABLED
+        try:
+            payload = json.loads(self.request.body or b"{}")
+        except Exception:
+            payload = {}
+        symbol = str(payload.get("symbol") or "").upper()
+        tickets = payload.get("tickets") or []
+        reason = payload.get("reason")
+        side = str(payload.get("side") or "").lower()
+        if not isinstance(tickets, list) or not tickets:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "tickets array required"}))
+            return
+        # Fetch raw positions from MT5 for this symbol (fall back to all when symbol empty)
+        try:
+            raw = mt5_client.positions_for(symbol) if symbol else (getattr(mt5_client.mt5, 'positions_get')() or [])
+        except Exception:
+            raw = []
+        # Index by ticket and filter by optional side
+        idx = {}
+        try:
+            buy_t = getattr(mt5_client.mt5, "POSITION_TYPE_BUY", 0) if hasattr(mt5_client, 'mt5') else 0
+            sell_t = getattr(mt5_client.mt5, "POSITION_TYPE_SELL", 1) if hasattr(mt5_client, 'mt5') else 1
+        except Exception:
+            buy_t, sell_t = 0, 1
+        for p in raw:
+            try:
+                t = int(getattr(p, "ticket", 0))
+                if not t:
+                    continue
+                if side == "long" and int(getattr(p, "type", -1)) != buy_t:
+                    continue
+                if side == "short" and int(getattr(p, "type", -1)) != sell_t:
+                    continue
+                idx[t] = p
+            except Exception:
+                continue
+        # Close the requested tickets in order provided
+        closed: list[dict] = []
+        for t in tickets:
+            try:
+                ti = int(t)
+            except Exception:
+                continue
+            p = idx.get(ti)
+            if not p:
+                continue
+            try:
+                res = mt5_client.close_position(p)
+            except Exception as exc:
+                res = {"ok": False, "ticket": ti, "error": str(exc)}
+            try:
+                res["ticket"] = ti
+            except Exception:
+                pass
+            closed.append(res)
+        # Logging summary
+        try:
+            codes = [int(x.get("retcode", -1)) for x in (closed or []) if isinstance(x, dict)]
+            ok = sum(1 for c in codes if c == getattr(mt5_client.mt5, "TRADE_RETCODE_DONE", 10009)) if hasattr(mt5_client, 'mt5') else sum(1 for c in codes if c == 10009)
+            if reason:
+                logger.info("/api/close_tickets symbol=%s reason=%s requested=%d closed=%d ok=%d/%d", symbol or '*', reason, len(tickets), len(closed), ok, len(codes))
+            else:
+                logger.info("/api/close_tickets symbol=%s requested=%d closed=%d ok=%d/%d", symbol or '*', len(tickets), len(closed), ok, len(codes))
+        except Exception:
+            pass
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({"ok": True, "closed": closed, "closed_count": len(closed)}))
 
 class PositionsHandler(tornado.web.RequestHandler):
     async def get(self):
@@ -2539,6 +3137,266 @@ class TickHandler(tornado.web.RequestHandler):
         self.finish(json.dumps({"ok": True, "tick": t}))
 
 
+class TechSnapshotHistoryHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def get(self):
+        symbol = str(self.get_argument("symbol", default=default_symbol())).upper()
+        timeframe = str(self.get_argument("tf", default="H1")).upper()
+
+        # Determine kind for list_health_runs
+        kind = "forex_pair" if _is_fx_symbol(symbol) else "stock"
+
+        # Helper: serialize a health run for compact UI use
+        def _ser_run(run: dict | None) -> dict | None:
+            if not run:
+                return None
+            created_at = run.get("created_at")
+            if created_at and hasattr(created_at, "isoformat"):
+                created_at = created_at.isoformat()
+            ans = run.get("answers_json") or {}
+            # Extract a few common fields if present
+            score = ans.get("score")
+            signal = ans.get("signal")
+            strategy = ans.get("strategy")
+            meta = ans.get("meta") or {}
+            return {
+                "id": run.get("id"),
+                "created_at": created_at,
+                "strategy": strategy,
+                "score": score,
+                "signal": signal,
+                "answers": ans,
+                "meta": meta,
+            }
+
+        last_periodic_tech: dict | None = None
+        last_three_plans: list[dict] = []
+        try:
+            # Pull recent auto logs and pick periodic ones
+            # Strategy 'auto_ai_trade' stores references to basic/tech/plan run ids in answers_json.meta
+            runs = await list_health_runs(
+                self.pool,
+                kind=kind,
+                symbol=(symbol if kind == "stock" else None),
+                base_ccy=(symbol[:3] if kind == "forex_pair" else None),
+                quote_ccy=(symbol[3:6] if kind == "forex_pair" else None),
+                limit=30,
+                offset=0,
+                strategy="auto_ai_trade",
+            )
+            # Filter periodic first; fall back to any auto run if none are marked periodic
+            def _is_periodic(r: dict) -> bool:
+                try:
+                    meta = (r.get("answers_json") or {}).get("meta") or {}
+                    return bool(meta.get("periodic"))
+                except Exception:
+                    return False
+            periodic = [r for r in runs if _is_periodic(r)]
+            ordered = periodic if periodic else runs
+
+            # Latest periodic tech run id
+            tech_run_id = None
+            if ordered:
+                try:
+                    meta = (ordered[0].get("answers_json") or {}).get("meta") or {}
+                    val = meta.get("tech_run_id")
+                    if val is not None:
+                        tech_run_id = int(val)
+                except Exception:
+                    tech_run_id = None
+            if tech_run_id is not None:
+                try:
+                    tech_run = await get_health_run_by_id(self.pool, tech_run_id)
+                except Exception:
+                    tech_run = None
+                last_periodic_tech = _ser_run(tech_run)
+                # Attach scoring thresholds from the strategy json, if available
+                try:
+                    if last_periodic_tech:
+                        ans = last_periodic_tech.get("answers") or {}
+                        strategy_name = str(ans.get("strategy") or "tech_snapshot_10q_position.json")
+                        strat = _load_strategy_json(strategy_name)
+                        thresholds = ((strat.get("scoring") or {}).get("thresholds") or []) if isinstance(strat, dict) else []
+                        last_periodic_tech["thresholds"] = thresholds
+                except Exception:
+                    pass
+
+            # Collect up to three most recent plan runs referenced by periodic auto logs
+            plan_ids: list[int] = []
+            for r in ordered:
+                try:
+                    meta = (r.get("answers_json") or {}).get("meta") or {}
+                    pid = meta.get("plan_run_id")
+                    if pid is not None:
+                        plan_ids.append(int(pid))
+                except Exception:
+                    continue
+                # no fixed cap here; we will slice later based on open orders count
+            for pid in plan_ids:
+                try:
+                    pr = await get_health_run_by_id(self.pool, pid)
+                    s = _ser_run(pr)
+                    if s:
+                        last_three_plans.append(s)
+                except Exception:
+                    continue
+        except Exception:
+            # Non-fatal: continue with empty history
+            last_periodic_tech = None
+            last_three_plans = []
+
+        # Open positions + latest tick + account
+        try:
+            positions = mt5_client.list_positions(symbol)
+        except Exception:
+            positions = []
+        try:
+            tick = mt5_client.get_tick(symbol)
+        except Exception:
+            tick = None
+        # Account info (current session)
+        try:
+            acct = mt5_client.account_info()
+        except Exception:
+            acct = None
+
+        # Size the plans list to match open orders count when present; otherwise show last 3
+        try:
+            want = len(positions) if isinstance(positions, list) else 0
+            if want > 0:
+                last_three_plans = last_three_plans[:want]
+            else:
+                last_three_plans = last_three_plans[:3]
+        except Exception:
+            pass
+
+        # Build per-position ↔ plan links using comment tag when present, else nearest plan by time
+        order_plan_links: list[dict] = []
+        try:
+            # Preload a pool of recent plans for fallback matching
+            recent_plans = await list_health_runs(
+                self.pool,
+                kind=kind,
+                symbol=(symbol if kind == "stock" else None),
+                base_ccy=(symbol[:3] if kind == "forex_pair" else None),
+                quote_ccy=(symbol[3:6] if kind == "forex_pair" else None),
+                limit=50,
+                offset=0,
+                strategy="ai_trade_plan",
+            )
+            # Optional timeframe filter on answers_json.meta.timeframe
+            tf_up = timeframe.upper()
+            def _tf_ok(run: dict) -> bool:
+                try:
+                    ans = run.get("answers_json") or {}
+                    meta = ans.get("meta") or {}
+                    return str(meta.get("timeframe") or "").upper() == tf_up
+                except Exception:
+                    return True
+            recent_plans = [r for r in recent_plans if _tf_ok(r)]
+            # Serialize once
+            ser_plans: list[dict] = []
+            for r in recent_plans:
+                s = _ser_run(r)
+                if s:
+                    ser_plans.append(s)
+            # Index by id for quick lookup
+            plan_by_id = {int(s["id"]): s for s in ser_plans if s.get("id") is not None}
+
+            tag_re = re.compile(r"aq:pl=r(\d+)x([0-9a-fA-F]{6})")
+            from datetime import datetime as _dt, timezone as _tz
+            for p in (positions or []):
+                try:
+                    ticket = int(p.get("ticket") or 0)
+                except Exception:
+                    ticket = 0
+                comment = str(p.get("comment") or "")
+                # 1) Tag-based match
+                match = tag_re.search(comment)
+                linked = None
+                method = None
+                tag_text = None
+                if match:
+                    try:
+                        rid = int(match.group(1))
+                        linked = plan_by_id.get(rid)
+                        method = "tag"
+                        tag_text = f"r{rid}x{match.group(2)}"
+                    except Exception:
+                        linked = None
+                # 2) Nearest-by-time fallback
+                if linked is None:
+                    try:
+                        ts = int(p.get("time") or 0)
+                        when = _dt.fromtimestamp(ts, tz=_tz.utc) if ts else None
+                    except Exception:
+                        when = None
+                    if when and ser_plans:
+                        # Choose plan with minimal |created_at - when|
+                        best = None
+                        best_delta = None
+                        for s in ser_plans:
+                            try:
+                                ca = s.get("created_at")
+                                ca_dt = _dt.fromisoformat(ca) if isinstance(ca, str) else None
+                            except Exception:
+                                ca_dt = None
+                            if not ca_dt:
+                                continue
+                            delta = abs((ca_dt - when).total_seconds())
+                            if (best_delta is None) or (delta < best_delta):
+                                best_delta = delta
+                                best = s
+                        if best is not None:
+                            linked = best
+                            method = "nearest"
+                entry = {"ticket": ticket, "method": method, "plan": linked}
+                order_plan_links.append(entry)
+                # Persist mapping for future quick lookups
+                try:
+                    if GLOBAL_POOL is not None and ticket and linked and isinstance(linked, dict):
+                        await upsert_order_plan_link(
+                            GLOBAL_POOL,
+                            ticket=int(ticket),
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            plan_run_id=int(linked.get("id")),
+                            tag=tag_text,
+                            method=method,
+                        )
+                except Exception:
+                    pass
+        except Exception:
+            order_plan_links = []
+        # Keep number of plans equal to number of open orders when possible
+        try:
+            want = len(positions) if isinstance(positions, list) else 0
+            if want > 0:
+                last_three_plans = last_three_plans[:want]
+        except Exception:
+            pass
+
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(
+            json.dumps(
+                {
+                    "ok": True,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "last_periodic_tech": last_periodic_tech,
+                    "last_three_plans": last_three_plans,
+                    "order_plan_links": order_plan_links,
+                    "positions": positions,
+                    "account": acct,
+                    "tick": tick,
+                }
+            )
+        )
+
+
 class AccountBalanceHandler(tornado.web.RequestHandler):
     def initialize(self, pool):
         self.pool = pool
@@ -2563,9 +3421,10 @@ class AccountBalanceHandler(tornado.web.RequestHandler):
             except Exception:
                 account_id = 0
         if account_id == 0:
-            self.set_status(503)
+            # Graceful: return 200 with ok=false so UI can continue without console errors
             self.set_header("Content-Type", "application/json")
-            self.finish(json.dumps({"ok": False, "error": "account unavailable"}))
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": False, "error": "account unavailable", "user": user, "account": None, "rows": []}))
             return
         if refresh_flag:
             try:
@@ -3171,6 +4030,18 @@ class STLComputeHandler(tornado.web.RequestHandler):
                     end_dt=end_dt if scope in ("current", "single") else None,
                     max_points=limit,
                 )
+                # Prune older runs for this symbol×TF (keep latest only)
+                try:
+                    tfu = (tf or "").upper()
+                    runs = await list_stl_runs(self.pool, str(sym).upper(), tfu)
+                    if runs and len(runs) > 1:
+                        for old in runs[1:]:
+                            try:
+                                await delete_stl_run(self.pool, int(old["id"]))
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
                 logger.info("[stl] %s %s completed period=%s points=%s inserted=%s", sym, tf, result.get("period"), result.get("points"), result.get("inserted"))
                 await emit_stl_event(
                     symbol=sym,
@@ -3250,6 +4121,98 @@ class STLDeleteHandler(tornado.web.RequestHandler):
         self.finish(json.dumps({"ok": True, "run_id": run_id_int}))
 
 
+class STLPruneHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        symbol = self.get_argument("symbol", default=None)
+        timeframe = self.get_argument("tf", default=None)
+        keep_arg = self.get_argument("keep", default="1")
+        try:
+            keep = max(0, int(keep_arg))
+        except Exception:
+            keep = 1
+        if not symbol or not timeframe:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "symbol and tf required"}))
+            return
+        symu = str(symbol).upper()
+        tfu = str(timeframe).upper()
+        runs = await list_stl_runs(self.pool, symu, tfu)
+        deleted_ids: list[int] = []
+        if runs and len(runs) > keep:
+            for old in runs[keep:]:
+                try:
+                    rid = int(old.get("id"))
+                except Exception:
+                    continue
+                try:
+                    n = await delete_stl_run(self.pool, rid)
+                    if n > 0:
+                        deleted_ids.append(rid)
+                except Exception:
+                    continue
+        self.set_header("Content-Type", "application/json")
+        self.set_header("Cache-Control", "no-store")
+        self.finish(json.dumps({
+            "ok": True,
+            "symbol": symu,
+            "timeframe": tfu,
+            "kept": keep,
+            "deleted": len(deleted_ids),
+            "deleted_ids": deleted_ids,
+        }))
+
+
+class STLPruneAllHandler(tornado.web.RequestHandler):
+    def initialize(self, pool):
+        self.pool = pool
+
+    async def post(self):
+        # Safety confirmation required
+        confirm = self.get_argument("confirm", default="0").lower() in {"1", "true", "yes", "on"}
+        if not confirm:
+            self.set_status(400)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": "confirm=1 required"}))
+            return
+        keep_arg = self.get_argument("keep", default="1")
+        try:
+            keep = max(0, int(keep_arg))
+        except Exception:
+            keep = 1
+        # Delete all but the latest `keep` runs per (symbol, timeframe)
+        q = (
+            """
+            WITH ranked AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (PARTITION BY symbol, timeframe ORDER BY created_at DESC, id DESC) AS rn
+                FROM stl_runs
+            )
+            DELETE FROM stl_runs s
+            USING ranked r
+            WHERE s.id = r.id AND r.rn > $1
+            """
+        )
+        deleted = 0
+        try:
+            async with self.pool.acquire() as conn:
+                status = await conn.execute(q, keep)
+                try:
+                    deleted = int(status.split()[-1])
+                except Exception:
+                    deleted = 0
+            self.set_header("Content-Type", "application/json")
+            self.set_header("Cache-Control", "no-store")
+            self.finish(json.dumps({"ok": True, "deleted": deleted, "kept": keep}))
+        except Exception as exc:
+            self.set_status(500)
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({"ok": False, "error": str(exc)}))
+
+
 class PreferencesHandler(tornado.web.RequestHandler):
     def initialize(self, pool):
         self.pool = pool
@@ -3321,6 +4284,20 @@ class PreferencesHandler(tornado.web.RequestHandler):
                     key.startswith("risk_percent:") or
                     key.startswith("stop_distance:") or
                     key.startswith("stop_unit:")
+                ):
+                    allowed = True
+                # Allow global or scoped close fraction key for partial-close behavior
+                elif isinstance(key, str) and (
+                    key == "close_fraction" or
+                    key == "close_fraction:global" or
+                    key.startswith("close_fraction:")
+                ):
+                    allowed = True
+                # Allow symbol/kind weighting + custom symbol list
+                elif isinstance(key, str) and (
+                    key.startswith("symbol_weight:") or
+                    key.startswith("kind_weight:") or
+                    key == "custom_symbols"
                 ):
                     allowed = True
                 if allowed:
@@ -3616,20 +4593,17 @@ class TechFreshnessHandler(tornado.web.RequestHandler):
         symbol = str(self.get_argument("symbol", default=default_symbol())).upper()
         timeframe = str(self.get_argument("tf", default="H1")).upper()
 
-        # Determine kind and get latest tech snapshot run for this symbol
+        # Determine kind and get latest tech snapshot run for this symbol (position variant only)
         if _is_fx_symbol(symbol):
             kind = "forex_pair"
             base = symbol[:3]
             quote = symbol[3:6]
-            # Consider both tech strategies (position and plain)
             runs_pos = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q_position.json")
-            runs_plain = await list_health_runs(self.pool, kind=kind, base_ccy=base, quote_ccy=quote, limit=5, strategy="tech_snapshot_10q.json")
-            runs = (runs_pos or []) + (runs_plain or [])
+            runs = (runs_pos or [])
         else:
             kind = "stock"
             runs_pos = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q_position.json")
-            runs_plain = await list_health_runs(self.pool, kind=kind, symbol=symbol, limit=5, strategy="tech_snapshot_10q.json")
-            runs = (runs_pos or []) + (runs_plain or [])
+            runs = (runs_pos or [])
 
         # Prefer a run that matches the requested timeframe in its meta
         def _match_tf(run: dict) -> bool:
@@ -4052,6 +5026,9 @@ class HealthRunsHandler(tornado.web.RequestHandler):
                 if grp:
                     return grp
                 strat = str((ans.get("strategy") or "")).lower()
+                # Deep research strategies should be isolated from 'basic' history
+                if strat.startswith("deep") or strat.endswith("deep_research.json") or "deep_research" in strat:
+                    return "deep"
                 if strat in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json"}:
                     return "tech"
                 if strat == "ai_trade_plan":
@@ -4128,8 +5105,8 @@ class HealthRunHandler(tornado.web.RequestHandler):
         except Exception:
             tech_run_id = None
         # Route to Tech+AI branch only when a snapshot is provided or an explicit
-        # tech strategy is requested. Do NOT treat empty strategy as tech.
-        if snapshot_text or strategy_override in {"tech_snapshot_10q.json", "tech_snapshot_10q_position.json"}:
+        # tech strategy is requested (position variant only). Do NOT treat empty strategy as tech.
+        if snapshot_text or strategy_override in {"tech_snapshot_10q_position.json"}:
             symbol = (payload.get("symbol") or payload.get("ticker") or default_symbol()).upper()
             timeframe = str(payload.get("timeframe") or payload.get("tf") or "H1").upper()
             if not snapshot_text:
@@ -4137,11 +5114,11 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 self.set_header("Content-Type", "application/json")
                 self.finish(json.dumps({"ok": False, "error": "tech_snapshot text required"}))
                 return
-            # Choose strategy (position variant by default)
+            # Choose strategy (position variant only)
             chosen_strategy = strategy_override or "tech_snapshot_10q_position.json"
             strat = _load_strategy_json(chosen_strategy)
             if not strat:
-                chosen_strategy = "tech_snapshot_10q.json"
+                chosen_strategy = "tech_snapshot_10q_position.json"
                 strat = _load_strategy_json(chosen_strategy)
             questions = [q for q in (strat.get("questions") or []) if isinstance(q, dict)]
             question_schema = strat.get("question_response_schema") if isinstance(strat, dict) else None
@@ -4380,7 +5357,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         question_schema,
-                        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                         schema_name="fx_question_position",
                         model=model_override,
                         provider=provider_override,
@@ -4399,7 +5376,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     out = AI_CLIENT.send_request_with_json_schema(
                         prompt,
                         _make_choice_schema(resolved_options),
-                        system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                        system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                         schema_name="fx_choice_answer",
                         model=model_override,
                         provider=provider_override,
@@ -4413,7 +5390,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 out = AI_CLIENT.send_request_with_json_schema(
                     prompt,
                     HEALTH_BOOL_SCHEMA,
-                    system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                    system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                     schema_name="fx_bool_answer",
                     model=model_override,
                     provider=provider_override,
@@ -4534,7 +5511,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                     position_obj = AI_CLIENT.send_request_with_json_schema(
                         pos_prompt,
                         pos_schema,
-                        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+        system_content="You are a decisive FX analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                         schema_name="fx_position",
                         model=model_override,
                         provider=provider_override,
@@ -4649,7 +5626,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 HEALTH_BOOL_SCHEMA,
-                system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                system_content="You are a precise analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                 schema_name="bool_answer",
                 model=model_override,
                 provider=provider_override,
@@ -4665,7 +5642,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 _make_choice_schema(choice_options),
-                system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                system_content="You are a decisive analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                 schema_name="stock_choice_answer",
                 model=model_override,
                 provider=provider_override,
@@ -4694,7 +5671,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
             out = AI_CLIENT.send_request_with_json_schema(
                 prompt,
                 question_schema_stock,
-                system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                 schema_name="stock_question_position",
                 model=model_override,
                 provider=provider_override,
@@ -4820,7 +5797,7 @@ class HealthRunHandler(tornado.web.RequestHandler):
                 position_obj = AI_CLIENT.send_request_with_json_schema(
                     pos_prompt,
                     pos_schema,
-                    system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. Reply only with JSON that matches the schema.",
+                    system_content="You are a precise equity analyst. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON that matches the schema.",
                     schema_name="stock_position",
                     model=model_override,
                     provider=provider_override,
@@ -4909,6 +5886,10 @@ class TradePlanHandler(tornado.web.RequestHandler):
             tech_run_id = int(payload.get("tech_run_id")) if payload.get("tech_run_id") is not None else None
         except Exception:
             tech_run_id = None
+        try:
+            deep_run_id = int(payload.get("deep_run_id")) if payload.get("deep_run_id") is not None else None
+        except Exception:
+            deep_run_id = None
         if action not in {"BUY", "SELL"}:
             self.set_status(400)
             self.finish(json.dumps({"ok": False, "error": "action must be BUY or SELL"}))
@@ -4944,6 +5925,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
 
         basic_run = None
         tech_run = None
+        deep_run = None
         if basic_run_id is not None:
             try:
                 basic_run = await get_health_run_by_id(self.pool, basic_run_id)
@@ -4954,10 +5936,17 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 tech_run = await get_health_run_by_id(self.pool, tech_run_id)
             except Exception:
                 tech_run = None
+        if deep_run_id is not None:
+            try:
+                deep_run = await get_health_run_by_id(self.pool, deep_run_id)
+            except Exception:
+                deep_run = None
         if basic_run is None:
             basic_run = await _latest_run(basic_strategy)
         if tech_run is None:
-            tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
+            tech_run = await _latest_run("tech_snapshot_10q_position.json")
+        if deep_run is None:
+            deep_run = await _latest_run("deep_research.json")
 
         # Ensure prerequisite reports exist: if missing, trigger them via the same API
         # so they are persisted to history just like a frontend click.
@@ -4982,7 +5971,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
                         "kind": kind,
                         "symbol": symbol,
                         "timeframe": timeframe,
-                        "strategy": "tech_snapshot_10q.json",
+                        "strategy": "tech_snapshot_10q_position.json",
                         "tech_snapshot": snapshot_text,
                     }
                     req2 = HTTPRequest(url, method="POST", headers={"Content-Type": "application/json"}, body=json.dumps(tech_payload))
@@ -4991,7 +5980,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 logger.debug("failed to auto-run basic/tech reports before trade plan", exc_info=True)
             # Requery after attempted creation
             basic_run = await _latest_run(basic_strategy)
-            tech_run = await _latest_run("tech_snapshot_10q_position.json") or await _latest_run("tech_snapshot_10q.json")
+            tech_run = await _latest_run("tech_snapshot_10q_position.json")
 
         def _format_run_block(run: dict | None) -> str:
             """Format a health run block for inclusion in the trade-plan prompt.
@@ -5054,6 +6043,15 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     sl_str = _fmt_num(sl_val)
                     tp_str = _fmt_num(tp_val)
                     q_expl = str(aval.get("explanation") or base_expl)
+                    # If this is a Deep Research run, include the research text above the position line
+                    try:
+                        strat_name = str(strategy or "")
+                        if strat_name == "deep_research.json":
+                            dr_text = str(aval.get("deep_research") or "").strip()
+                            if dr_text:
+                                lines.append(f"{i}.\n{dr_text}")
+                    except Exception:
+                        pass
                     block_lines: list[str] = [f"{i}.", pos]
                     sltp: list[str] = []
                     if sl_str is not None:
@@ -5070,8 +6068,48 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     lines.append(f"{i}.\n{aval_str}\n{base_expl}")
             return "\n".join(parts + lines)
 
+        # Deep block prioritizes the long-form research text when available
+        def _format_deep_block(run: dict | None) -> str:
+            if not run:
+                return "(no recent run)"
+            try:
+                ans = run.get("answers_json") or {}
+                qlist = ans.get("questions") or []
+                if not qlist:
+                    return _format_run_block(run)
+                first = qlist[0]
+                aval = first.get("answer") if isinstance(first, dict) else None
+                if not isinstance(aval, dict):
+                    return _format_run_block(run)
+                out_lines: list[str] = []
+                dr = str(aval.get("deep_research") or "").strip()
+                if dr:
+                    out_lines.append(dr)
+                pos = str(aval.get("position") or "").upper()
+                legs: list[str] = []
+                if pos:
+                    legs.append(pos)
+                try:
+                    if aval.get("sl") is not None:
+                        sval = f"{float(aval.get('sl')):.2f}" if isinstance(aval.get("sl"), (int, float)) else str(aval.get("sl"))
+                        legs.append(f"SL {sval}")
+                except Exception:
+                    pass
+                try:
+                    if aval.get("tp") is not None:
+                        tval = f"{float(aval.get('tp')):.2f}" if isinstance(aval.get("tp"), (int, float)) else str(aval.get("tp"))
+                        legs.append(f"TP {tval}")
+                except Exception:
+                    pass
+                if legs:
+                    out_lines.append(" • ".join(legs))
+                return "\n".join(out_lines)
+            except Exception:
+                return _format_run_block(run)
+
         basic_block = _format_run_block(basic_run)
         tech_block = _format_run_block(tech_run)
+        deep_block = _format_deep_block(deep_run)
 
         # Build final prompt
         prompts = self._load_trade_prompts()
@@ -5085,6 +6123,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
             template
             .replace("{{SYMBOL}}", symbol)
             .replace("{{TF}}", timeframe)
+            .replace("{{DEEP_BLOCK}}", deep_block)
             .replace("{{BASIC_HEALTH_BLOCK}}", basic_block)
             .replace("{{TECH_AI_BLOCK}}", tech_block)
             .replace("{{TECH_SNAPSHOT_BLOCK}}", snapshot_text)
@@ -5114,7 +6153,7 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 lambda: AI_CLIENT.send_request_with_json_schema(
                     prompt,
                     TRADE_PLAN_SCHEMA,
-                    system_content="You are a disciplined trading assistant. Reply only with JSON matching the schema.",
+                    system_content="You are a disciplined trading assistant. You are good at identifying trend and a high-quality rebound. You are good at set reasonable target profit and stop loss. Reply only with JSON matching the schema.",
                     schema_name="trade_plan",
                     model=model,
                     provider=provider,
@@ -5132,9 +6171,17 @@ class TradePlanHandler(tornado.web.RequestHandler):
         tp = float(plan.get("take_profit") or 0)
         explanation = str(plan.get("explanation") or "")
 
-        # Reference price = latest close
+        # Reference price = latest close; also fetch latest tick for validation
         rows = await fetch_ohlc_bars(self.pool, symbol, timeframe, 1)
         ref_price = float(rows[-1]["close"]) if rows else 0.0
+        try:
+            _tick = mt5_client.get_tick(symbol)
+            bid = float(_tick.get("bid") or 0) if isinstance(_tick, dict) else 0.0
+            ask = float(_tick.get("ask") or 0) if isinstance(_tick, dict) else 0.0
+            last = float(_tick.get("last") or 0) if isinstance(_tick, dict) else 0.0
+            cur_price = last or (bid and ask and (bid + ask) / 2.0) or bid or ask or ref_price
+        except Exception:
+            cur_price = ref_price
         max_loss_pct = 0.20 / max(1.0, float(leverage or 10.0))
         enforced = False
         if ref_price > 0 and sl > 0 and max_loss_pct > 0:
@@ -5148,6 +6195,101 @@ class TradePlanHandler(tornado.web.RequestHandler):
                 if sl > max_sl:
                     sl = max_sl
                     enforced = True
+
+        # Post-validate plan and optionally refetch with corrections if SL/TP invalid or too close
+        def _validate_plan(pos: str, stop: float, take: float, price: float) -> tuple[list[str], dict]:
+            errs: list[str] = []
+            info: dict[str, float | str] = {}
+            try:
+                posu = (pos or "").upper()
+                price = float(price or 0)
+                stop = float(stop or 0)
+                take = float(take or 0)
+                if price <= 0 or stop <= 0 or take <= 0:
+                    errs.append("Non-positive price/SL/TP.")
+                if posu == "BUY":
+                    if not (stop < price < take):
+                        errs.append("For BUY require stop_loss < price < take_profit.")
+                    risk = price - stop
+                    reward = take - price
+                elif posu == "SELL":
+                    if not (take < price < stop):
+                        errs.append("For SELL require take_profit < price < stop_loss.")
+                    risk = stop - price
+                    reward = price - take
+                else:
+                    errs.append("Position not BUY/SELL.")
+                    risk = 0.0
+                    reward = 0.0
+                rr = (reward / risk) if (risk and risk > 0) else 0.0
+                info.update({"risk": risk, "reward": reward, "rr": rr, "price": price})
+                # Too-close thresholds (fallback when ATR is not available)
+                # Require min absolute distance of 0.05% of price for both legs and RR >= 1.1
+                min_leg = price * 0.0005
+                if risk < min_leg:
+                    errs.append(f"Risk leg too small (< {min_leg:.6f}).")
+                if reward < min_leg:
+                    errs.append(f"Reward leg too small (< {min_leg:.6f}).")
+                if rr < 1.1:
+                    errs.append("Risk/Reward is too low (< 1.1).")
+            except Exception:
+                errs.append("Validation exception.")
+            return errs, info
+
+        errs, vinfo = _validate_plan(position, sl, tp, cur_price)
+
+        # One-shot correction: if invalid, re-ask with a corrective prompt including latest tick and errors
+        refetched = False
+        last_error_text = None
+        if errs:
+            try:
+                # Build corrective prompt by appending a validation feedback block
+                ts = datetime.now(timezone.utc).isoformat()
+                tick_line = f"Latest tick at {ts}: price={cur_price:.6f} (ref_close={ref_price:.6f})"
+                issues = "\n".join([f"- {e}" for e in errs])
+                prev_json = json.dumps({
+                    "position": position,
+                    "stop_loss": sl,
+                    "take_profit": tp,
+                    "explanation": explanation,
+                }, ensure_ascii=False)
+                corrective_tail = (
+                    "\n\nValidation feedback\n"
+                    f"{tick_line}\n"
+                    "Detected issues:\n"
+                    f"{issues}\n\n"
+                    "Revise the plan to satisfy the sanity rules and validation feedback. Return only JSON in the same schema."
+                    " Previous output for reference: " + prev_json + "\n"
+                )
+                corrected_prompt = prompt + corrective_tail
+                ref_out = await tornado.ioloop.IOLoop.current().run_in_executor(
+                    EXECUTOR,
+                    lambda: AI_CLIENT.send_request_with_json_schema(
+                        corrected_prompt,
+                        TRADE_PLAN_SCHEMA,
+                        system_content="You are a disciplined trading assistant. Fix the plan based on validation feedback and return only JSON.",
+                        schema_name="trade_plan_refetch",
+                        model=model,
+                        provider=provider,
+                    ),
+                )
+                if isinstance(ref_out, dict) and ref_out:
+                    position = str(ref_out.get("position") or position).upper()
+                    try:
+                        sl = float(ref_out.get("stop_loss") or sl)
+                        tp = float(ref_out.get("take_profit") or tp)
+                    except Exception:
+                        pass
+                    explanation = str(ref_out.get("explanation") or explanation)
+                    # Re-validate
+                    errs2, v2 = _validate_plan(position, sl, tp, cur_price)
+                    vinfo = v2
+                    errs = errs2
+                    refetched = True
+                    if errs2:
+                        last_error_text = "; ".join(errs2)
+            except Exception as _exc:
+                last_error_text = f"refetch failed: {_exc}"
 
         # Persist plan as a health_run record (strategy-tagged)
         try:
@@ -5169,8 +6311,16 @@ class TradePlanHandler(tornado.web.RequestHandler):
                     "action": action,
                     "leverage": leverage,
                     "ref_price": ref_price,
+                    "tick_price": cur_price,
                     "max_loss_pct": max_loss_pct,
                     "enforced": enforced,
+                    "validated": True,
+                    "valid_errors": errs,
+                    "rr": vinfo.get("rr") if isinstance(vinfo, dict) else None,
+                    "risk": vinfo.get("risk") if isinstance(vinfo, dict) else None,
+                    "reward": vinfo.get("reward") if isinstance(vinfo, dict) else None,
+                    "refetched": refetched,
+                    "refetch_error": last_error_text,
                 },
             }
             # If client provided explicit run IDs, record them for traceability
@@ -5186,6 +6336,11 @@ class TradePlanHandler(tornado.web.RequestHandler):
             try:
                 if raw.get("tech_run_id") is not None:
                     answers_json["meta"]["tech_run_id"] = int(raw.get("tech_run_id"))
+            except Exception:
+                pass
+            try:
+                if raw.get("deep_run_id") is not None:
+                    answers_json["meta"]["deep_run_id"] = int(raw.get("deep_run_id"))
             except Exception:
                 pass
             ins = await insert_health_run(
@@ -5497,14 +6652,15 @@ class AccountLoginHandler(tornado.web.RequestHandler):
             try:
                 ok = mt5_client.login(int(login_raw), password=pw, server=srv)
             except Exception as exc:
-                self.set_status(502)
+                # Graceful: do not raise 502; return ok=false so UI can retry without network errors
                 self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
                 self.finish(json.dumps({"ok": False, "error": f"login failed: {exc}"}))
                 return
             if not ok:
                 code, msg = mt5_client.last_login_error or (None, "login failed")
-                self.set_status(502)
                 self.set_header("Content-Type", "application/json")
+                self.set_header("Cache-Control", "no-store")
                 self.finish(json.dumps({"ok": False, "error": f"login failed: {code} {msg}"}))
                 return
             await set_pref(self.pool, "last_account", login_raw)

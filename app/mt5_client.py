@@ -163,7 +163,8 @@ class MT5Client:
         self.logger.debug("symbol_select %s", symbol)
         mt5.symbol_select(symbol, True)
 
-        self.logger.info("copy_rates_from_pos symbol=%s tf=%s count=%s", symbol, timeframe, count)
+        # Demote to debug to avoid noisy logs during background fills
+        self.logger.debug("copy_rates_from_pos symbol=%s tf=%s count=%s", symbol, timeframe, count)
         rates = mt5.copy_rates_from_pos(symbol, tf, 0, int(count))
         if rates is None:
             code, msg = mt5.last_error()
@@ -211,7 +212,8 @@ class MT5Client:
             since_dt = since_dt.replace(tzinfo=timezone.utc)
 
         end_dt = datetime.now(timezone.utc)
-        self.logger.info("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, since_dt, end_dt)
+        # Demote to debug to reduce backfill chatter
+        self.logger.debug("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, since_dt, end_dt)
         mt5.symbol_select(symbol, True)
         rates = mt5.copy_rates_range(symbol, tf, since_dt, end_dt)
         if rates is None:
@@ -268,7 +270,8 @@ class MT5Client:
         from datetime import timedelta
         eff_end = end_dt + timedelta(hours=max(0, fwd_hours))
 
-        self.logger.info("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, start_dt, eff_end)
+        # Demote to debug to reduce backfill chatter
+        self.logger.debug("copy_rates_range symbol=%s tf=%s from=%s to=%s", symbol, timeframe, start_dt, eff_end)
         mt5.symbol_select(symbol, True)
         rates = mt5.copy_rates_range(symbol, tf, start_dt, eff_end)
         if rates is None:
@@ -335,12 +338,14 @@ class MT5Client:
         for p in pos:
             try:
                 out.append({
+                    "symbol": symbol,
                     "ticket": int(getattr(p, "ticket", 0)),
                     "type": int(getattr(p, "type", 0)),
                     "volume": float(getattr(p, "volume", 0.0)),
                     "price_open": float(getattr(p, "price_open", 0.0)),
                     "sl": float(getattr(p, "sl", 0.0)),
                     "tp": float(getattr(p, "tp", 0.0)),
+                    "comment": str(getattr(p, "comment", "")) if hasattr(p, "comment") else "",
                     "profit": float(getattr(p, "profit", 0.0)),
                     "time": int(getattr(p, "time", 0)),
                 })
@@ -348,6 +353,41 @@ class MT5Client:
                 # Be defensive; skip malformed entries
                 continue
         return out
+
+    def modify_position_sltp(self, symbol: str, ticket: int, sl: float | None, tp: float | None) -> dict:
+        """Modify SL/TP for a single open position by ticket.
+
+        Always sends both SL and TP values (falling back to existing values should be handled by caller).
+        """
+        self._ensure_initialized()
+        info = self.symbol_info(symbol)
+        if not info:
+            raise RuntimeError("Symbol not found")
+        # Ensure symbol is selected in terminal
+        mt5.symbol_select(symbol, True)
+        try:
+            req = {
+                "action": getattr(mt5, "TRADE_ACTION_SLTP", 3),
+                "symbol": symbol,
+                "position": int(ticket),
+            }
+            if sl is not None:
+                req["sl"] = float(sl)
+            if tp is not None:
+                req["tp"] = float(tp)
+            result = mt5.order_send(req)
+            if result is None:
+                code, msg = mt5.last_error()
+                return {"ok": False, "retcode": code, "error": f"order_send failed: {code} {msg}"}
+            return {
+                "ok": int(getattr(result, "retcode", 0)) == getattr(mt5, "TRADE_RETCODE_DONE", 10009),
+                "retcode": int(getattr(result, "retcode", 0)),
+                "order": int(getattr(result, "order", 0)) if hasattr(result, "order") else None,
+                "deal": int(getattr(result, "deal", 0)) if hasattr(result, "deal") else None,
+                "comment": getattr(result, "comment", ""),
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def list_positions_all(self) -> list[dict]:
         """Return simplified open positions across all symbols."""

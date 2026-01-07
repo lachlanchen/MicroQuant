@@ -1,0 +1,31 @@
+{
+  "name": "tech_snapshot_10q",
+  "title": "10 Technical Overview Analysis Questions",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "type": "llm_strategy",
+  "created_at": "2025-10-12T00:00:00Z",
+  "description": "Interpretive technical analysis using recent snapshot values for trend, momentum, volatility, and volume.",
+  "questions": [
+    { "id": "tq_01", "category": "trend", "text": "Looking at the relationship between close price, STL trend, and STL speed - does the overall trend structure appear healthy and aligned? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "tq_02", "category": "trend", "text": "Examining STL residuals over the past 7 days - is price tracking the trend cleanly, or showing significant deviation? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "tq_03", "category": "trend", "text": "Considering both STL speed and acceleration together - is the trend momentum strengthening, stable, or weakening? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mom_04", "category": "momentum", "text": "Analyzing RSI, MACD, and their recent trajectory - are momentum indicators showing convergence toward bullish or bearish territory? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mom_05", "category": "momentum", "text": "Looking at MACD line, signal line, and histogram development - does the MACD structure suggest building momentum or deterioration? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mom_06", "category": "momentum", "text": "Comparing RSI positioning and directional movement (recent changes) - is momentum accelerating or decelerating? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ts_07", "category": "trend_strength", "text": "Evaluating ADX level and the spread between +DI/-DI - does this indicate a strong directional trend or weak/ranging market? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ts_08", "category": "trend_strength", "text": "Examining the relationship between ADX, directional indicators, and recent price action - is trend conviction increasing or fading? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "vv_09", "category": "vol_vol", "text": "Analyzing volume pattern alongside price movement over recent days - does volume behavior confirm or contradict the price trend? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "vv_10", "category": "vol_vol", "text": "Looking at ATR changes and price volatility - is the market showing healthy volatility patterns or stress signals? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." }
+  ],
+  "answer_options": ["BULLISH", "BEARISH"],
+  "scoring": {
+    "thresholds": [
+      { "min": 7,  "max": 10, "signal": "STRONG_BUY" },
+      { "min": 3,  "max": 6,  "signal": "BUY" },
+      { "min": -2, "max": 2,  "signal": "NEUTRAL" },
+      { "min": -6, "max": -3,  "signal": "SELL" },
+      { "min": -10, "max": -7, "signal": "STRONG_SELL" }
+    ]
+  }
+}

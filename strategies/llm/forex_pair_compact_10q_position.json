@@ -15,19 +15,19 @@
     ]
   },
   "questions": [
-    { "id": "mp_01", "category": "monetary", "weight": 1, "text": "Considering central bank statements, policy meeting outcomes, and interest rate trajectory - which currency's monetary policy stance is more hawkish/supportive of currency strength?" },
-    { "id": "mp_02", "category": "monetary", "weight": 1, "text": "Looking at interest rate expectations, forward guidance, and market pricing of future rate moves - which currency has a more favorable rate outlook?" },
-    { "id": "mp_03", "category": "monetary", "weight": 1, "text": "Evaluating the gap between current policy rates, real interest rates (adjusted for inflation), and central bank forward guidance - which currency offers better yield positioning?" },
+    { "id": "mp_01", "category": "monetary", "weight": 1, "text": "Considering central bank statements, policy meeting outcomes, and interest rate trajectory - which currency's monetary policy stance is more hawkish/supportive of currency strength? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mp_02", "category": "monetary", "weight": 1, "text": "Looking at interest rate expectations, forward guidance, and market pricing of future rate moves - which currency has a more favorable rate outlook? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "mp_03", "category": "monetary", "weight": 1, "text": "Evaluating the gap between current policy rates, real interest rates (adjusted for inflation), and central bank forward guidance - which currency offers better yield positioning? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "ef_04", "category": "economy", "weight": 1, "text": "Analyzing GDP growth, employment data, manufacturing/services PMI, and consumer spending - which currency's underlying economy shows stronger momentum?" },
-    { "id": "ef_05", "category": "economy", "weight": 1, "text": "Examining inflation trends, wage growth, and proximity to inflation targets - which currency shows better price stability and inflation control?" },
-    { "id": "ef_06", "category": "economy", "weight": 1, "text": "Reviewing trade balance, business confidence, and resilience indicators - which currency's economy demonstrates better fundamental health?" },
+    { "id": "ef_04", "category": "economy", "weight": 1, "text": "Analyzing GDP growth, employment data, manufacturing/services PMI, and consumer spending - which currency's underlying economy shows stronger momentum? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ef_05", "category": "economy", "weight": 1, "text": "Examining inflation trends, wage growth, and proximity to inflation targets - which currency shows better price stability and inflation control? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ef_06", "category": "economy", "weight": 1, "text": "Reviewing trade balance, business confidence, and resilience indicators - which currency's economy demonstrates better fundamental health? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "rs_07", "category": "risk", "weight": 1, "text": "Assessing political stability, election risks, geopolitical tensions, and credit ratings - which currency operates in a lower-risk environment?" },
-    { "id": "rs_08", "category": "risk", "weight": 1, "text": "Considering banking system health, fiscal sustainability, debt levels, and structural concerns - which currency faces fewer systemic risks?" },
+    { "id": "rs_07", "category": "risk", "weight": 1, "text": "Assessing political stability, election risks, geopolitical tensions, and credit ratings - which currency operates in a lower-risk environment? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "rs_08", "category": "risk", "weight": 1, "text": "Considering banking system health, fiscal sustainability, debt levels, and structural concerns - which currency faces fewer systemic risks? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "md_09", "category": "market", "weight": 1, "text": "Evaluating foreign capital flows, safe-haven demand, institutional positioning, and ETF/asset flows - which currency is attracting stronger investor demand?" },
-    { "id": "md_10", "category": "market", "weight": 1, "text": "Reviewing analyst forecasts, strategist recommendations, sentiment surveys, and positioning - which currency has more bullish market consensus?" }
+    { "id": "md_09", "category": "market", "weight": 1, "text": "Evaluating foreign capital flows, safe-haven demand, institutional positioning, and ETF/asset flows - which currency is attracting stronger investor demand? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "md_10", "category": "market", "weight": 1, "text": "Reviewing analyst forecasts, strategist recommendations, sentiment surveys, and positioning - which currency has more bullish market consensus? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." }
   ],
   "scoring": {
     "thresholds": [

@@ -7,19 +7,19 @@
   "created_at": "2025-10-12T00:00:00Z",
   "description": "Condensed, synthesis-oriented stock analysis using news and commentary. Each question forces a BULLISH/BEARISH choice.",
   "questions": [
-    { "id": "cp_01", "category": "company", "text": "Analyzing recent earnings reports, revenue/profit trends, analyst estimate beats/misses, and management guidance - does the company's fundamental performance trajectory appear bullish or bearish?" },
-    { "id": "cp_02", "category": "company", "text": "Evaluating new product launches, strategic partnerships, market share trends, and competitive positioning announcements - is the company's strategic momentum bullish or bearish?" },
-    { "id": "cp_03", "category": "company", "text": "Reviewing management commentary tone, outlook statements, capital allocation decisions, and executive confidence signals - does leadership messaging lean bullish or bearish?" },
+    { "id": "cp_01", "category": "company", "text": "Analyzing recent earnings reports, revenue/profit trends, analyst estimate beats/misses, and management guidance - does the company's fundamental performance trajectory appear bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "cp_02", "category": "company", "text": "Evaluating new product launches, strategic partnerships, market share trends, and competitive positioning announcements - is the company's strategic momentum bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "cp_03", "category": "company", "text": "Reviewing management commentary tone, outlook statements, capital allocation decisions, and executive confidence signals - does leadership messaging lean bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "ms_04", "category": "sentiment", "text": "Examining news article tone, analyst upgrades/downgrades, media coverage frequency, and comparative industry mentions - is overall market sentiment toward this stock bullish or bearish?" },
-    { "id": "ms_05", "category": "sentiment", "text": "Assessing institutional investor actions, insider trading patterns, analyst price target changes, and smart money positioning - do sophisticated investors show bullish or bearish conviction?" },
+    { "id": "ms_04", "category": "sentiment", "text": "Examining news article tone, analyst upgrades/downgrades, media coverage frequency, and comparative industry mentions - is overall market sentiment toward this stock bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "ms_05", "category": "sentiment", "text": "Assessing institutional investor actions, insider trading patterns, analyst price target changes, and smart money positioning - do sophisticated investors show bullish or bearish conviction? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "im_06", "category": "industry_macro", "text": "Analyzing the company's industry growth outlook, sector tailwinds/headwinds, competitive intensity, and market opportunity expansion - is the industry context bullish or bearish for this stock?" },
-    { "id": "im_07", "category": "industry_macro", "text": "Evaluating relevant economic indicators (GDP, interest rates, inflation, consumer confidence), policy changes, and macro conditions affecting this sector - is the macro backdrop bullish or bearish?" },
+    { "id": "im_06", "category": "industry_macro", "text": "Analyzing the company's industry growth outlook, sector tailwinds/headwinds, competitive intensity, and market opportunity expansion - is the industry context bullish or bearish for this stock? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "im_07", "category": "industry_macro", "text": "Evaluating relevant economic indicators (GDP, interest rates, inflation, consumer confidence), policy changes, and macro conditions affecting this sector - is the macro backdrop bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
 
-    { "id": "risk_08", "category": "risk", "text": "Reviewing regulatory developments, legal/litigation issues, governance concerns, and compliance matters - is the risk/regulatory environment bullish or bearish?" },
-    { "id": "risk_09", "category": "risk", "text": "Assessing debt levels, balance sheet health, cash flow trends, and financial stability indicators - does the financial risk profile appear bullish or bearish?" },
-    { "id": "risk_10", "category": "risk", "text": "Examining supply chain conditions, geopolitical exposure, customer concentration risks, and operational vulnerabilities - is the operational risk landscape bullish or bearish?" }
+    { "id": "risk_08", "category": "risk", "text": "Reviewing regulatory developments, legal/litigation issues, governance concerns, and compliance matters - is the risk/regulatory environment bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "risk_09", "category": "risk", "text": "Assessing debt levels, balance sheet health, cash flow trends, and financial stability indicators - does the financial risk profile appear bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." },
+    { "id": "risk_10", "category": "risk", "text": "Examining supply chain conditions, geopolitical exposure, customer concentration risks, and operational vulnerabilities - is the operational risk landscape bullish or bearish? Draft a deep, multi-aspect analysis. Include a detailed chain of thinking." }
   ],
   "answer_options": ["BULLISH", "BEARISH"],
   "scoring": {
@@ -34,4 +34,3 @@
     ]
   }
 }
-
