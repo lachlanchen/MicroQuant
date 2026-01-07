@@ -13,17 +13,22 @@
 ## Screenshot
 ![Micro Quant UI](figures/demos/micro-quant-ui.png)
 
-# MT5 Tornado Starter (Gold Data)
+# MT5 Tornado Starter (Micro Quant philosophy)
 
-A minimal Tornado + Postgres app that fetches OHLC bars from MetaTrader 5 (via the official Python package) and serves a simple chart UI. Default symbol is `XAUUSD` (gold vs USD).
+Micro Quant is less about shiny dashboards and more about a repeatable trading logic stack: it pulls OHLC data from MetaTrader 5, persists it into Postgres, and evaluates systematic decisions through layered AI-guided signals (Basic news, Tech snapshot, trade plans, and STL overlays). The UI reflects that philosophy—a unified hygiene of alignment toggles, reasoned closes, persisted prefs, and a data-rich execution pane—so the server can safely run periodic or modal trades while you watch the logs and evidence stack.
 
-The static landing page (Quant by Lazying.art) lives under `docs/` and is published through GitHub Pages (`trade.lazying.art` via `docs/CNAME`).
+The static landing page (Quant by Lazying.art) lives under `docs/` and is published through GitHub Pages (`trade.lazying.art` via `docs/CNAME`). The repo also includes guiding references for the *AI Trade Plan* prompts, integration notes, and docs for Micro Quant’s automated flows.
 
-## Features
+# Core philosophy
+- **Chain of truth**: Basic news checks (text + scores) and Tech snapshots (heavy technical context + STL) feed a single AI trade plan per symbol/timeframe; both periodic auto runs and manual modals share this pipeline plus detailed reasoning logs.
+- **Alignment-first execution**: Accept-Tech/Hold-Neutral toggles, ignore-basics switch, and partial-close wrappers ensure we only follow Tech when it matters, close opposites before new entries, and avoid unnecessary exits.
+- **Immutable data**: Every fetch writes to Postgres with `ON CONFLICT` hygiene, while `/api/data` reads the sanitized series for the UI. Preferences (auto volumes, `close_fraction`, hide-tech toggles) persist via `/api/preferences` so state survives refreshes.
+- **Safety-first trading**: `TRADING_ENABLED` and `safe_max` enforce manual/auto permissioning, while `/api/close` and the periodic runner log closure reasons (tech neutral, misalignment, etc.) to keep records traceable.
+
+## Features overview
 - Fetch bars from MT5: `/api/fetch?symbol=XAUUSD&tf=H1&count=500`
 - Persist OHLC into Postgres (`ohlc_bars` table)
 - Serve chart UI at `/` using Chart.js (close price line)
-
 ## Prereqs
 - Ubuntu with MT5 installed via Wine (e.g., `mt5linux.sh`). Ensure the terminal is running and logged in to your demo or real account.
 - Python 3.10+
