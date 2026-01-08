@@ -2,6 +2,22 @@
   <img src="https://raw.githubusercontent.com/lachlanchen/lachlanchen/main/logos/banner.png" alt="LazyingArt banner" />
 </p>
 
+<p>
+  <b>Languages:</b>
+  <a href="README.en.md">English</a>
+  · <a href="README.zh-Hant.md">中文（繁體）</a>
+  · <a href="README.zh-Hans.md">中文 (简体)</a>
+  · <a href="README.ja.md">日本語</a>
+  · <a href="README.ko.md">한국어</a>
+  · <a href="README.vi.md">Tiếng Việt</a>
+  · <a href="README.ar.md">العربية</a>
+  · <a href="README.fr.md">Français</a>
+  · <a href="README.es.md">Español</a>
+</p>
+
+## Screenshot
+![Micro Quant UI](figures/demos/micro-quant-ui.png)
+
 <p align="center">
   <a href="https://my.roboforex.com/en/?a=efx" target="_blank" rel="noopener noreferrer">
     <button style="padding: 0.65rem 1.25rem; font-weight: 600; border-radius: 999px; border: none; color: white; background: #0060ff; cursor: pointer;">
@@ -10,25 +26,7 @@
   </a>
 </p>
 
-## Screenshot
-![Micro Quant UI](figures/demos/micro-quant-ui.png)
-
-## Multilingual README
-For readers who prefer another language, copies of this README exist:
-
-| Language | File |
-| --- | --- |
-| English | [`README.en.md`](README.en.md) |
-| 中文（繁體）| [`README.zh-Hant.md`](README.zh-Hant.md) |
-| 中文（简体）| [`README.zh-Hans.md`](README.zh-Hans.md) |
-| 日本語 | [`README.ja.md`](README.ja.md) |
-| 한국어 | [`README.ko.md`](README.ko.md) |
-| Tiếng Việt | [`README.vi.md`](README.vi.md) |
-| العربية | [`README.ar.md`](README.ar.md) |
-| Français | [`README.fr.md`](README.fr.md) |
-| Español | [`README.es.md`](README.es.md) |
-
-# MT5 Tornado Starter (Micro Quant philosophy)
+# Quantitative Trading Starter (Micro Quant philosophy)
 
 Micro Quant is less about shiny dashboards and more about a repeatable trading logic stack: it pulls OHLC data from MetaTrader 5, persists it into Postgres, and evaluates systematic decisions through layered AI-guided signals (Basic news, Tech snapshot, trade plans, and STL overlays). The UI reflects that philosophy—a unified hygiene of alignment toggles, reasoned closes, persisted prefs, and a data-rich execution pane—so the server can safely run periodic or modal trades while you watch the logs and evidence stack.
 
