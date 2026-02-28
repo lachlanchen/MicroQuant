@@ -1,11 +1,9 @@
 [English](../README.md) · [العربية](README.ar.md) · [Español](README.es.md) · [Français](README.fr.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Tiếng Việt](README.vi.md) · [中文 (简体)](README.zh-Hans.md) · [中文（繁體）](README.zh-Hant.md) · [Deutsch](README.de.md) · [Русский](README.ru.md)
 
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/lachlanchen/lachlanchen/main/logos/banner.png" alt="LazyingArt banner" />
-</p>
+[![LazyingArt banner](https://github.com/lachlanchen/lachlanchen/raw/main/figs/banner.png)](https://github.com/lachlanchen/lachlanchen/blob/main/figs/banner.png)
 
-# MetaTrader QT - Quantitativer Trading-Starter (Micro-Quant-Philosophie)
+# MetaTrader QT - Quantitatives Trading-Startset (Micro Quant Philosophie)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Backend](https://img.shields.io/badge/Backend-Tornado-2d7cbf)
@@ -13,47 +11,78 @@
 ![Broker](https://img.shields.io/badge/Broker%20Bridge-MetaTrader5-1f6feb)
 ![UI](https://img.shields.io/badge/UI-Lightweight%20Charts%20%2B%20Chart.js-0ea5e9)
 ![Status](https://img.shields.io/badge/README-Expanded-success)
+![GitHub%20Stars](https://img.shields.io/github/stars/lachlanchen/MicroQuant?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a&color=0ea5e9)
+![GitHub%20Issues](https://img.shields.io/github/issues/lachlanchen/MicroQuant?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a&color=ef4444)
+
+## 🎯 Project Snapshot
+
+| Fokus | Stack |
+|---|---|
+| Laufzeit | Tornado + asyncpg + WebSocket |
+| Trading | MetaTrader5 + KI/Technik/News-Kontext in Schichten |
+| Speicherung | PostgreSQL mit deterministischer Upsert-Pipeline |
+| Deployment | PWA-Assets + browser-first Desktop-/Mobile-UI |
+
+## Inhaltsverzeichnis
+- [Screenshot](#-screenshot)
+- [Überblick](#-überblick)
+- [Kernphilosophie](#-kernphilosophie)
+- [Funktionen](#-funktionen)
+- [Projektstruktur](#-projektstruktur)
+- [Voraussetzungen](#-voraussetzungen)
+- [Installation](#-installation)
+- [Konfiguration](#️-konfiguration)
+- [Nutzung](#-nutzung)
+- [API-Endpunkte (praktisch)](#-api-endpunkte-praktisch)
+- [Beispiele](#-beispiele)
+- [Datenbank & Schema](#-datenbank--schema)
+- [Handelssteuerung & Sicherheit](#️-handelssteuerung--sicherheit)
+- [STL-Auto-Compute-Toggle](#-stl-auto-compute-toggle)
+- [Letzte Auswahl merken](#-letzte-auswahl-merken)
+- [KI-Handelsplan-Kontext](#️-ki-handelsplan-kontext)
+- [Entwicklungsnotizen](#-entwicklungsnotizen)
+- [Fehlerbehebung](#-fehlerbehebung)
+- [Roadmap](#-roadmap)
+- [Mitwirken](#-mitwirken)
+- [Referenzen](#-referenzen)
+- [Support](#️-support)
+- [Lizenz](#-lizenz)
 
 ## 📸 Screenshot
 ![Micro Quant UI](figures/demos/micro-quant-ui.png)
 
-<p align="center">
-  <a href="https://my.roboforex.com/en/?a=efx" target="_blank" rel="noopener noreferrer">
-    <button style="padding: 0.65rem 1.25rem; font-weight: 600; border-radius: 999px; border: none; color: white; background: #0060ff; cursor: pointer;">
-      DATA Source
-    </button>
-  </a>
-</p>
+[![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
 ## 🧭 Überblick
-Bei Micro Quant geht es weniger um glänzende Dashboards als um einen wiederholbaren Trading-Logik-Stack: OHLC-Daten werden aus MetaTrader 5 gezogen, in Postgres persistiert und systematische Entscheidungen über geschichtete, KI-gestützte Signale bewertet (Basic News, Tech Snapshot, Trade-Pläne und STL-Overlays). Die UI spiegelt diese Philosophie durch Alignment-Toggles, begründete Schließungen, persistierte Präferenzen und ein datenreiches Ausführungs-Panel wider, sodass der Server periodische oder modale Trading-Flows sicher ausführen kann, während du Logs und Evidenz prüfst.
+Micro Quant steht weniger für glänzende Dashboards, sondern für eine wiederholbare Handelslogik: Es bezieht OHLC-Daten aus MetaTrader 5, speichert sie in PostgreSQL und bewertet Entscheidungen systematisch über KI-gestützte, gestapelte Signale (Basic News, Tech Snapshot, Handelspläne und STL-Overlays). Die UI setzt diese Philosophie um mit Ausrichtungs-Switches, begründbaren Schließungen, gespeicherten Präferenzen und einem datenreichen Ausführungsbereich, sodass der Server sichere periodische oder modale Handelsabläufe steuern kann, während Sie Logs und Nachweise prüfen.
 
-Die statische Landingpage (Quant by Lazying.art) liegt unter `docs/` und wird über GitHub Pages veröffentlicht (`trade.lazying.art` via `docs/CNAME`). Das Repository enthält außerdem Referenzen für AI-Trade-Plan-Prompts, Integrationshinweise und operative Dokumentation.
+Die statische Landingpage (Quant by Lazying.art) liegt unter `docs/` und wird über GitHub Pages bereitgestellt (`trade.lazying.art` über `docs/CNAME`). Das Repository enthält zusätzlich Referenzen zu KI-Handelsplan-Prompts, Integrationshinweisen und Betriebsdokumentation.
 
-### Auf einen Blick
+### Kurzüberblick
 | Bereich | Funktion |
 |---|---|
-| Daten | Zieht MT5-OHLC und schreibt per Upsert nach PostgreSQL |
-| Analytik | Führt Health/News/Tech- und STL-Workflows aus |
-| Entscheidungslogik | Erstellt KI-Trade-Pläne aus geschichtetem Kontext |
-| Ausführung | Führt Trading-Flows hinter Sicherheitsleitplanken aus bzw. steuert sie |
+| Daten | Lädt MT5-OHLC und schreibt per Upsert nach PostgreSQL |
+| Analyse | Führt Health-/News-/Tech-Abläufe sowie STL-Workflows aus |
+| Entscheidungslogik | Erstellt KI-Handelspläne aus mehrstufigem Kontext |
+| Ausführung | Führt Handelsabläufe hinter Sicherheits-Gates aus |
 | UI | Desktop-/Mobile-Ansichten mit synchronisierten Chart-Workflows |
 
 ## 🧠 Kernphilosophie
-- **Wahrheitskette**: Basic-News-Checks (Text + Scores) und Tech-Snapshots (schwerer technischer Kontext + STL) speisen einen einzelnen KI-Trade-Plan pro Symbol/Timeframe. Periodische Auto-Läufe und manuelle modale Läufe teilen sich dieselbe Pipeline und dieselben Begründungs-Logs.
-- **Alignment-first-Ausführung**: Accept-Tech/Hold-Neutral-Toggles, Ignore-Basics-Switch und Partial-Close-Wrapper sorgen dafür, dass Tech bewusst befolgt wird, Gegenpositionen bei Bedarf vor neuen Einstiegen geschlossen werden und unnötige Exits minimiert sind.
-- **Unveränderliche Daten**: Jeder Fetch schreibt mit `ON CONFLICT`-Hygiene nach Postgres, während `/api/data` bereinigte Reihen für die UI liest. Präferenzen (Auto-Volumes, `close_fraction`, Hide-Tech-Toggles, STL-Auto-Compute) werden über `/api/preferences` persistiert.
-- **Safety-first-Trading**: `TRADING_ENABLED` und `safe_max` erzwingen Berechtigungen für manuelle/automatische Abläufe. `/api/close` und periodische Runner können Schließungsgründe (Tech neutral, Fehlanpassung usw.) zur Nachvollziehbarkeit protokollieren.
+- **Truth-Chain-Ansatz**: Basic-News-Prüfungen (Text + Scores) und Tech-Snapshots (umfangreicher technischer Kontext + STL) liefern gemeinsam einen einzelnen KI-Handelsplan je Symbol/Zeitrahmen. Periodische Auto-Läufe und manuelle Modal-Läufe nutzen dieselbe Pipeline und dieselben Begründungs-Logs.
+- **Ausrichtungsbasierte Ausführung**: Accept-Tech/Hold-Neutral-Schalter, Ignore-Basics-Umschaltung und Partial-Close-Wrapper stellen sicher, dass Tech-Regeln bewusst befolgt werden, Gegentransaktionen bei Bedarf vor neuen Entries geschlossen werden und unnötige Ausstiege reduziert werden.
+- **Unveränderliche Datenbasis**: Jeder Abruf schreibt in Postgres mit `ON CONFLICT`-Logik, während `/api/data` bereinigte Reihen für die UI liest. Präferenzen (`auto`-Einstellungen, `close_fraction`, Hide-Tech-Umschalter, STL Auto-Compute) werden via `/api/preferences` persistiert.
+- **Sicherheitsorientiertes Trading**: `TRADING_ENABLED` und `safe_max` steuern Berechtigungen für manuelle und automatische Abläufe. `/api/close` und periodische Runner protokollieren Schließgründe (Tech neutral, Fehlanpassung usw.) für vollständige Nachvollziehbarkeit.
 
-## ✨ Features
+## ✨ Funktionen
 - MT5-OHLC-Ingestion nach Postgres (`/api/fetch`, `/api/fetch_bulk`).
-- Chart-UI unter `/` (Desktop) plus `/app` (Mobile), mit Chart.js + Lightweight Charts in Templates.
-- STL-Decomposition-Workflows (`/api/stl`, `/api/stl/compute`, prune/delete-Endpunkte).
-- News-Ingestion und Analyse (`/api/news`, `/api/news/backfill_forex`, `/api/news/analyze`).
-- KI-Workflow-Orchestrierung (`/api/health/run`, `/api/health/runs`, `/api/ai/trade_plan`).
-- Manuelle Trade-Ausführung (`/api/trade`, `/api/trade/execute_plan`) abgesichert durch `TRADING_ENABLED`.
-- Positions-/Risiko-Operationen (`/api/positions*`, `/api/close`, `/api/close_tickets`) mit erlaubten Close-Operationen aus Sicherheitsgründen.
-- WebSocket-Update-Stream unter `/ws/updates`.
+- Chart-UI unter `/` (Desktop) plus `/app` (Mobile), mit Chart.js + Lightweight Charts in den Templates.
+- STL-Dekompositionsabläufe (`/api/stl`, `/api/stl/compute`, Endpunkte zum Entfernen/Löschen).
+- News-Ingestion und -Analyse (`/api/news`, `/api/news/backfill_forex`, `/api/news/analyze`).
+- KI-Orchestrierung (`/api/health/run`, `/api/health/runs`, `/api/ai/trade_plan`).
+- Manuelle Ausführung (`/api/trade`, `/api/trade/execute_plan`), abgesichert durch `TRADING_ENABLED`.
+- Risiko-Operationen für Positionen (`/api/positions*`, `/api/close`, `/api/close_tickets`) mit expliziter Sicherheitslogik bei Schließvorgängen.
+- WebSocket-Update-Stream unter `/ws/updates` für Echtzeit-Hinweise und Refresh-Signale.
+- PWA-/statische Assets für ein installierbares Dashboard.
 
 ## 🗂️ Projektstruktur
 ```text
@@ -81,36 +110,39 @@ metatrader_qt/
 ├── references/                  # Operational/setup notes
 ├── strategies/llm/              # Prompt/config JSON files
 ├── llm_model/echomind/          # LLM provider wrappers
-├── i18n/                        # Present (currently empty)
+├── i18n/                        # Translated docs (currently language only)
 ├── .github/FUNDING.yml          # Sponsor/support metadata
 └── README.md + README.*.md      # Canonical + multilingual docs
 ```
 
 ## ✅ Voraussetzungen
-- Ubuntu/Linux oder Windows.
-- MT5 installiert und erreichbar (`terminal64.exe`), wobei das Terminal läuft/eingeloggt ist.
-- Python 3.10+ (3.11 empfohlen für MetaTrader5-Kompatibilität).
-- PostgreSQL-Instanz.
+- Ubuntu/Linux oder Windows mit Terminalzugriff.
+- MetaTrader 5 installiert (`terminal64.exe`) und bei Bedarf mit Login.
+- Python 3.10+ (Python 3.11 empfohlen für breitere Kompatibilität mit MetaTrader5-Wheels).
+- PostgreSQL-Instanz, die vom App-Server erreichbar ist.
+- Optionale API-Schlüssel für News-Anbieter:
+  - FMP
+  - Alpha Vantage
 
 ## 🛠️ Installation
 
 ### Windows (PowerShell)
 ```powershell
-# 1) Create venv with Python 3.11 (MetaTrader5 has no wheels for 3.13 yet)
+# 1) Virtual Environment mit Python 3.11 erstellen (MetaTrader5 liefert noch keine Wheels für 3.13)
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 2) Configure env
+# 2) Environment konfigurieren
 Copy-Item .env.example .env
-# Edit .env and set DATABASE_URL, MT5_PATH (e.g. C:\Program Files\MetaTrader 5\terminal64.exe), and your MT5 demo creds
-# Load env for this session
+# .env bearbeiten und DATABASE_URL, MT5_PATH (z. B. C:\Program Files\MetaTrader 5\terminal64.exe) sowie MT5-Demo-Zugangsdaten setzen
+# Umgebung für diese Sitzung laden
 Get-Content .env | Where-Object { $_ -and $_ -notmatch '^#' } | ForEach-Object { $n,$v = $_ -split '=',2; [Environment]::SetEnvironmentVariable($n, $v, 'Process') }
 
-# 3) Run app
+# 3) App starten
 python -m app.server
-# Open http://localhost:8888
+# Öffnen Sie http://localhost:8888
 ```
 
 Hilfsskripte:
@@ -125,51 +157,51 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Alternative: local 3.11 venv (if your global/Conda Python is 3.13)
-# Requires python3.11 on your system
+# Alternativ: Lokale Python-3.11-Umgebung (falls globale Version neuer ist)
+# Erfordert python3.11 im System
 # sudo apt install python3.11 python3.11-venv
 bash scripts/bootstrap_venv311.sh
 source .venv311/bin/activate
 
-# DB (use your own user/password as needed)
+# DB (eigene User-/Passwortangaben je nach Bedarf)
 # createdb -h localhost -p 5432 -U lachlan metatrader_db
 
-# Configure env
+# Env konfigurieren
 cp .env.example .env
-# edit .env with your MT5 path and credentials
-set -a; source .env; set +a
+# .env mit MT5-Pfad und Zugriffsdaten bearbeiten
+test -f .env && set -a; source .env; set +a
 
-# Run app
+# App starten
 python -m app.server
-# Open http://localhost:8888
+# Öffnen Sie http://localhost:8888
 ```
 
 ## ⚙️ Konfiguration
-Kopiere `.env.example` nach `.env` und passe die Werte an.
+Kopieren Sie `.env.example` nach `.env` und passen Sie die Werte an.
 
-### Kernvariablen
+### Kerndaten
 | Variable | Zweck |
 |---|---|
-| `DATABASE_URL` | Bevorzugter PostgreSQL-DSN |
-| `DATABASE_MT_URL` | Fallback-DSN, wenn `DATABASE_URL` nicht gesetzt ist |
-| `DATABASE_QT_URL` | Sekundärer Fallback-DSN |
-| `MT5_PATH` | Pfad zu `terminal64.exe` (Wine oder nativ) |
-| `MT5_LOGIN` / `MT5_PASSWORD` / `MT5_SERVER` | Optional, wenn die MT5-Terminal-Session bereits eingeloggt ist |
+| `DATABASE_URL` | Bevorzugte PostgreSQL-DSN |
+| `DATABASE_MT_URL` | Fallback-DSN falls `DATABASE_URL` nicht gesetzt ist |
+| `DATABASE_QT_URL` | Zweiter Fallback-DSN |
+| `MT5_PATH` | Pfad zu `terminal64.exe` (Wine oder native Ausführung) |
+| `MT5_LOGIN` / `MT5_PASSWORD` / `MT5_SERVER` | Optional, wenn die MT5-Terminalsitzung bereits angemeldet ist |
 | `PORT` | Server-Port (Standard `8888`) |
 
 ### Optionale Variablen
 - `FMP_API_KEY`, `ALPHAVANTAGE_API_KEY` für News-Anreicherung.
-- `TRADING_ENABLED` (`0` Standard, auf `1` setzen, um Order-Platzierungsendpunkte zu erlauben).
-- `TRADING_VOLUME` (Standardvolumen für manuelles Trading).
+- `TRADING_ENABLED` (`0` Standard, auf `1` setzen, um Endpunkte für Orderplatzierung zu aktivieren).
+- `TRADING_VOLUME` (Standardvolumen für manuelle Aufträge).
 - `AUTO_FETCH`, `AUTO_FETCH_SYMBOL`, `AUTO_FETCH_TF`, `AUTO_FETCH_COUNT`, `AUTO_FETCH_SEC`.
-- `PIN_DEFAULTS_TO_XAU_H1=1`, um UI-Startstandard für Symbol/Timeframe zu erzwingen.
-- `LOG_LEVEL`, `LOG_BACKFILL`, plus account-/poll-bezogene Präferenzen über `/api/preferences` und Umgebung.
+- `PIN_DEFAULTS_TO_XAU_H1=1`, um Standard-Symbol/Zeitrahmen beim UI-Start zu erzwingen.
+- `LOG_LEVEL`, `LOG_BACKFILL` sowie account-/poll-bezogene Einstellungen über `/api/preferences` und Umgebungswerte.
 
 Hinweise:
-- `MT5_PATH` sollte auf deine `terminal64.exe` unter dem Wine-Präfix deiner MT5-Installation zeigen.
-- Du kannst MT5-Credentials weglassen, wenn die Terminal-Session bereits eingeloggt ist; die App versucht, diese Session wiederzuverwenden.
+- `MT5_PATH` sollte auf das `terminal64.exe`-Binary im verwendeten Wine-Prefix zeigen.
+- Sie können MT5-Anmeldedaten weglassen, wenn die Terminalsitzung bereits aktiv ist; die App versucht, diese Session wiederzuverwenden.
 
-## 🚀 Verwendung
+## 🚀 Nutzung
 
 ### Server starten
 ```bash
@@ -178,131 +210,131 @@ python -m app.server
 
 ### UI öffnen
 - Desktop-UI: `http://localhost:8888/`
-- Mobile-UI: `http://localhost:8888/app`
+- Mobile UI: `http://localhost:8888/app`
 
-### Häufiger Workflow
-1. Bars von MT5 abrufen und in Postgres persistieren.
-2. Bars aus der DB fürs Charting lesen.
+### Schlüsselte URLs
+| Oberfläche | URL | Zweck |
+|---|---|---|
+| Desktop | `http://localhost:8888/` | Candlestick-Chart und Desktop-Workflow-Steuerung |
+| Mobile | `http://localhost:8888/app` | Touch-first-Layout mit kompakten Steuerelementen |
+| API Health | `http://localhost:8888/api/health/freshness` | Schneller Smoke-Check für Daten + Betriebsbereitschaft |
+
+### Typischer Ablauf
+1. Kerzen von MT5 holen und in Postgres speichern.
+2. Kerzen aus der DB für Charts lesen.
 3. Health-/Tech-/News-Analysen ausführen.
-4. KI-Trade-Plan generieren.
-5. Positionen unter Sicherheitsleitplanken ausführen oder schließen.
+4. KI-Handelsplan erzeugen.
+5. Positionen unter Sicherheitsregeln ausführen oder schließen.
 
 ## 🔌 API-Endpunkte (praktisch)
 - `GET /api/fetch?symbol=XAUUSD&tf=H1&count=500[&mode=inc|full][&persist=1]`
-  - Von MT5 abrufen und per Upsert in die DB schreiben.
-  - Bei `persist=1` speichert der Server `last_symbol/last_tf/last_count` als Defaults; Bulk-/Hintergrund-Fetches sollten dies auslassen, um UI-Auswahlen nicht zu überschreiben.
-- `GET /api/fetch_bulk` — Bulk-/geplante Ingestion.
+  - Lädt Daten aus MT5 und führt Upsert in die DB durch.
+  - Bei `persist=1` speichert der Server `last_symbol/last_tf/last_count` als Standard; Bulk-/Hintergrundabrufe sollten das vermeiden, um UI-Auswahlen nicht zu überschreiben.
+- `GET /api/fetch_bulk` — Massenerfassung / geplanter Import.
 - `GET /api/data?symbol=XAUUSD&tf=H1&limit=500` — Chartdaten aus der DB lesen.
 - `GET /api/strategy/run?symbol=XAUUSD&tf=H1&fast=20&slow=50`
-  - Führt SMA(20/50)-Crossover aus und liefert Signal-Payload zurück.
-  - Wichtiger Implementierungshinweis: strategy-getriebene Order-Platzierung über diesen Endpunkt ist im Servercode derzeit deaktiviert; Order-Ausführung erfolgt über Trade-Endpunkte.
-- `POST /api/trade` — manuelles Buy/Sell aus der UI, gesteuert durch `TRADING_ENABLED`.
-- `POST /api/trade/execute_plan` — führt einen generierten Plan aus, inklusive Pre-Close- und Stop-Distance-Checks.
-- `POST /api/close` — Positionen glattstellen (aus Sicherheitsgründen auch bei `TRADING_ENABLED=0` erlaubt):
-  - Aktuelles Symbol: Form-Body `symbol=...`; optional `side=long|short|both`.
+  - Führt SMA(20/50)-Crossover aus und liefert das Signal-Payload.
+  - Wichtig: Strategiegetriebene Orderausführung über diesen Endpoint ist derzeit im Servercode deaktiviert; Ausführungen laufen über Trade-Endpunkte.
+- `POST /api/trade` — manueller Buy/Sell aus der UI, abgesichert durch `TRADING_ENABLED`.
+- `POST /api/trade/execute_plan` — führt einen erzeugten Plan aus, inklusive Pre-Close- und Stop-Distanzprüfung.
+- `POST /api/close` — Positionen schließen (auch bei `TRADING_ENABLED=0` aus Sicherheitsgründen erlaubt):
+  - Aktuelles Symbol: Formularkörper `symbol=...`; optional `side=long|short|both`.
   - Alle Symbole: `?scope=all` und optional `&side=...`.
-  - Antwort enthält `closed_count` und Ergebnisse pro Ticket.
-- `POST /api/close_tickets` — gewünschte Teilmenge nach Ticket schließen.
+  - Antwort enthält `closed_count` sowie Ergebnisse je Ticket.
+- `POST /api/close_tickets` — schließt eine angefragte Teilmenge anhand von Tickets.
 - `GET /api/positions`, `GET /api/positions/all`.
 - `GET /api/stl`, `POST /api/stl/compute`, `POST /api/stl/prune`, `POST /api/stl/prune_all`, `DELETE /api/stl/run/{id}`.
 - `GET /api/news`, `POST /api/news/backfill_forex`, `POST /api/news/analyze`.
 - `GET /api/health/freshness`, `GET /api/tech/freshness`, `GET|POST /api/health/run`, `GET /api/health/runs`.
-- `POST /api/preferences` und zugehörige Präferenzabfragen.
+- `POST /api/preferences` und zugehöriger Abruf.
 - `GET /api/ai/trade_plan`.
 - `GET /api/accounts`, `GET /api/account/current`, `POST /api/account/login`.
 - `GET /ws/updates`.
 
 ## 🧪 Beispiele
 ```bash
-# Fetch 500 H1 bars for XAUUSD
+# 500 H1-Kerzen für XAUUSD abrufen
 curl "http://localhost:8888/api/fetch?symbol=XAUUSD&tf=H1&count=500"
 
-# Read 200 bars from DB
+# 200 Bars aus der DB lesen
 curl "http://localhost:8888/api/data?symbol=XAUUSD&tf=H1&limit=200"
 
-# Run SMA signal calculation
+# SMA-Signalberechnung ausführen
 curl "http://localhost:8888/api/strategy/run?symbol=XAUUSD&tf=H1&fast=20&slow=50"
 
-# Close current symbol long positions
+# Long-Positionen des aktuellen Symbols schließen
 curl -X POST "http://localhost:8888/api/close" -d "symbol=XAUUSD&side=long"
 
-# Close all short positions across symbols
+# Alle Short-Positionen über alle Symbole schließen
 curl -X POST "http://localhost:8888/api/close?scope=all&side=short"
 ```
 
 ## 🗄️ Datenbank & Schema
 Siehe `sql/schema.sql`.
 
-Highlights:
-- Zusammengesetzter PK `(symbol, timeframe, ts)` in `ohlc_bars` verhindert doppelte Bars.
-- Ingestion nutzt `ON CONFLICT ... DO UPDATE`.
-- Zusätzliche Tabellen unterstützen STL-Läufe/-Komponenten, Präferenzen, News-Artikel, Health-Runs, Account-Serien, geschlossene Deals und Signal-/Order-Plan-Verknüpfung.
+Wichtige Punkte:
+- Der zusammengesetzte Primärschlüssel `(symbol, timeframe, ts)` in `ohlc_bars` verhindert doppelte Kerzen.
+- Die Ingestion verwendet `ON CONFLICT ... DO UPDATE`.
+- Zusatz-Tabellen unterstützen STL-Läufe/-Komponenten, Präferenzen, News-Artikel, Health-Runs, Kontoreihen, geschlossene Deals sowie Signal-/Orderplan-Verknüpfungen.
 
-## 🛡️ Trading-Steuerung & Sicherheit
-- Umgebungsleitplanke: `TRADING_ENABLED=0` deaktiviert standardmäßig Order-Platzierung aus manuellen/Plan-Ausführungs-Endpunkten.
-- Header-`Auto`-Verhalten in der UI plant Strategieprüfungen; es umgeht keine Trading-Sicherheits-Gates.
-- Close-Operationen sind bewusst auch dann erlaubt, wenn Trading deaktiviert ist.
-- Safe-max sowie Symbol-/Kind-Gewichtung werden in Ausführungsflüssen genutzt, um Exposure zu begrenzen.
+## 🛡️ Handelssteuerung & Sicherheit
+- Umgebungsschutz: `TRADING_ENABLED=0` deaktiviert standardmäßig die Orderplatzierung über manuelle und Plan-Ausführungs-Endpoints.
+- Der Header `Auto` in der UI plant Strategieprüfungen; er umgeht nicht die Sicherheitsgates für Trades.
+- Schließvorgänge sind absichtlich auch erlaubt, wenn Trading deaktiviert ist.
+- Safe-max und Symbol-/Typ-Gewichtung werden in Ausführungsabläufen eingesetzt, um das Exposure zu begrenzen.
 
-## 📈 STL-Auto-Compute-Toggle
-- STL-Auto-Compute wird pro Symbol x Timeframe über den Schalter `Auto STL` im STL-Panel gesteuert.
-- Standard ist AUS, um UI-Lag in großen/langsamen Kontexten zu reduzieren.
-- Wenn EIN, kann fehlendes/veraltetes STL automatisch berechnet werden; andernfalls manuelle Recalc-Steuerung nutzen.
-- Zustand wird über `/api/preferences`-Schlüssel wie `stl_auto_compute:SYMBOL:TF` persistiert und zusätzlich im Local Storage für schnelleren Start.
+## 📈 STL Auto-Compute Toggle
+- STL Auto-Compute wird pro Symbol und Zeitrahmen über den Schalter `Auto STL` im STL-Panel gesteuert.
+- Standard ist AUS, um UI-Lags bei großen/langsamen Kontexten zu reduzieren.
+- Bei aktivem Schalter können fehlende oder veraltete STL automatisch berechnet werden; andernfalls verwenden Sie manuelle Neuberechnung.
+- Der Status wird über `/api/preferences`-Keys wie `stl_auto_compute:SYMBOL:TF` sowie `localStorage` für schnelleren Start gespeichert.
 
 ## 🧷 Letzte Auswahl merken
-- Server persistiert `last_symbol`, `last_tf`, `last_count` und injiziert Defaults in Templates.
-- UI speichert zusätzlich `last_symbol`/`last_tf` in `localStorage`.
+- Der Server speichert `last_symbol`, `last_tf`, `last_count` und setzt diese Defaults in Templates ein.
+- Die UI speichert ebenfalls `last_symbol`/`last_tf` in `localStorage`.
 - `/?reset=1` ignoriert gespeicherte Präferenzen für diesen Seitenaufruf.
 - `PIN_DEFAULTS_TO_XAU_H1=1` kann Start-Defaults erzwingen.
 
-## 🤖 Kontext für AI-Trade-Plan-Prompt
-Beim Anfordern eines KI-Trade-Plans stellt der Server sicher, dass frische Basic-Health- und Tech-Snapshot-Läufe für das aktuelle Symbol/Timeframe vorhanden sind (und erstellt sie bei Bedarf), und baut dann den Prompt-Kontext aus:
+## 🤖 KI-Handelsplan-Kontext
+Beim Abruf eines KI-Handelsplans stellt der Server sicher, dass aktuelle Basic Health- und Tech Snapshot-Läufe für das aktuelle Symbol/Zeitrahmen vorhanden sind (bei Bedarf werden sie erstellt), bevor der Prompt-Kontext aus folgenden Blöcken aufgebaut wird:
 - Basic-Health-Block,
 - Tech-AI-Block,
-- Live-Technical-Snapshot-Block.
+- Live-Tech-Snapshot-Block.
 
-## 🧰 Entwicklungshinweise
-- Primäre Runtime-Abhängigkeiten: `tornado`, `asyncpg`, `MetaTrader5`, `numpy`, `python-dotenv`, `requests`, `httpx`, `statsmodels`, `openai`.
-- Aktuell ist keine formale automatisierte Test-Suite konfiguriert; Smoke-Tests und manuelle UI-Validierung sind der aktive Workflow.
+## 🧰 Entwicklungsnotizen
+- Zentrale Laufzeitabhängigkeiten: `tornado`, `asyncpg`, `MetaTrader5`, `numpy`, `python-dotenv`, `requests`, `httpx`, `statsmodels`, `openai`.
+- Eine formale automatisierte Test-Suite ist aktuell nicht konfiguriert; Smoke-Tests und manuelle UI-Validierung sind der aktuelle Arbeitsablauf.
 - Empfohlene Smoke-Tests:
   - `python scripts/test_mixed_ai.py`
   - `python scripts/test_fmp.py`
   - `python scripts/test_fmp_endpoints.py`
-- Manuelle Checks vor dem Push:
+- Manuelle Checks vor einem Release:
   - Pan/Zoom-Sync,
-  - STL-Overlay-/Period-Line-Verhalten,
-  - Trading-Steuerung (inklusive Close-Sicherheitsverhalten),
-  - Fallback-Verhalten des News-Panels.
+  - STL Overlay/Periodenlinien-Verhalten,
+  - Handelssteuerung (inkl. Close-Sicherheitsverhalten),
+  - News-Panel-Fallback-Verhalten.
 
 ## 🧯 Fehlerbehebung
-| Symptom | Aktion |
+| Symptom | Maßnahme |
 |---|---|
-| MT5 initialize failed | `MT5_PATH` auf exakte `terminal64.exe` setzen und Terminal mindestens einmal manuell starten |
-| MT5 login failed | Sicherstellen, dass `MT5_SERVER` exakt der Server-Zeichenkette im Terminal entspricht, oder Credentials weglassen und aktive Session wiederverwenden |
-| No data for symbol | Broker-Symbolnamen und Sichtbarkeit in Market Watch prüfen (`XAUUSD`, `XAUUSD.a`, `GOLD` usw.) |
-| Postgres connection issues | `DATABASE_URL` prüfen und dann `psql "$DATABASE_URL" -c 'select 1;'` ausführen |
-| Slow or stale UI analytics | Auto-STL bei schweren Pairs/TFs deaktivieren und manuell neu berechnen |
+| MT5 initialize failed | `MT5_PATH` exakt auf `terminal64.exe` setzen, anschließend das Terminal mindestens einmal manuell starten |
+| MT5 login failed | Sicherstellen, dass `MT5_SERVER` exakt dem Server-String im Terminal entspricht, oder auf Credentials verzichten und eine aktive Sitzung wiederverwenden |
+| No data for symbol | Broker-Symbolnamen und Sichtbarkeit im Market Watch prüfen (`XAUUSD`, `XAUUSD.a`, `GOLD` usw.) |
+| Postgres connection issues | `DATABASE_URL` prüfen, dann `psql "$DATABASE_URL" -c 'select 1;'` ausführen |
+| Slow or stale UI analytics | Auto STL bei schweren Paaren/Zeitrahmen deaktivieren und manuell neu berechnen |
 
 ## 🛣️ Roadmap
-- `i18n/`-Runtime-Assets über README-basierte mehrsprachige Doku hinaus erweitern.
-- Formale automatisierte Tests ergänzen (API + Integration + UI-Smoke-Automation).
-- Deployment-Packaging und reproduzierbare Umgebungsprofile verbessern.
-- KI-Plan-Validierung und Ausführungsschutz weiter verfeinern.
+- Ausbau von `i18n/`-Laufzeitressourcen über README-basierte mehrsprachige Dokumentation hinaus.
+- Einführung formeller automatisierter Tests (API + Integration + UI-Smoke).
+- Verbesserung von Deployment-Paketen und reproduzierbaren Umgebungsprofilen.
+- Weiterentwicklung der KI-Planvalidierung und Ausführungssicherheit.
 
 ## 🤝 Mitwirken
-- Patches klein und fokussiert halten.
-- Klare Commit-Präfixe verwenden, wo sinnvoll (zum Beispiel: `UI: ...`, `Server: ...`, `References: ...`).
-- Unzusammenhängendes Formatierungsrauschen vermeiden.
-- Bei UI-Änderungen, wenn relevant, Screenshots/GIFs beilegen.
-- Vor PRs Smoke-Tests und lokale Browser-Checks ausführen.
-
-## ❤️ Support / Sponsoring
-Sponsor- und Support-Links sind in `.github/FUNDING.yml` konfiguriert:
-- GitHub Sponsors: https://github.com/sponsors/lachlanchen
-- Lazying.art: https://lazying.art
-- Chat: https://chat.lazying.art
-- OnlyIdeas: https://onlyideas.art
+- Halten Sie Patches klein und fokussiert.
+- Verwenden Sie klare Commit-Prefixe, wo sinnvoll (z. B. `UI: ...`, `Server: ...`, `References: ...`).
+- Vermeiden Sie nicht zusammenhängende Formatierungsänderungen.
+- Fügen Sie Screenshots/GIFs für UI-Änderungen bei Bedarf hinzu.
+- Führen Sie Smoke-Tests und lokale Browser-Checks vor PRs durch.
 
 ## 📚 Referenzen
 - `references/ai-trader-overview.md`
@@ -314,6 +346,13 @@ Sponsor- und Support-Links sind in `.github/FUNDING.yml` konfiguriert:
 - `references/pnl_debugging.md`
 
 ## 📄 Lizenz
-In diesem Repository ist mit Stand 2026-02-28 keine `LICENSE`-Datei vorhanden.
+Keine `LICENSE`-Datei ist in diesem Repository zum Stand von 2026-02-28 vorhanden.
 
-Annahme: Die Lizenzbedingungen sind derzeit im Repository nicht explizit festgelegt; diese Notiz beibehalten, bis die Maintainer eine ausdrückliche Lizenzdatei hinzufügen.
+Annahme: Die Lizenzbedingungen sind in diesem Repository derzeit nicht festgelegt; behalten Sie diesen Hinweis bis eine explizite Lizenzdatei ergänzt wird.
+
+
+## ❤️ Support
+
+| Donate | PayPal | Stripe |
+| --- | --- | --- |
+| [![Donate](https://camo.githubusercontent.com/24a4914f0b42c6f435f9e101621f1e52535b02c225764b2f6cc99416926004b7/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f446f6e6174652d4c617a79696e674172742d3045413545393f7374796c653d666f722d7468652d6261646765266c6f676f3d6b6f2d6669266c6f676f436f6c6f723d7768697465)](https://chat.lazying.art/donate) | [![PayPal](https://camo.githubusercontent.com/d0f57e8b016517a4b06961b24d0ca87d62fdba16e18bbdb6aba28e978dc0ea21/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f50617950616c2d526f6e677a686f754368656e2d3030343537433f7374796c653d666f722d7468652d6261646765266c6f676f3d70617970616c266c6f676f436f6c6f723d7768697465)](https://paypal.me/RongzhouChen) | [![Stripe](https://camo.githubusercontent.com/1152dfe04b6943afe3a8d2953676749603fb9f95e24088c92c97a01a897b4942/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f5374726970652d446f6e6174652d3633354246463f7374796c653d666f722d7468652d6261646765266c6f676f3d737472697065266c6f676f436f6c6f723d7768697465)](https://buy.stripe.com/aFadR8gIaflgfQV6T4fw400) |

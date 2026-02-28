@@ -1,9 +1,7 @@
 [English](README.md) · [العربية](i18n/README.ar.md) · [Español](i18n/README.es.md) · [Français](i18n/README.fr.md) · [日本語](i18n/README.ja.md) · [한국어](i18n/README.ko.md) · [Tiếng Việt](i18n/README.vi.md) · [中文 (简体)](i18n/README.zh-Hans.md) · [中文（繁體）](i18n/README.zh-Hant.md) · [Deutsch](i18n/README.de.md) · [Русский](i18n/README.ru.md)
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/lachlanchen/lachlanchen/main/logos/banner.png" alt="LazyingArt banner" />
-</p>
 
+[![LazyingArt banner](https://github.com/lachlanchen/lachlanchen/raw/main/figs/banner.png)](https://github.com/lachlanchen/lachlanchen/blob/main/figs/banner.png)
 
 # MetaTrader QT - Quantitative Trading Starter (Micro Quant Philosophy)
 
@@ -13,20 +11,50 @@
 ![Broker](https://img.shields.io/badge/Broker%20Bridge-MetaTrader5-1f6feb)
 ![UI](https://img.shields.io/badge/UI-Lightweight%20Charts%20%2B%20Chart.js-0ea5e9)
 ![Status](https://img.shields.io/badge/README-Expanded-success)
+![GitHub%20Stars](https://img.shields.io/github/stars/lachlanchen/MicroQuant?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a&color=0ea5e9)
+![GitHub%20Issues](https://img.shields.io/github/issues/lachlanchen/MicroQuant?style=for-the-badge&logo=github&logoColor=white&labelColor=0f172a&color=ef4444)
+
+## 🎯 Project Snapshot
+
+| Focus | Stack |
+|---|---|
+| Runtime | Tornado + asyncpg + WebSocket |
+| Trading | MetaTrader5 + layered AI/tech/news context |
+| Storage | PostgreSQL with deterministic upsert pipeline |
+| Deployment | PWA assets + browser-first desktop/mobile UIs |
+
+## Table of Contents
+- [Screenshot](#-screenshot)
+- [Overview](#-overview)
+- [Core Philosophy](#-core-philosophy)
+- [Features](#-features)
+- [Project Structure](#-project-structure)
+- [Prerequisites](#-prerequisites)
+- [Installation](#-installation)
+- [Configuration](#️-configuration)
+- [Usage](#-usage)
+- [API Endpoints](#-api-endpoints-practical)
+- [Examples](#-examples)
+- [Database & Schema](#-database--schema)
+- [Trading Controls & Safety](#️-trading-controls--safety)
+- [STL Auto-Compute Toggle](#-stl-auto-compute-toggle)
+- [Remembering Last Selection](#-remembering-last-selection)
+- [AI Trade Plan Context](#️-ai-trade-plan-prompt-context)
+- [Development Notes](#-development-notes)
+- [Troubleshooting](#-troubleshooting)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
+- [References](#-references)
+- [Support](#️-support)
+- [License](#-license)
 
 ## 📸 Screenshot
 ![Micro Quant UI](figures/demos/micro-quant-ui.png)
 
-<p align="center">
-  <a href="https://my.roboforex.com/en/?a=efx" target="_blank" rel="noopener noreferrer">
-    <button style="padding: 0.65rem 1.25rem; font-weight: 600; border-radius: 999px; border: none; color: white; background: #0060ff; cursor: pointer;">
-      DATA Source
-    </button>
-  </a>
-</p>
+[![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
 ## 🧭 Overview
-Micro Quant is less about shiny dashboards and more about a repeatable trading logic stack: it pulls OHLC data from MetaTrader 5, persists it into Postgres, and evaluates systematic decisions through layered AI-guided signals (Basic news, Tech snapshot, trade plans, and STL overlays). The UI reflects that philosophy with alignment toggles, reasoned closes, persisted preferences, and a data-rich execution pane so the server can safely run periodic or modal trade flows while you inspect logs and evidence.
+Micro Quant is less about shiny dashboards and more about a repeatable trading logic stack: it pulls OHLC data from MetaTrader 5, persists it into PostgreSQL, and evaluates systematic decisions through layered AI-guided signals (Basic news, Tech snapshot, trade plans, and STL overlays). The UI reflects that philosophy with alignment toggles, reasoned closes, persisted preferences, and a data-rich execution pane so the server can safely run periodic or modal trade flows while you inspect logs and evidence.
 
 The static landing page (Quant by Lazying.art) lives under `docs/` and is published through GitHub Pages (`trade.lazying.art` via `docs/CNAME`). The repository also includes references for AI Trade Plan prompts, integration notes, and operational documentation.
 
@@ -42,8 +70,8 @@ The static landing page (Quant by Lazying.art) lives under `docs/` and is publis
 ## 🧠 Core Philosophy
 - **Chain of truth**: Basic news checks (text + scores) and Tech snapshots (heavy technical context + STL) feed a single AI trade plan per symbol/timeframe. Periodic auto-runs and manual modal runs share the same pipeline and reasoning logs.
 - **Alignment-first execution**: Accept-Tech/Hold-Neutral toggles, ignore-basics switch, and partial-close wrappers ensure Tech is followed intentionally, opposite positions are closed before new entries when needed, and unnecessary exits are minimized.
-- **Immutable data**: Every fetch writes to Postgres with `ON CONFLICT` hygiene, while `/api/data` reads sanitized series for the UI. Preferences (auto volumes, `close_fraction`, hide-tech toggles, STL auto-compute) persist through `/api/preferences`.
-- **Safety-first trading**: `TRADING_ENABLED` and `safe_max` enforce manual/auto permissioning. `/api/close` and periodic runners can log closure reasons (tech neutral, misalignment, etc.) for traceability.
+- **Immutable data**: Every fetch writes to Postgres with `ON CONFLICT` hygiene, while `/api/data` reads sanitized series for the UI. Preferences (`auto` settings, `close_fraction`, hide-tech toggles, STL auto-compute) persist through `/api/preferences`.
+- **Safety-first trading**: `TRADING_ENABLED` and `safe_max` enforce manual/auto permissioning. `/api/close` and periodic runners log closure reasons (tech neutral, misalignment, etc.) for traceability.
 
 ## ✨ Features
 - MT5 OHLC ingestion into Postgres (`/api/fetch`, `/api/fetch_bulk`).
@@ -51,9 +79,10 @@ The static landing page (Quant by Lazying.art) lives under `docs/` and is publis
 - STL decomposition workflows (`/api/stl`, `/api/stl/compute`, prune/delete endpoints).
 - News ingestion and analysis (`/api/news`, `/api/news/backfill_forex`, `/api/news/analyze`).
 - AI workflow orchestration (`/api/health/run`, `/api/health/runs`, `/api/ai/trade_plan`).
-- Manual trade execution (`/api/trade`, `/api/trade/execute_plan`) guarded by `TRADING_ENABLED`.
-- Position risk operations (`/api/positions*`, `/api/close`, `/api/close_tickets`) with close operations allowed for safety.
-- WebSocket update stream at `/ws/updates`.
+- Manual trade execution (`/api/trade`, `/api/trade/execute_plan`) gated by `TRADING_ENABLED`.
+- Position risk operations (`/api/positions*`, `/api/close`, `/api/close_tickets`) with close operations allowed under explicit safety behavior.
+- WebSocket update stream at `/ws/updates` for realtime hints and refresh signals.
+- PWA/static assets for installable dashboard usage.
 
 ## 🗂️ Project Structure
 ```text
@@ -81,16 +110,19 @@ metatrader_qt/
 ├── references/                  # Operational/setup notes
 ├── strategies/llm/              # Prompt/config JSON files
 ├── llm_model/echomind/          # LLM provider wrappers
-├── i18n/                        # Present (currently empty)
+├── i18n/                        # Translated docs (currently language only)
 ├── .github/FUNDING.yml          # Sponsor/support metadata
 └── README.md + README.*.md      # Canonical + multilingual docs
 ```
 
 ## ✅ Prerequisites
-- Ubuntu/Linux or Windows.
-- MT5 installed and accessible (`terminal64.exe`), with terminal running/logged in.
-- Python 3.10+ (3.11 recommended for MetaTrader5 compatibility).
-- PostgreSQL instance.
+- Ubuntu/Linux or Windows with terminal access.
+- MetaTrader 5 installed (`terminal64.exe`) and logged in where needed.
+- Python 3.10+ (Python 3.11 recommended for broader compatibility with MetaTrader5 wheels).
+- PostgreSQL instance accessible from the app server.
+- Optional API keys for news providers:
+  - FMP
+  - Alpha Vantage
 
 ## 🛠️ Installation
 
@@ -125,7 +157,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Alternative: local 3.11 venv (if your global/Conda Python is 3.13)
+# Alternative: local 3.11 venv (if global Python is newer)
 # Requires python3.11 on your system
 # sudo apt install python3.11 python3.11-venv
 bash scripts/bootstrap_venv311.sh
@@ -137,7 +169,7 @@ source .venv311/bin/activate
 # Configure env
 cp .env.example .env
 # edit .env with your MT5 path and credentials
-set -a; source .env; set +a
+test -f .env && set -a; source .env; set +a
 
 # Run app
 python -m app.server
@@ -179,6 +211,13 @@ python -m app.server
 ### Open UI
 - Desktop UI: `http://localhost:8888/`
 - Mobile UI: `http://localhost:8888/app`
+
+### Key URLs
+| Surface | URL | Purpose |
+|---|---|---|
+| Desktop | `http://localhost:8888/` | Candlestick chart and desktop workflow controls |
+| Mobile | `http://localhost:8888/app` | Touch-first layout with compact controls |
+| API Health | `http://localhost:8888/api/health/freshness` | Quick smoke check for data + service readiness |
 
 ### Common workflow
 1. Fetch bars from MT5 and persist into Postgres.
@@ -269,9 +308,9 @@ When requesting an AI trade plan, the server ensures fresh Basic Health and Tech
   - `python scripts/test_mixed_ai.py`
   - `python scripts/test_fmp.py`
   - `python scripts/test_fmp_endpoints.py`
-- Manual checks to run before pushing:
+- Manual checks before release:
   - pan/zoom sync,
-  - STL overlay/period line behavior,
+  - STL overlay/period-line behavior,
   - trading controls (including close safety behavior),
   - news panel fallback behavior.
 
@@ -297,13 +336,6 @@ When requesting an AI trade plan, the server ensures fresh Basic Health and Tech
 - Include screenshots/GIFs for UI changes when relevant.
 - Run smoke tests and local browser checks before PRs.
 
-## ❤️ Support / Sponsor
-Sponsor and support links are configured in `.github/FUNDING.yml`:
-- GitHub Sponsors: https://github.com/sponsors/lachlanchen
-- Lazying.art: https://lazying.art
-- Chat: https://chat.lazying.art
-- OnlyIdeas: https://onlyideas.art
-
 ## 📚 References
 - `references/ai-trader-overview.md`
 - `references/database_setup_postgres.md`
@@ -312,6 +344,12 @@ Sponsor and support links are configured in `.github/FUNDING.yml`:
 - `references/llm_trading_system.md`
 - `references/release_deploy.md`
 - `references/pnl_debugging.md`
+
+## ❤️ Support
+
+| Donate | PayPal | Stripe |
+| --- | --- | --- |
+| [![Donate](https://camo.githubusercontent.com/24a4914f0b42c6f435f9e101621f1e52535b02c225764b2f6cc99416926004b7/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f446f6e6174652d4c617a79696e674172742d3045413545393f7374796c653d666f722d7468652d6261646765266c6f676f3d6b6f2d6669266c6f676f436f6c6f723d7768697465)](https://chat.lazying.art/donate) | [![PayPal](https://camo.githubusercontent.com/d0f57e8b016517a4b06961b24d0ca87d62fdba16e18bbdb6aba28e978dc0ea21/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f50617950616c2d526f6e677a686f754368656e2d3030343537433f7374796c653d666f722d7468652d6261646765266c6f676f3d70617970616c266c6f676f436f6c6f723d7768697465)](https://paypal.me/RongzhouChen) | [![Stripe](https://camo.githubusercontent.com/1152dfe04b6943afe3a8d2953676749603fb9f95e24088c92c97a01a897b4942/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f5374726970652d446f6e6174652d3633354246463f7374796c653d666f722d7468652d6261646765266c6f676f3d737472697065266c6f676f436f6c6f723d7768697465)](https://buy.stripe.com/aFadR8gIaflgfQV6T4fw400) |
 
 ## 📄 License
 No `LICENSE` file is present in this repository as of 2026-02-28.
