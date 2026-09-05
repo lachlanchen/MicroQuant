@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+Affiliate disclosure: the RoboForex button above contains my partner code (`efx`), so I may receive commission from referred trading activity. It is optional and does not affect how MicroQuant works. Leveraged trading carries a high risk of loss; this project is experimental software, not investment advice or a promise of returns. See the [current partner programme](https://roboforex.com/partner-program/) and [risk disclosure](https://roboforex.com/about/company/documents/).
+
 ## 🧭 Overview
 Micro Quant is less about shiny dashboards and more about a repeatable trading logic stack: it pulls OHLC data from MetaTrader 5, persists it into PostgreSQL, and evaluates systematic decisions through layered AI-guided signals (Basic news, Tech snapshot, trade plans, and STL overlays). The UI reflects that philosophy with alignment toggles, reasoned closes, persisted preferences, and a data-rich execution pane so the server can safely run periodic or modal trade flows while you inspect logs and evidence.
 
-The static landing page (Quant by Lazying.art) lives under `docs/` and is published through GitHub Pages (`trade.lazying.art` via `docs/CNAME`). The repository also includes references for AI Trade Plan prompts, integration notes, and operational documentation.
+The static landing page (Quant by Lazying.art) lives under `docs/` and is published through GitHub Pages (`quant.lazying.art` via `docs/CNAME`). The repository also includes references for AI Trade Plan prompts, integration notes, and operational documentation.
 
 ### At a glance
 | Area | What it does |

@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+Thông tin về tiếp thị liên kết: Nút RoboForex phía trên chứa mã đối tác của tôi (`efx`), vì vậy tôi có thể nhận hoa hồng từ hoạt động giao dịch của người được giới thiệu. Việc sử dụng là hoàn toàn tùy chọn và không ảnh hưởng đến cách MicroQuant hoạt động. Giao dịch đòn bẩy có nguy cơ thua lỗ cao; dự án này là phần mềm thử nghiệm, không phải lời khuyên đầu tư hay cam kết lợi nhuận. Xem [chương trình đối tác hiện hành](https://roboforex.com/partner-program/) và [công bố rủi ro](https://roboforex.com/about/company/documents/).
+
 ## 🧭 Tổng quan
 Micro Quant không tập trung vào giao diện hào nhoáng, mà là một chuỗi logic giao dịch có thể lặp lại: nó lấy dữ liệu OHLC từ MetaTrader 5, lưu trữ vào PostgreSQL, và đánh giá quyết định có hệ thống thông qua các tín hiệu AI theo nhiều lớp (Basic news, Tech snapshot, kế hoạch giao dịch, và overlay STL). UI thể hiện đúng triết lý này với các công tắc căn chỉnh, đóng lệnh có giải thích, tùy chọn lưu preference, và bảng thực thi phong phú dữ liệu để server có thể chạy luồng giao dịch theo chu kỳ hoặc theo modal an toàn khi bạn theo dõi log và bằng chứng.
 
-Trang landing tĩnh (Quant by Lazying.art) nằm trong `docs/` và được xuất bản qua GitHub Pages (`trade.lazying.art` qua `docs/CNAME`). Repository cũng gồm tài liệu tham chiếu cho prompt AI Trade Plan, ghi chú tích hợp, và tài liệu vận hành.
+Trang landing tĩnh (Quant by Lazying.art) nằm trong `docs/` và được xuất bản qua GitHub Pages (`quant.lazying.art` qua `docs/CNAME`). Repository cũng gồm tài liệu tham chiếu cho prompt AI Trade Plan, ghi chú tích hợp, và tài liệu vận hành.
 
 ### Nhìn nhanh
 | Khu vực | Chức năng |

@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+Affiliate-Hinweis: Die RoboForex-Schaltfläche oben enthält meinen Partnercode (`efx`), daher kann ich eine Provision für die Handelsaktivität vermittelter Nutzer erhalten. Die Nutzung ist freiwillig und hat keinen Einfluss auf die Funktionsweise von MicroQuant. Der Handel mit Hebelwirkung birgt ein hohes Verlustrisiko; dieses Projekt ist experimentelle Software und weder Anlageberatung noch ein Renditeversprechen. Siehe das [aktuelle Partnerprogramm](https://roboforex.com/partner-program/) und die [Risikohinweise](https://roboforex.com/about/company/documents/).
+
 ## 🧭 Überblick
 Micro Quant steht weniger für glänzende Dashboards, sondern für eine wiederholbare Handelslogik: Es bezieht OHLC-Daten aus MetaTrader 5, speichert sie in PostgreSQL und bewertet Entscheidungen systematisch über KI-gestützte, gestapelte Signale (Basic News, Tech Snapshot, Handelspläne und STL-Overlays). Die UI setzt diese Philosophie um mit Ausrichtungs-Switches, begründbaren Schließungen, gespeicherten Präferenzen und einem datenreichen Ausführungsbereich, sodass der Server sichere periodische oder modale Handelsabläufe steuern kann, während Sie Logs und Nachweise prüfen.
 
-Die statische Landingpage (Quant by Lazying.art) liegt unter `docs/` und wird über GitHub Pages bereitgestellt (`trade.lazying.art` über `docs/CNAME`). Das Repository enthält zusätzlich Referenzen zu KI-Handelsplan-Prompts, Integrationshinweisen und Betriebsdokumentation.
+Die statische Landingpage (Quant by Lazying.art) liegt unter `docs/` und wird über GitHub Pages bereitgestellt (`quant.lazying.art` über `docs/CNAME`). Das Repository enthält zusätzlich Referenzen zu KI-Handelsplan-Prompts, Integrationshinweisen und Betriebsdokumentation.
 
 ### Kurzüberblick
 | Bereich | Funktion |

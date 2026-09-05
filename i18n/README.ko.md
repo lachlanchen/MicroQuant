@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+제휴 고지: 위 RoboForex 버튼에는 제 파트너 코드(`efx`)가 포함되어 있어, 이를 통해 유입된 거래 활동에 대해 제가 수수료를 받을 수 있습니다. 이용 여부는 자유이며 MicroQuant의 작동 방식에는 아무런 영향을 주지 않습니다. 레버리지 거래는 손실 위험이 매우 큽니다. 이 프로젝트는 실험용 소프트웨어이며 투자 조언이나 수익 보장이 아닙니다. [현재 파트너 프로그램](https://roboforex.com/partner-program/)과 [위험 고지](https://roboforex.com/about/company/documents/)를 확인하세요.
+
 ## 🧭 개요
 Micro Quant는 화려한 대시보드보다 반복 가능한 거래 로직 스택에 더 초점을 둡니다. MetaTrader 5에서 OHLC 데이터를 가져와 PostgreSQL에 영속 저장하고, 계층형 AI 기반 신호(기본 뉴스, 기술 스냅샷, 트레이드 플랜, STL 오버레이)를 통해 체계적인 매매 판단을 수행합니다. UI는 이 철학을 반영해 정렬 토글, 근거 기반 청산, 저장된 선호도, 데이터 중심 실행 패널을 제공하며, 사용자는 로그와 근거를 확인하면서 서버가 주기 실행 또는 모달 실행 플로우를 안정적으로 실행하도록 확인할 수 있습니다.
 
-정적 랜딩 페이지(`Quant by Lazying.art`)는 `docs/` 하위에 있으며 GitHub Pages(`trade.lazying.art` via `docs/CNAME`)로 배포됩니다. 이 저장소에는 AI 트레이드 플랜 프롬프트, 통합 노트, 운영 문서가 함께 포함되어 있습니다.
+정적 랜딩 페이지(`Quant by Lazying.art`)는 `docs/` 하위에 있으며 GitHub Pages(`quant.lazying.art` via `docs/CNAME`)로 배포됩니다. 이 저장소에는 AI 트레이드 플랜 프롬프트, 통합 노트, 운영 문서가 함께 포함되어 있습니다.
 
 ### 한눈에 보기
 | 영역 | 역할 |

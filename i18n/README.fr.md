@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+Mention d’affiliation : le bouton RoboForex ci-dessus contient mon code partenaire (`efx`), et je peux donc percevoir une commission sur l’activité de trading des personnes recommandées. Son utilisation est facultative et ne change en rien le fonctionnement de MicroQuant. Le trading à effet de levier présente un risque élevé de perte ; ce projet est un logiciel expérimental, et non un conseil en investissement ou une promesse de rendement. Consultez le [programme partenaire en vigueur](https://roboforex.com/partner-program/) et la [déclaration des risques](https://roboforex.com/about/company/documents/).
+
 ## 🧭 Aperçu
 Micro Quant n’est pas un projet de tableaux de bord brillants, mais une chaîne logique de trading reproductible : il extrait les données OHLC depuis MetaTrader 5, les persiste dans PostgreSQL, puis évalue des décisions systématiques via des signaux IA multicouches (nouvelles de base, instantanés techniques, plans de trading et overlays STL). L’UI reflète cette approche avec des bascules d’alignement, des fermetures argumentées, des préférences persistantes et un panneau d’exécution riche en données, pour que le serveur puisse exécuter des flux périodiques ou manuels tout en affichant des logs exploitables.
 
-La page d’atterrissage statique (Quant by Lazying.art) se trouve dans `docs/` et est publiée via GitHub Pages (`trade.lazying.art` via `docs/CNAME`). Le dépôt contient aussi des références pour les prompts de plan de trading IA, les notes d’intégration et la documentation opérationnelle.
+La page d’atterrissage statique (Quant by Lazying.art) se trouve dans `docs/` et est publiée via GitHub Pages (`quant.lazying.art` via `docs/CNAME`). Le dépôt contient aussi des références pour les prompts de plan de trading IA, les notes d’intégration et la documentation opérationnelle.
 
 ### En bref
 | Domaine | Rôle |

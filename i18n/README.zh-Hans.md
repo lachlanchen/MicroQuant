@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+联盟营销声明：上方的 RoboForex 按钮含有我的合作伙伴代码（`efx`），因此我可能会从所推荐用户的交易活动中获得佣金。是否使用完全自愿，不会影响 MicroQuant 的运行方式。杠杆交易的亏损风险很高；本项目是实验性软件，不构成投资建议，也不承诺任何回报。请参阅[当前合作伙伴计划](https://roboforex.com/partner-program/)和[风险披露](https://roboforex.com/about/company/documents/)。
+
 ## 🧭 概览
 Micro Quant 的核心不是炫目的面板，而是可复用的交易逻辑栈：它从 MetaTrader 5 拉取 OHLC 数据，写入 PostgreSQL，并基于分层 AI 辅助信号（基础新闻、技术快照、交易计划与 STL 覆盖）进行系统化决策评估。界面设计也遵循这一理念，提供对齐切换、带原因的平仓、偏好持久化和数据丰富的执行面板，便于你在查看日志与证据时，让服务端安全地运行周期化或模态化交易流。
 
-静态落地页（Quant by Lazying.art）位于 `docs/`，通过 GitHub Pages 发布（`trade.lazying.art`，由 `docs/CNAME` 承载）。仓库还包含 AI 交易计划提示词、集成说明和运营文档。
+静态落地页（Quant by Lazying.art）位于 `docs/`，通过 GitHub Pages 发布（`quant.lazying.art`，由 `docs/CNAME` 承载）。仓库还包含 AI 交易计划提示词、集成说明和运营文档。
 
 ### 一览
 | 模块 | 职能 |

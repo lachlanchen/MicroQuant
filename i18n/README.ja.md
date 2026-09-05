@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+アフィリエイトに関する開示：上のRoboForexボタンには私のパートナーコード（`efx`）が含まれているため、このリンクを通じた取引活動から私が報酬を受け取る場合があります。利用は任意で、MicroQuantの動作には影響しません。レバレッジ取引には大きな損失リスクがあります。本プロジェクトは実験的なソフトウェアであり、投資助言でも利益を約束するものでもありません。[現行のパートナープログラム](https://roboforex.com/partner-program/)と[リスク開示](https://roboforex.com/about/company/documents/)をご確認ください。
+
 ## 🧭 概要
 Micro Quantは、派手なダッシュボードよりも再現性の高い取引ロジックスタックを重視します。MetaTrader 5からOHLCデータを取得し、PostgreSQLへ永続化し、レイヤー化されたAI支援シグナル（Basicニュース、テクニカルスナップショット、取引プラン、STLオーバーレイ）を用いて体系的な意思決定を評価します。UIには、整列トグル、根拠付きクローズ、保存された設定、データ豊富な実行パネルを備え、サーバーが定期実行またはモーダル実行フローを安全に回しつつ、ログと根拠を確認できるよう設計されています。
 
-静的ランディングページ（Quant by Lazying.art）は `docs/` 配下にあり、GitHub Pages (`trade.lazying.art` via `docs/CNAME`) で公開されています。リポジトリには、AIトレードプランのプロンプト、統合メモ、運用ドキュメントも含まれます。
+静的ランディングページ（Quant by Lazying.art）は `docs/` 配下にあり、GitHub Pages (`quant.lazying.art` via `docs/CNAME`) で公開されています。リポジトリには、AIトレードプランのプロンプト、統合メモ、運用ドキュメントも含まれます。
 
 ### 一覧
 | 領域 | 役割 |

@@ -53,10 +53,12 @@
 
 [![DATA Source](https://img.shields.io/badge/Data_Source-RoboForex-0060ff?style=for-the-badge&labelColor=0a4eb3)](https://my.roboforex.com/en/?a=efx)
 
+聯盟行銷聲明：上方的 RoboForex 按鈕含有我的合作夥伴代碼（`efx`），因此我可能會從經我推薦的交易活動中獲得佣金。是否使用完全自願，不會影響 MicroQuant 的運作方式。槓桿交易有很高的虧損風險；本專案是實驗性軟體，不構成投資建議，也不承諾任何回報。請參閱[現行合作夥伴計畫](https://roboforex.com/partner-program/)和[風險揭露](https://roboforex.com/about/company/documents/)。
+
 ## 🧭 概覽
 Micro Quant 不只是在堆疊亮眼的儀表板，而是要打造可重複的交易邏輯堆疊：從 MetaTrader 5 抓取 OHLC 資料，寫入 PostgreSQL，並透過分層 AI 輔助訊號（基礎新聞、技術快照、交易計畫與 STL 疊加）來做系統化決策判斷。UI 也循此理念設計，提供對齊切換、可追溯的平倉、偏好持久化，以及資料豐富的執行面板，讓伺服器可在你檢視日誌與證據時安全執行定期或手動模組式交易流程。
 
-靜態著陸頁（Quant by Lazying.art）位於 `docs/`，由 GitHub Pages 發佈（透過 `docs/CNAME`，網域 `trade.lazying.art`）。本庫同時也包含 AI Trade Plan 提示詞、整合說明與營運文件。
+靜態著陸頁（Quant by Lazying.art）位於 `docs/`，由 GitHub Pages 發佈（透過 `docs/CNAME`，網域 `quant.lazying.art`）。本庫同時也包含 AI Trade Plan 提示詞、整合說明與營運文件。
 
 ### 一覽
 | 領域 | 功能 |
