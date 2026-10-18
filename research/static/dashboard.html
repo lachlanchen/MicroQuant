@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>MicroQuant · Research</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <script src="/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><a class="brand" href="/">MICROQUANT <span>by Lazying.art</span></a><span class="badge">PAPER RESEARCH</span></header>
+    <section class="intro"><p class="eyebrow">A small experiment. An honest record.</p><h1>Measure first.<br>Keep risk small.</h1><p>One transparent strategy, free news, and a record of what actually happens.</p><p id="connection" role="status">Connecting to the research service…</p></section>
+    <section class="metrics" aria-label="Paper account">
+      <article><h2>Virtual equity</h2><strong id="equity">—</strong><p>USD 50 starting balance</p></article>
+      <article><h2>Net paper result</h2><strong id="pnl">—</strong><p id="trades">No verified results yet</p></article>
+      <article><h2>Market connection</h2><strong class="small" id="broker">Checking</strong><p id="brokerDetail">Demo verification required</p></article>
+    </section>
+    <section class="grid">
+      <article class="panel"><p class="eyebrow">THE EXPERIMENT</p><h2>EURUSD · Hourly trend</h2><p>Observe a 20 / 50 moving-average crossover. Simulate long positions only, with fixed risk limits and realistic cost assumptions.</p><dl><dt>Risk per simulated entry</dt><dd>0.25% of virtual equity</dd><dt>Daily loss pause</dt><dd>1%</dd><dt>Maximum drawdown halt</dt><dd>5%</dd><dt>Current state</dt><dd id="paperStatus">Waiting for data</dd></dl><p class="note">Minimum trade size may exceed the USD 50 risk budget. Skipping a trade is a valid result. No live orders are connected.</p></article>
+      <article class="panel"><p class="eyebrow">CODEX RESEARCH NOTE</p><h2 id="analysisHeading">Awaiting analysis</h2><p id="summary">News and service observations are reviewed every six hours. The model cannot place trades or change the strategy.</p><ul id="risks"></ul><p id="nextExperiment"></p><p class="note" id="analysisTime"></p></article>
+    </section>
+    <section class="panel"><div class="sectionHeading"><div><p class="eyebrow">FREE PUBLIC FEEDS</p><h2>News with sources</h2></div><span id="feedStatus"></span></div><p class="note">Headlines provide context; they do not control entries. Publication time and collection time are recorded separately.</p><div id="news" class="news"></div></section>
+    <section class="panel"><p class="eyebrow">AUDIT TRAIL</p><h2>Latest observations</h2><ul id="events" class="events"></ul></section>
+    <footer>This is an unvalidated paper experiment. Paper profits do not establish future returns. Spread, slippage, and commission assumptions must be checked before drawing conclusions.<span id="updated"></span></footer>
+  </main>
+</body>
+</html>
